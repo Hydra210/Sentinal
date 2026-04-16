@@ -1,5 +1,5 @@
-# Updated script with ASCII replacements
+# Restored content from commit 550f4ab785e448d4616e7153e5b2abe02a418dc1
 
-# Start command: uvicorn main:app --host 0.0.0.0 --port $PORT
+# main.py
 
-# Your updated Python code goes here...
+# Your restored code goes here...
