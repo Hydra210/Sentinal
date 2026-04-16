@@ -1,8 +1,6 @@
-"""
-SENTINEL — Roblox Audio Moderation Backend
-Deploy on Render as a Python web service.
-Start command: uvicorn main:app –host 0.0.0.0 –port $PORT
-“””
+# SENTINEL - Roblox Audio Moderation Backend
+
+# Start command: uvicorn main:app –host 0.0.0.0 –port $PORT
 
 from **future** import annotations
 import asyncio, json, os, sqlite3, time
@@ -39,30 +37,17 @@ return conn
 
 def init_db():
 conn = get_db()
-conn.executescript(”””
-CREATE TABLE IF NOT EXISTS groups (
-id TEXT PRIMARY KEY,
-name TEXT DEFAULT ‘’,
-added_at REAL
-);
-CREATE TABLE IF NOT EXISTS history (
-id TEXT PRIMARY KEY,
-username TEXT DEFAULT ‘’,
-display_name TEXT DEFAULT ‘’,
-user_id TEXT DEFAULT ‘’,
-audio_name TEXT DEFAULT ‘’,
-audio_id TEXT DEFAULT ‘’,
-group_id TEXT DEFAULT ‘’,
-group_name TEXT DEFAULT ‘’,
-time TEXT,
-dm_status TEXT DEFAULT ‘n/a’,
-archived INTEGER DEFAULT 1
-);
-CREATE TABLE IF NOT EXISTS config (
-key TEXT PRIMARY KEY,
-value TEXT
-);
-“””)
+sql = (
+“CREATE TABLE IF NOT EXISTS groups (”
+“id TEXT PRIMARY KEY, name TEXT DEFAULT ‘’, added_at REAL);”
+“CREATE TABLE IF NOT EXISTS history (”
+“id TEXT PRIMARY KEY, username TEXT DEFAULT ‘’, display_name TEXT DEFAULT ‘’,”
+“user_id TEXT DEFAULT ‘’, audio_name TEXT DEFAULT ‘’, audio_id TEXT DEFAULT ‘’,”
+“group_id TEXT DEFAULT ‘’, group_name TEXT DEFAULT ‘’, time TEXT,”
+“dm_status TEXT DEFAULT ‘n/a’, archived INTEGER DEFAULT 1);”
+“CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT);”
+)
+conn.executescript(sql)
 conn.commit()
 conn.close()
 
@@ -89,10 +74,10 @@ DEFAULT_CFG = {
 “notifyEnabled”:   True,
 “whitelist”:       [],
 “dmTemplate”: (
-“Hi [USER_NAME], your audio "[AUDIO_NAME]" was removed from [GROUP_NAME] “
+“Hi [USER_NAME], your audio [AUDIO_NAME] was removed from [GROUP_NAME] “
 “because we only accept uploads through approved channels.\n\n”
 “To share your audio with us: upload it to your own account, then go to the “
-“Creator Hub → your asset → Permissions → add [ALT_ACCOUNT] as a collaborator.\n\n”
+“Creator Hub, find your asset, open Permissions, and add [ALT_ACCOUNT] as a collaborator.\n\n”
 “If you believe this was a mistake, please contact group staff.”
 ),
 “altAccount”: “”,
@@ -181,7 +166,7 @@ pass
 return f”Group {group_id}”
 
 async def fetch_group_audios(group_id: str, *, cookie=None, api_key=None) -> list[dict]:
-“”“Returns list of {id, name, creatorId, creatorName}.”””
+# Returns list of {id, name, creatorId, creatorName}
 assets: list[dict] = []
 
 ```
@@ -390,10 +375,10 @@ alt        = str(cfg.get(“altAccount”, “”))
 
                 conn = get_db()
                 conn.execute(
-                    """INSERT OR IGNORE INTO history
-                       (id, username, display_name, user_id, audio_name, audio_id,
-                        group_id, group_name, time, dm_status, archived)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,1)""",
+                    "INSERT OR IGNORE INTO history"
+                    " (id, username, display_name, user_id, audio_name, audio_id,"
+                    " group_id, group_name, time, dm_status, archived)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,1)",
                     (
                         f"{aid}_{int(time.time())}",
                         creator_name, creator_name, creator_id,
@@ -532,9 +517,9 @@ conn = get_db()
 if search:
 s = f”%{search}%”
 rows = conn.execute(
-“”“SELECT * FROM history
-WHERE username LIKE ? OR audio_name LIKE ? OR audio_id LIKE ?
-ORDER BY time DESC LIMIT ?”””,
+“SELECT * FROM history”
+“ WHERE username LIKE ? OR audio_name LIKE ? OR audio_id LIKE ?”
+“ ORDER BY time DESC LIMIT ?”,
 (s, s, s, limit),
 ).fetchall()
 else:
