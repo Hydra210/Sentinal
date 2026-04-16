@@ -543,11 +543,13 @@ def api_update_config(body: ConfigBody):
 
 # ── SERVE FRONTEND ────────────────────────────────────────────────────────────
 
+BASE_DIR   = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
+
 @app.get("/", response_class=HTMLResponse)
 def serve_root():
-    p = Path("static/index.html")
-    return HTMLResponse(p.read_text() if p.exists() else "<h1>Frontend missing</h1>", 200)
+    p = STATIC_DIR / "index.html"
+    return HTMLResponse(p.read_text() if p.exists() else "<h1>Frontend missing — static/index.html not found</h1>", 200)
 
-static_dir = Path("static")
-if static_dir.exists():
-    app.mount("/static", StaticFiles(directory="static"), name="static")
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
