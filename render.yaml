@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: sentinel
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DB_PATH
+        value: /opt/render/project/src/sentinel.db
+    disk:
+      name: sentinel-data
+      mountPath: /opt/render/project/src
+      sizeGB: 1
