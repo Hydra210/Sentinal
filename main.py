@@ -192,7 +192,7 @@ async def fetch_group_audios(group_id: str, *, cookie=None, api_key=None) -> lis
             if not cursor:
                 break
 
-    else:
+else:
         # API key mode -- use public catalog search (works without cookie)
         cursor = None
         for _ in range(3):
@@ -209,11 +209,13 @@ async def fetch_group_audios(group_id: str, *, cookie=None, api_key=None) -> lis
                 "https://catalog.roblox.com/v1/search/items",
                 params=params,
             )
+            print(f"[SENTINEL] catalog fetch group={group_id} status={r.status_code} body={r.text[:300]}")
             if r.status_code != 200:
                 print(f"[SENTINEL] Catalog API error {r.status_code}: {r.text[:200]}")
                 break
             d = r.json()
             item_ids = [str(item["id"]) for item in d.get("data", [])]
+            print(f"[SENTINEL] Found {len(item_ids)} audio IDs: {item_ids}")
             if not item_ids:
                 break
 
@@ -222,6 +224,7 @@ async def fetch_group_audios(group_id: str, *, cookie=None, api_key=None) -> lis
             details_r = await rblx_get(
                 f"https://economy.roblox.com/v2/assets?{ids_param}",
             )
+            print(f"[SENTINEL] economy details status={details_r.status_code} body={details_r.text[:300]}")
             details_map: dict = {}
             if details_r.status_code == 200:
                 for det in details_r.json().get("data", []):
@@ -315,6 +318,7 @@ async def monitor_loop():
             gid, gname = grp["id"], grp["name"]
             try:
                 assets = await fetch_group_audios(gid, cookie=state.cookie, api_key=state.api_key)
+                print(f"[SENTINEL] Group {gid} fetched {len(assets)} total assets")
                 current = {a["id"]: a for a in assets}
                 current_ids = set(current)
 
