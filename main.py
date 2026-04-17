@@ -192,7 +192,7 @@ async def fetch_group_audios(group_id: str, *, cookie=None, api_key=None) -> lis
             if not cursor:
                 break
 
-else:
+    else:
         # API key mode -- use public catalog search (works without cookie)
         cursor = None
         for _ in range(3):
