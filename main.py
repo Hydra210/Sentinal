@@ -193,55 +193,35 @@ async def fetch_group_audios(group_id: str, *, cookie=None, api_key=None) -> lis
                 break
 
     else:
-        # API key mode -- use public catalog search (works without cookie)
+        # API key mode -- use Open Cloud v2 assets API
         cursor = None
-        for _ in range(3):
+        for _ in range(5):
             params = {
-                "category":        "Audio",
-                "creatorType":     "Group",
-                "creatorTargetId": group_id,
-                "sortType":        "3",   # newest first
-                "limit":           "30",
+                "assetType": "Audio",
+                "groupId":   group_id,
+                "limit":     "100",
             }
             if cursor:
-                params["cursor"] = cursor
+                params["pageToken"] = cursor
             r = await rblx_get(
-                "https://catalog.roblox.com/v1/search/items",
+                "https://apis.roblox.com/assets/v1/assets",
+                api_key=api_key,
                 params=params,
             )
-            print(f"[SENTINEL] catalog fetch group={group_id} status={r.status_code} body={r.text[:300]}")
+            print(f"[SENTINEL] opencloud fetch group={group_id} status={r.status_code} body={r.text[:400]}")
             if r.status_code != 200:
-                print(f"[SENTINEL] Catalog API error {r.status_code}: {r.text[:200]}")
+                print(f"[SENTINEL] Open Cloud API error {r.status_code}: {r.text[:300]}")
                 break
             d = r.json()
-            item_ids = [str(item["id"]) for item in d.get("data", [])]
-            print(f"[SENTINEL] Found {len(item_ids)} audio IDs: {item_ids}")
-            if not item_ids:
-                break
-
-            # Batch fetch details to get creator info
-            ids_param = "&".join(f"assetIds={i}" for i in item_ids)
-            details_r = await rblx_get(
-                f"https://economy.roblox.com/v2/assets?{ids_param}",
-            )
-            print(f"[SENTINEL] economy details status={details_r.status_code} body={details_r.text[:300]}")
-            details_map: dict = {}
-            if details_r.status_code == 200:
-                for det in details_r.json().get("data", []):
-                    details_map[str(det.get("id", ""))] = det
-
-            for item in d.get("data", []):
-                aid = str(item["id"])
-                det = details_map.get(aid, {})
-                creator = det.get("creator", {})
+            for item in d.get("assets", []):
+                creator = item.get("creationContext", {}).get("creator", {})
                 assets.append({
-                    "id":          aid,
-                    "name":        item.get("name", "Unknown"),
-                    "creatorId":   str(creator.get("id", "")),
-                    "creatorName": creator.get("name", ""),
+                    "id":          str(item.get("assetId", "")),
+                    "name":        item.get("displayName", "Unknown"),
+                    "creatorId":   str(creator.get("userId", "")),
+                    "creatorName": creator.get("userId", ""),
                 })
-
-            cursor = d.get("nextPageCursor")
+            cursor = d.get("nextPageToken")
             if not cursor:
                 break
 
