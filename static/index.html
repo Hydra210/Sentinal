@@ -959,35 +959,27 @@
       <div class="section-title">Select Maintenance Mode</div>
       <p style="font-size:13px;color:var(--text-dim);margin-bottom:20px;line-height:1.6;">Choose how SENTINEL will connect to Roblox. This determines which features are available. <strong style="color:var(--text);">You can change this later in Settings.</strong></p>
 
-      <div class="mode-choice">
-        <div class="mode-card" id="mode-cookie" onclick="selectMode('cookie')">
-          <div class="mode-icon">🍪</div>
-          <div class="mode-name" style="color:rgba(255,255,255,0.85);">Cookie Mode</div>
-          <div class="pro-con">
-            <div class="pro">✓ Quick setup (2 min)</div>
-            <div class="pro">✓ DM users directly</div>
-            <div class="pro">✓ Full feature access</div>
-            <div class="con">✗ Cookie can expire</div>
-            <div class="con">✗ Less stable long-term</div>
-          </div>
+<div class="info-box" style="margin-bottom:24px;">
+          SENTINEL connects to Roblox via the official browser extension.
+          Install it below — setup takes under a minute.
         </div>
-        <div class="mode-card" id="mode-api" onclick="selectMode('api')">
-          <div class="mode-icon">🔑</div>
-          <div class="mode-name" style="color:rgba(255,255,255,0.85);">Open Cloud API</div>
-          <div class="pro-con">
-            <div class="pro">✓ Stable, doesn't expire</div>
-            <div class="pro">✓ Official & secure</div>
-            <div class="con">✗ Longer setup (~15 min)</div>
-            <div class="con">✗ DMs not supported</div>
-            <div class="con">✗ Limited to API scopes</div>
-          </div>
-        </div>
-      </div>
 
-      <button class="btn btn-primary btn-block" id="mode-next-btn" onclick="goToSetup()" disabled style="opacity:0.4;cursor:not-allowed;">
-        Continue →
-      </button>
-    </div>
+        <a href="/static/sentinel-extension.zip" download style="text-decoration:none;display:block;margin-bottom:12px;">
+          <button class="btn btn-primary btn-block" style="font-size:14px;padding:14px;">
+            ⬇ Download Chrome Extension
+          </button>
+        </a>
+
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);text-align:center;line-height:1.8;margin-bottom:20px;">
+          1. Download &amp; install the extension<br>
+          2. Log into roblox.com on your bot account<br>
+          3. Click "Connect Roblox to SENTINEL" in the extension<br>
+          4. Come back here and click Complete Setup
+        </div>
+
+        <button class="btn btn-primary btn-block" onclick="completeOnboarding()">
+          I've Connected → Complete Setup
+        </button>
 
     <!-- STEP 2A: Cookie setup -->
     <div class="onboard-step" id="step-cookie-setup">
