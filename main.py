@@ -193,40 +193,46 @@ async def fetch_group_audios(group_id: str, *, cookie=None, api_key=None) -> lis
                 break
 
     else:
-        # API key mode -- use Open Cloud v2 assets API
+        # API key mode -- use Open Cloud v1 assets API
         cursor = None
         for _ in range(5):
             params = {
+                "groupId": group_id,
                 "assetType": "Audio",
-                "groupId":   group_id,
-                "limit":     "100",
+                "limit": "100",
             }
             if cursor:
-                params["pageToken"] = cursor
+                params["cursor"] = cursor
             r = await rblx_get(
-                "https://apis.roblox.com/assets/v1/assets",
+                f"https://apis.roblox.com/toolbox-service/v1/groups/{group_id}/assets",
                 api_key=api_key,
                 params=params,
             )
             print(f"[SENTINEL] opencloud fetch group={group_id} status={r.status_code} body={r.text[:400]}")
             if r.status_code != 200:
-                print(f"[SENTINEL] Open Cloud API error {r.status_code}: {r.text[:300]}")
-                break
+                # Try alternate endpoint
+                r = await rblx_get(
+                    f"https://apis.roblox.com/assets/v1/assets?groupId={group_id}&assetType=Audio&limit=100",
+                    api_key=api_key,
+                )
+                print(f"[SENTINEL] opencloud alt fetch status={r.status_code} body={r.text[:400]}")
+                if r.status_code != 200:
+                    break
             d = r.json()
-            for item in d.get("assets", []):
+            print(f"[SENTINEL] response keys: {list(d.keys())}")
+            for item in d.get("assets", d.get("data", [])):
                 creator = item.get("creationContext", {}).get("creator", {})
                 assets.append({
-                    "id":          str(item.get("assetId", "")),
-                    "name":        item.get("displayName", "Unknown"),
-                    "creatorId":   str(creator.get("userId", "")),
-                    "creatorName": creator.get("userId", ""),
+                    "id":          str(item.get("assetId", item.get("id", ""))),
+                    "name":        item.get("displayName", item.get("name", "Unknown")),
+                    "creatorId":   str(creator.get("userId", item.get("creatorId", ""))),
+                    "creatorName": str(creator.get("userId", item.get("creatorName", ""))),
                 })
-            cursor = d.get("nextPageToken")
+            cursor = d.get("nextPageToken", d.get("nextPageCursor"))
             if not cursor:
                 break
 
     return assets
-
 async def archive_asset(asset_id: str, *, cookie=None, api_key=None) -> bool:
     if cookie:
         csrf = await get_csrf(cookie)
