@@ -1,1412 +1,859 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SENTINEL — Roblox Asset Moderation</title>
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&family=Outfit:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<style>
-  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-
-  :root {
-    --bg: #0a0a0a;
-    --surface: #111111;
-    --surface2: #181818;
-    --surface3: #202020;
-    --border: rgba(255,255,255,0.07);
-    --border-bright: rgba(255,255,255,0.18);
-    --accent: #ffffff;
-    --accent3: #ff3b3b;
-    --warn: #f0c040;
-    --text: #e8e8e8;
-    --text-dim: rgba(232,232,232,0.45);
-    --text-dimmer: rgba(232,232,232,0.22);
-    --font-mono: 'DM Mono', monospace;
-    --font-ui: 'Outfit', sans-serif;
-    --font-display: 'Syne', sans-serif;
-  }
-
-  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font-ui); font-size: 15px; overflow: hidden; }
-
-  body::after {
-    content: ''; position: fixed; inset: 0;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
-    pointer-events: none; z-index: 9999; opacity: 0.4;
-  }
-
-  #grid-bg {
-    position: fixed; inset: 0;
-    background-image: linear-gradient(rgba(255,255,255,0.025) 1px,transparent 1px), linear-gradient(90deg,rgba(255,255,255,0.025) 1px,transparent 1px);
-    background-size: 56px 56px; pointer-events: none; z-index: 0;
-  }
-
-  .corner-decor { position: fixed; width: 80px; height: 80px; pointer-events: none; z-index: 2; }
-  .corner-decor::before, .corner-decor::after { content: ''; position: absolute; background: rgba(255,255,255,0.3); }
-  .corner-decor.tl { top: 12px; left: 12px; }
-  .corner-decor.tl::before { top:0;left:0;width:30px;height:2px; } .corner-decor.tl::after { top:0;left:0;width:2px;height:30px; }
-  .corner-decor.tr { top: 12px; right: 12px; }
-  .corner-decor.tr::before { top:0;right:0;width:30px;height:2px; } .corner-decor.tr::after { top:0;right:0;width:2px;height:30px; }
-  .corner-decor.bl { bottom: 12px; left: 12px; }
-  .corner-decor.bl::before { bottom:0;left:0;width:30px;height:2px; } .corner-decor.bl::after { bottom:0;left:0;width:2px;height:30px; }
-  .corner-decor.br { bottom: 12px; right: 12px; }
-  .corner-decor.br::before { bottom:0;right:0;width:30px;height:2px; } .corner-decor.br::after { bottom:0;right:0;width:2px;height:30px; }
-
-  /* ── LAYOUT ── */
-  #app { position: relative; z-index: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-
-  /* ── TOPBAR ── */
-  #topbar {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 12px 28px; border-bottom: 1px solid var(--border);
-    background: rgba(10,10,10,0.96); backdrop-filter: blur(16px); flex-shrink: 0;
-  }
-
-  .logo-lockup { display: flex; align-items: center; gap: 14px; }
-  .logo-icon { width: 36px; height: 36px; border: 1px solid rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; border-radius: 8px; background: rgba(255,255,255,0.06); }
-  .logo-icon svg { width: 18px; height: 18px; }
-  .logo-text { font-family: var(--font-display); font-size: 22px; font-weight: 800; letter-spacing: 5px; color: #fff; }
-  .logo-sub { font-family: var(--font-mono); font-size: 9px; color: var(--text-dimmer); letter-spacing: 2px; text-transform: uppercase; margin-top: 2px; }
-
-  .status-pill { display: flex; align-items: center; gap: 8px; padding: 6px 14px; border: 1px solid var(--border); background: var(--surface); font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); letter-spacing: 1px; border-radius: 6px; }
-  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dimmer); transition: all 0.4s; }
-  .status-dot.online { background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: pulse-dot 2s infinite; }
-  .status-dot.error { background: var(--accent3); box-shadow: 0 0 8px var(--accent3); }
-  @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.4} }
-
-  /* profile pill in topbar */
-  .profile-pill {
-    display: flex; align-items: center; gap: 10px;
-    padding: 6px 14px; border: 1px solid var(--border);
-    background: var(--surface); border-radius: 6px; cursor: pointer;
-    transition: border-color 0.2s;
-  }
-  .profile-pill:hover { border-color: var(--border-bright); }
-  .profile-pill-avatar { width: 24px; height: 24px; border-radius: 50%; background: var(--surface3); border: 1px solid var(--border); overflow: hidden; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-weight: 700; font-size: 11px; color: rgba(255,255,255,0.6); flex-shrink: 0; }
-  .profile-pill-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
-  .profile-pill-name { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); letter-spacing: 1px; }
-
-  /* ── NAV ── */
-  #nav { display: flex; gap: 2px; padding: 0 28px; background: rgba(10,10,10,0.92); border-bottom: 1px solid var(--border); flex-shrink: 0; }
-  .nav-tab { padding: 11px 22px; font-family: var(--font-display); font-size: 13px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--text-dimmer); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.25s; background: none; border-top: none; border-left: none; border-right: none; white-space: nowrap; }
-  .nav-tab:hover { color: var(--text); }
-  .nav-tab.active { color: #fff; border-bottom-color: #fff; }
-  .nav-tab .tab-badge { position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent3); box-shadow: 0 0 6px var(--accent3); display: none; }
-  .nav-tab .tab-badge.show { display: block; }
-
-  /* ── CONTENT ── */
-  #content { flex: 1; overflow: hidden; position: relative; }
-  .tab-panel { position: absolute; inset: 0; overflow-y: auto; padding: 28px; display: none; animation: fadeIn 0.2s ease; }
-  .tab-panel.active { display: block; }
-  @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
-
-  ::-webkit-scrollbar { width: 6px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
-
-  /* ── CARDS ── */
-  .card { background: var(--surface); border: 1px solid var(--border); padding: 20px; border-radius: 12px; transition: border-color 0.25s, box-shadow 0.25s; }
-  .card:hover { border-color: rgba(255,255,255,0.14); box-shadow: 0 4px 32px rgba(0,0,0,0.4); }
-
-  .section-title { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: rgba(255,255,255,0.6); margin-bottom: 18px; display: flex; align-items: center; gap: 12px; }
-  .section-title::before { content: ''; display: inline-block; width: 16px; height: 1px; background: rgba(255,255,255,0.35); }
-  .section-title::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg,rgba(255,255,255,0.08),transparent); }
-
-  .grid-2 { display: grid; grid-template-columns: repeat(auto-fit,minmax(320px,1fr)); gap: 16px; }
-  .grid-3 { display: grid; grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); gap: 16px; }
-  .grid-4 { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 12px; }
-  .mb-20 { margin-bottom: 20px; }
-  .mb-28 { margin-bottom: 28px; }
-
-  /* ── INPUTS ── */
-  .field-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 2px; color: var(--text-dimmer); text-transform: uppercase; margin-bottom: 8px; display: block; }
-  input[type="text"], input[type="password"], input[type="url"], input[type="number"], textarea, select { width: 100%; background: rgba(255,255,255,0.04); border: 1px solid var(--border); color: var(--text); padding: 10px 14px; font-family: var(--font-mono); font-size: 12px; transition: all 0.2s; outline: none; appearance: none; border-radius: 6px; }
-  input:focus, textarea:focus, select:focus { border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.06); }
-  textarea { resize: vertical; min-height: 90px; }
-  select option { background: var(--surface2); color: var(--text); }
-
-  /* ── BUTTONS ── */
-  .btn { padding: 10px 20px; font-family: var(--font-display); font-size: 12px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--text-dim); transition: all 0.2s; border-radius: 6px; }
-  .btn:hover { border-color: rgba(255,255,255,0.22); background: rgba(255,255,255,0.05); color: var(--text); }
-  .btn-primary { border-color: rgba(255,255,255,0.25); color: #fff; background: rgba(255,255,255,0.08); }
-  .btn-primary:hover { background: rgba(255,255,255,0.14); border-color: rgba(255,255,255,0.4); }
-  .btn-danger { border-color: rgba(255,59,59,0.35); color: #ff5f5f; background: rgba(255,59,59,0.06); }
-  .btn-danger:hover { background: rgba(255,59,59,0.12); }
-  .btn-warn { border-color: rgba(240,192,64,0.35); color: var(--warn); }
-  .btn-sm { padding: 6px 14px; font-size: 11px; }
-  .btn-block { width: 100%; }
-  .btn-group { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
-
-  /* ── TOGGLE ── */
-  .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
-  .toggle-label { font-size: 14px; font-weight: 600; color: var(--text); }
-  .toggle-desc { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); margin-top: 3px; }
-  .toggle-sw { width: 44px; height: 24px; background: rgba(255,255,255,0.1); border: 1px solid var(--border); border-radius: 12px; position: relative; cursor: pointer; flex-shrink: 0; transition: all 0.3s; }
-  .toggle-sw::after { content: ''; position: absolute; width: 18px; height: 18px; background: var(--text-dim); border-radius: 50%; top: 2px; left: 2px; transition: all 0.3s; }
-  .toggle-sw.on { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.3); }
-  .toggle-sw.on::after { left: 22px; background: #fff; }
-
-  /* ── SLIDER ── */
-  .slider-row { display: flex; align-items: center; gap: 14px; }
-  input[type="range"] { flex: 1; -webkit-appearance: none; height: 2px; background: rgba(255,255,255,0.1); border: none; border-radius: 2px; outline: none; padding: 0; }
-  input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #fff; cursor: pointer; }
-  .slider-val { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); min-width: 55px; text-align: right; }
-
-  /* ── BADGES ── */
-  .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px; border-radius: 2px; text-transform: uppercase; }
-  .badge-active { background: rgba(255,255,255,0.08); color: #d0d0d0; border: 1px solid rgba(255,255,255,0.15); }
-  .badge-inactive { background: rgba(255,59,59,0.1); color: #ff6b6b; border: 1px solid rgba(255,59,59,0.2); }
-  .badge-info { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.1); }
-
-  /* ── STAT CARDS ── */
-  .stat-card { background: var(--surface); border: 1px solid var(--border); padding: 18px 20px; border-radius: 10px; }
-  .stat-value { font-family: var(--font-display); font-size: 36px; font-weight: 800; color: #fff; line-height: 1; }
-  .stat-label { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); letter-spacing: 2px; text-transform: uppercase; margin-top: 6px; }
-
-  /* ── HISTORY ── */
-  .history-item { background: var(--surface); border: 1px solid var(--border); padding: 16px 18px; margin-bottom: 8px; display: flex; align-items: center; gap: 16px; border-radius: 10px; transition: all 0.2s; }
-  .history-item:hover { border-color: rgba(255,255,255,0.12); background: var(--surface2); }
-  .history-avatar { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface3); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-weight: 700; font-size: 16px; color: rgba(255,255,255,0.6); }
-  .history-user { flex: 1; min-width: 0; }
-  .history-user .display-name { font-weight: 700; font-size: 14px; }
-  .history-user .username { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); }
-  .history-audio { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: rgba(255,255,255,0.04); border: 1px solid var(--border); margin-top: 8px; font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); border-radius: 4px; }
-  .history-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex-shrink: 0; }
-  .history-time { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); }
-
-  /* ── GROUP ITEM ── */
-  .group-item { background: var(--surface2); border: 1px solid var(--border); padding: 16px 18px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; gap: 12px; border-radius: 8px; }
-
-  /* ── ASSET TYPE FILTER ── */
-  .asset-filter-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin-bottom: 12px; }
-  .asset-chip { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface2); cursor: pointer; transition: all 0.2s; font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); user-select: none; }
-  .asset-chip:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
-  .asset-chip.selected { border-color: rgba(255,255,255,0.35); background: rgba(255,255,255,0.07); color: #fff; }
-  .asset-chip-dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3); flex-shrink: 0; transition: all 0.2s; }
-  .asset-chip.selected .asset-chip-dot { background: #fff; border-color: #fff; }
-
-  /* ── WHITELIST TABS ── */
-  .wl-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
-  .wl-tab { padding: 5px 12px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; background: transparent; color: var(--text-dimmer); transition: all 0.2s; }
-  .wl-tab:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
-  .wl-tab.active { border-color: rgba(255,255,255,0.3); color: #fff; background: rgba(255,255,255,0.06); }
-
-  /* ── TOAST ── */
-  #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9000; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
-  .toast { padding: 12px 18px; background: var(--surface2); border-left: 2px solid rgba(255,255,255,0.3); font-family: var(--font-mono); font-size: 11px; animation: toast-in 0.3s ease, toast-out 0.3s ease 2.7s forwards; pointer-events: auto; max-width: 320px; box-shadow: 0 4px 24px rgba(0,0,0,0.6); border-radius: 6px; }
-  .toast.success { border-color: rgba(200,200,200,0.4); }
-  .toast.error { border-color: rgba(255,59,59,0.5); }
-  .toast.warn { border-color: rgba(240,192,64,0.5); }
-  @keyframes toast-in { from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:translateX(0)} }
-  @keyframes toast-out { from{opacity:1} to{opacity:0;pointer-events:none} }
-
-  /* ── MODAL ── */
-  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 500; display: none; align-items: center; justify-content: center; padding: 20px; }
-  .modal-overlay.open { display: flex; }
-  .modal-box { background: var(--surface); border: 1px solid rgba(255,255,255,0.12); padding: 32px; width: 100%; max-width: 520px; max-height: 85vh; overflow-y: auto; position: relative; border-radius: 14px; box-shadow: 0 24px 80px rgba(0,0,0,0.7); animation: fadeIn 0.2s ease; }
-  .modal-close { position: absolute; top: 16px; right: 16px; background: none; border: 1px solid var(--border); color: var(--text-dim); width: 28px; height: 28px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; border-radius: 6px; }
-  .modal-close:hover { border-color: rgba(255,59,59,0.4); color: #ff6b6b; }
-
-  /* ── PROFILE SELECTOR SCREEN ── */
-  #profile-screen {
-    position: fixed; inset: 0; z-index: 200;
-    background: var(--bg); display: flex; align-items: center; justify-content: center;
-    flex-direction: column; padding: 40px 20px;
-  }
-  #profile-screen.hidden { display: none; }
-
-  .profile-screen-logo { text-align: center; margin-bottom: 40px; }
-  .profile-screen-logo .big-logo { font-family: var(--font-display); font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #fff; }
-  .profile-screen-logo .big-sub { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); letter-spacing: 3px; margin-top: 6px; }
-
-  .profile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 16px; width: 100%; max-width: 700px; margin-bottom: 24px; }
-  .profile-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px 16px; text-align: center; cursor: pointer; transition: all 0.25s; }
-  .profile-card:hover { border-color: rgba(255,255,255,0.25); background: var(--surface2); transform: translateY(-2px); }
-  .profile-card.add-card { border-style: dashed; border-color: rgba(255,255,255,0.1); }
-  .profile-card.add-card:hover { border-color: rgba(255,255,255,0.25); }
-
-  .profile-card-avatar { width: 64px; height: 64px; border-radius: 50%; border: 2px solid var(--border); background: var(--surface3); margin: 0 auto 14px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-weight: 800; font-size: 24px; color: rgba(255,255,255,0.5); }
-  .profile-card-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
-  .profile-card-name { font-family: var(--font-display); font-size: 15px; font-weight: 700; letter-spacing: 1px; color: #fff; margin-bottom: 4px; }
-  .profile-card-sub { font-family: var(--font-mono); font-size: 9px; color: var(--text-dimmer); letter-spacing: 1px; }
-
-  /* ── PIN MODAL ── */
-  .pin-display { display: flex; gap: 12px; justify-content: center; margin: 24px 0; }
-  .pin-dot { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); transition: all 0.2s; }
-  .pin-dot.filled { background: #fff; border-color: #fff; }
-  .pin-keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-width: 240px; margin: 0 auto; }
-  .pin-key { padding: 16px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; font-family: var(--font-display); font-size: 18px; font-weight: 700; color: var(--text); cursor: pointer; transition: all 0.15s; text-align: center; }
-  .pin-key:hover { background: var(--surface3); border-color: rgba(255,255,255,0.2); }
-  .pin-key:active { transform: scale(0.95); }
-  .pin-key.del { font-size: 14px; color: var(--text-dim); }
-
-  /* ── INFO BOX ── */
-  .info-box { padding: 12px 16px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); font-family: var(--font-mono); font-size: 11px; line-height: 1.7; color: var(--text-dim); margin-bottom: 16px; border-radius: 6px; }
-  .info-box.warn-box { background: rgba(240,192,64,0.05); border-color: rgba(240,192,64,0.18); color: var(--warn); }
-
-  .divider { height: 1px; background: linear-gradient(90deg,transparent,var(--border),transparent); margin: 28px 0; }
-
-  .danger-zone { border: 1px solid rgba(255,77,109,0.3); padding: 16px 20px; border-radius: 8px; }
-
-  /* ── CONNECT CODE ── */
-  .connect-code-display { font-family: var(--font-display); font-size: 64px; font-weight: 800; letter-spacing: 16px; color: #fff; background: var(--surface2); border: 1px solid var(--border-bright); padding: 24px; border-radius: 12px; text-align: center; margin-bottom: 10px; transition: border-color 0.3s; }
-  .connect-code-display.connected { border-color: rgba(255,255,255,0.5); }
-
-  @media (max-width: 600px) {
-    #topbar { padding: 10px 14px; }
-    #nav { padding: 0 10px; overflow-x: auto; }
-    .tab-panel { padding: 16px; }
-    .profile-grid { grid-template-columns: repeat(2, 1fr); }
-  }
-</style>
-</head>
-<body>
-
-<!-- ── PROFILE SELECTOR SCREEN ── -->
-<div id="profile-screen">
-  <div id="grid-bg"></div>
-  <div class="corner-decor tl"></div><div class="corner-decor tr"></div>
-  <div class="corner-decor bl"></div><div class="corner-decor br"></div>
-
-  <div class="profile-screen-logo">
-    <div class="big-logo">SENTINEL</div>
-    <div class="big-sub">ROBLOX ASSET MODERATION — SELECT PROFILE</div>
-  </div>
-
-  <div class="profile-grid" id="profile-grid">
-    <!-- filled by JS -->
-  </div>
-
-  <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);letter-spacing:1px;">
-    Click any profile to sign in with your PIN
-  </div>
-</div>
-
-<!-- ── PIN MODAL ── -->
-<div class="modal-overlay" id="pin-modal">
-  <div class="modal-box" style="max-width:360px;text-align:center;">
-    <button class="modal-close" onclick="closePinModal()">✕</button>
-    <div id="pin-modal-avatar" style="width:64px;height:64px;border-radius:50%;border:2px solid var(--border);background:var(--surface3);margin:0 auto 12px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:800;font-size:24px;color:rgba(255,255,255,0.5);"></div>
-    <div id="pin-modal-name" style="font-family:var(--font-display);font-size:20px;font-weight:800;letter-spacing:2px;color:#fff;margin-bottom:4px;"></div>
-    <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);margin-bottom:4px;">ENTER YOUR PIN</div>
-    <div id="pin-error" style="font-family:var(--font-mono);font-size:10px;color:#ff6b6b;min-height:16px;margin-bottom:4px;"></div>
-    <div class="pin-display" id="pin-display">
-      <div class="pin-dot"></div><div class="pin-dot"></div>
-      <div class="pin-dot"></div><div class="pin-dot"></div>
-    </div>
-    <div class="pin-keypad">
-      <div class="pin-key" onclick="pinKey('1')">1</div>
-      <div class="pin-key" onclick="pinKey('2')">2</div>
-      <div class="pin-key" onclick="pinKey('3')">3</div>
-      <div class="pin-key" onclick="pinKey('4')">4</div>
-      <div class="pin-key" onclick="pinKey('5')">5</div>
-      <div class="pin-key" onclick="pinKey('6')">6</div>
-      <div class="pin-key" onclick="pinKey('7')">7</div>
-      <div class="pin-key" onclick="pinKey('8')">8</div>
-      <div class="pin-key" onclick="pinKey('9')">9</div>
-      <div class="pin-key" onclick="pinKey('0')" style="grid-column:2;">0</div>
-      <div class="pin-key del" onclick="pinBackspace()">⌫</div>
-    </div>
-  </div>
-</div>
-
-<!-- ── CREATE PROFILE MODAL ── -->
-<div class="modal-overlay" id="create-profile-modal">
-  <div class="modal-box" style="max-width:440px;">
-    <button class="modal-close" onclick="closeCreateProfile()">✕</button>
-    <div style="font-family:var(--font-display);font-size:22px;font-weight:800;letter-spacing:3px;margin-bottom:6px;">NEW PROFILE</div>
-    <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);letter-spacing:2px;margin-bottom:24px;">SET UP YOUR SENTINEL PROFILE</div>
-
-    <div style="margin-bottom:14px;">
-      <label class="field-label">Profile Name</label>
-      <input type="text" id="new-profile-name" placeholder="e.g. ModerationBot">
-    </div>
-    <div style="margin-bottom:14px;">
-      <label class="field-label">PIN (4+ digits)</label>
-      <input type="password" id="new-profile-pin" placeholder="••••" maxlength="8" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
-    </div>
-    <div style="margin-bottom:20px;">
-      <label class="field-label">Avatar URL (optional)</label>
-      <input type="url" id="new-profile-avatar" placeholder="https://...">
-    </div>
-
-    <button class="btn btn-primary btn-block" onclick="createProfile()">Create Profile →</button>
-  </div>
-</div>
-
-<!-- ── SETTINGS MODAL ── -->
-<div class="modal-overlay" id="settings-modal">
-  <div class="modal-box">
-    <button class="modal-close" onclick="closeSettings()">✕</button>
-    <div class="section-title" style="margin-bottom:20px;">Settings</div>
-
-    <!-- Profile section -->
-    <div style="margin-bottom:24px;">
-      <div class="section-title">Profile</div>
-      <div id="settings-profile-info" style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-bottom:14px;"></div>
-      <div class="btn-group">
-        <button class="btn btn-sm" onclick="openChangePinModal()">Change PIN</button>
-        <button class="btn btn-sm" onclick="openChangeNameModal()">Change Name</button>
-        <button class="btn btn-sm btn-warn" onclick="signOutProfile()">Sign Out</button>
-        <button class="btn btn-sm btn-danger" onclick="deleteProfilePrompt()">Delete Profile</button>
-      </div>
-    </div>
-
-    <div class="divider"></div>
-
-    <!-- Groups -->
-    <div style="margin-bottom:24px;">
-      <div class="section-title">Group Management</div>
-      <label class="field-label">Group URL or ID</label>
-      <div style="display:flex;gap:8px;">
-        <input type="text" id="settings-group-url" placeholder="https://www.roblox.com/groups/12345/ or just 12345" style="flex:1;">
-        <button class="btn btn-primary btn-sm" onclick="addGroupFromSettings()">Add</button>
-      </div>
-    </div>
-
-    <div class="divider"></div>
-
-    <!-- Danger zone -->
-    <div class="danger-zone">
-      <div class="section-title" style="color:var(--accent3);">Danger Zone</div>
-      <div class="btn-group">
-        <button class="btn btn-danger btn-sm" onclick="clearAllHistory()">Clear History</button>
-        <button class="btn btn-danger btn-sm" onclick="clearCredentials()">Disconnect Roblox</button>
-      </div>
-
-      <div style="margin-top:16px;">
-        <div class="toggle-row">
-          <div>
-            <div class="toggle-label" style="font-size:13px;">Save Credentials to Database</div>
-            <div class="toggle-desc">Cookie will be stored in Postgres — stays connected after server restart</div>
-          </div>
-          <div class="toggle-sw" id="save-cookies-toggle" onclick="toggleSaveCookies(this)"></div>
-        </div>
-        <div class="info-box warn-box" style="margin-top:8px;margin-bottom:0;">
-          ⚠ Only enable if you trust this server. Cookie grants full Roblox account access.
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ── CHANGE PIN MODAL ── -->
-<div class="modal-overlay" id="change-pin-modal">
-  <div class="modal-box" style="max-width:400px;">
-    <button class="modal-close" onclick="document.getElementById('change-pin-modal').classList.remove('open')">✕</button>
-    <div style="font-family:var(--font-display);font-size:20px;font-weight:800;letter-spacing:3px;margin-bottom:20px;">CHANGE PIN</div>
-    <div style="margin-bottom:12px;"><label class="field-label">Current PIN</label><input type="password" id="cp-current" placeholder="••••" maxlength="8" oninput="this.value=this.value.replace(/[^0-9]/g,'')"></div>
-    <div style="margin-bottom:20px;"><label class="field-label">New PIN</label><input type="password" id="cp-new" placeholder="••••" maxlength="8" oninput="this.value=this.value.replace(/[^0-9]/g,'')"></div>
-    <button class="btn btn-primary btn-block" onclick="changePin()">Update PIN</button>
-  </div>
-</div>
-
-<!-- ── CHANGE NAME MODAL ── -->
-<div class="modal-overlay" id="change-name-modal">
-  <div class="modal-box" style="max-width:400px;">
-    <button class="modal-close" onclick="document.getElementById('change-name-modal').classList.remove('open')">✕</button>
-    <div style="font-family:var(--font-display);font-size:20px;font-weight:800;letter-spacing:3px;margin-bottom:20px;">CHANGE NAME</div>
-    <div style="margin-bottom:12px;"><label class="field-label">Current PIN (to verify)</label><input type="password" id="cn-pin" placeholder="••••" maxlength="8" oninput="this.value=this.value.replace(/[^0-9]/g,'')"></div>
-    <div style="margin-bottom:20px;"><label class="field-label">New Name</label><input type="text" id="cn-name" placeholder="New profile name"></div>
-    <button class="btn btn-primary btn-block" onclick="changeName()">Update Name</button>
-  </div>
-</div>
-
-<!-- ── MAIN APP ── -->
-<div id="app">
-  <div id="grid-bg"></div>
-  <div class="corner-decor tl"></div><div class="corner-decor tr"></div>
-  <div class="corner-decor bl"></div><div class="corner-decor br"></div>
-
-  <div id="topbar">
-    <div class="logo-lockup">
-      <div class="logo-icon">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-      </div>
-      <div>
-        <div class="logo-text">SENTINEL</div>
-        <div class="logo-sub">ROBLOX ASSET MODERATION</div>
-      </div>
-    </div>
-    <div style="display:flex;align-items:center;gap:10px;">
-      <div class="status-pill">
-        <div class="status-dot" id="main-status-dot"></div>
-        <span id="main-status-text">OFFLINE</span>
-      </div>
-      <div class="profile-pill" onclick="openSettings()">
-        <div class="profile-pill-avatar" id="topbar-avatar"></div>
-        <span class="profile-pill-name" id="topbar-profile-name">—</span>
-      </div>
-      <button class="btn btn-sm" onclick="openSettings()">⚙ Settings</button>
-    </div>
-  </div>
-
-  <div id="nav">
-    <button class="nav-tab active" onclick="showTab('dashboard')">Dashboard</button>
-    <button class="nav-tab" onclick="showTab('groups')">Groups</button>
-    <button class="nav-tab" onclick="showTab('config')">Config</button>
-    <button class="nav-tab" onclick="showTab('history')">History<span class="tab-badge" id="history-badge"></span></button>
-    <button class="nav-tab" onclick="showTab('notifications')">Notifications</button>
-  </div>
-
-  <div id="content">
-
-    <!-- ── DASHBOARD ── -->
-    <div class="tab-panel active" id="tab-dashboard">
-      <div style="max-width:1200px;margin:0 auto;">
-        <div class="grid-3 mb-20">
-          <div class="stat-card"><div class="stat-value" id="stat-archived">0</div><div class="stat-label">Assets Archived</div></div>
-          <div class="stat-card"><div class="stat-value" id="stat-dms">0</div><div class="stat-label">DMs Sent</div></div>
-          <div class="stat-card"><div class="stat-value" id="stat-groups">0</div><div class="stat-label">Groups Monitored</div></div>
-          <div class="stat-card"><div class="stat-value" id="stat-whitelisted">0</div><div class="stat-label">Whitelisted</div></div>
-        </div>
-
-        <div class="grid-2 mb-20">
-          <div class="card">
-            <div class="section-title">Monitoring Control</div>
-            <div class="toggle-row">
-              <div><div class="toggle-label">Active Monitoring</div><div class="toggle-desc">Polls groups for new uploads</div></div>
-              <div class="toggle-sw" id="monitor-toggle" onclick="toggleMonitor(this)"></div>
-            </div>
-            <div class="toggle-row">
-              <div><div class="toggle-label">Archive Existing Assets</div><div class="toggle-desc">Also archive assets already in group on start</div></div>
-              <div class="toggle-sw" id="archive-existing-toggle" onclick="toggleArchiveExisting(this)"></div>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="section-title">Connection</div>
-            <div id="conn-account-display" style="font-size:13px;color:var(--text-dim);margin-bottom:14px;">No account connected</div>
-
-            <!-- Connect code section -->
-            <div id="connect-code-section">
-              <div id="connect-code-box" style="display:none;margin-bottom:14px;">
-                <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-dimmer);letter-spacing:2px;text-align:center;margin-bottom:10px;">ENTER IN EXTENSION</div>
-                <div class="connect-code-display" id="connect-code-display">----</div>
-                <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);text-align:center;" id="code-expiry-text">—</div>
-              </div>
-
-              <a href="/static/sentinel-extension.zip" download style="text-decoration:none;display:block;margin-bottom:8px;">
-                <button class="btn btn-primary btn-block" onclick="showConnectCode()">⬇ Download Extension + Get Code</button>
-              </a>
-              <button class="btn btn-block" onclick="showConnectCode()">I have the extension — Get Code</button>
-            </div>
-
-            <div id="connected-account-section" style="display:none;">
-              <button class="btn btn-block" onclick="testConnection()" style="margin-top:8px;">Test Connection</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="card mb-20">
-          <div class="section-title">Recent Activity</div>
-          <div id="recent-activity"><div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);padding:20px 0;text-align:center;">No activity yet — start monitoring to see events here.</div></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── GROUPS ── -->
-    <div class="tab-panel" id="tab-groups">
-      <div style="max-width:1000px;margin:0 auto;">
-        <div class="card mb-28">
-          <div class="section-title">Add Group</div>
-          <div class="grid-2" style="gap:12px;margin-bottom:0;">
-            <div>
-              <label class="field-label">Group URL or ID</label>
-              <input type="text" id="group-url-input" placeholder="https://www.roblox.com/groups/12345/ or ID">
-            </div>
-            <div style="display:flex;align-items:flex-end;">
-              <button class="btn btn-primary btn-block" onclick="addGroup()">Add Group</button>
-            </div>
-          </div>
-        </div>
-        <div class="section-title">Active Groups</div>
-        <div id="groups-list"><div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);padding:20px 0;text-align:center;">No groups added yet.</div></div>
-      </div>
-    </div>
-
-    <!-- ── CONFIG ── -->
-    <div class="tab-panel" id="tab-config">
-      <div style="max-width:1000px;margin:0 auto;">
-
-        <div class="section-title">Asset Type Filters</div>
-        <div class="card mb-28">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-            <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);">Select which asset types to monitor and archive</div>
-            <button class="btn btn-sm" onclick="selectAllAssetTypes()">Select All</button>
-          </div>
-          <div class="asset-filter-grid" id="asset-filter-grid"></div>
-        </div>
-
-        <div class="section-title">Archive Settings</div>
-        <div class="grid-2 mb-28">
-          <div class="card">
-            <label class="field-label">Polling Interval</label>
-            <div class="slider-row">
-              <input type="range" id="polling-slider" min="5" max="300" value="60" oninput="updateSlider('polling-val',this.value,'s');checkFastPollWarning(this.value)">
-              <div class="slider-val" id="polling-val">60s</div>
-            </div>
-            <div id="fast-poll-warning" style="display:none;" class="info-box warn-box" style="margin-top:10px;">
-              ⚠ Polling below 30s may cause Roblox rate limiting. Not guaranteed but possible.
-            </div>
-            <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);margin-top:8px;">How often to check for new uploads</div>
-            <div class="toggle-row" style="margin-top:12px;">
-              <div><div class="toggle-label" style="font-size:13px;">Allow Fast Polling (&lt;30s)</div><div class="toggle-desc">Unlock intervals below 30 seconds</div></div>
-              <div class="toggle-sw" id="fast-poll-toggle" onclick="toggleFastPoll(this)"></div>
-            </div>
-          </div>
-
-          <div class="card">
-            <label class="field-label">Delay Before Archive (seconds)</label>
-            <div class="slider-row">
-              <input type="range" id="delay-slider" min="0" max="120" value="0" oninput="updateSlider('delay-val',this.value,'s')">
-              <div class="slider-val" id="delay-val">0s</div>
-            </div>
-            <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);margin-top:8px;">0 = archive immediately on detection</div>
-          </div>
-        </div>
-
-        <div class="section-title">Notifications</div>
-        <div class="card mb-28">
-          <div class="toggle-row">
-            <div><div class="toggle-label">Auto-Notify Uploader</div><div class="toggle-desc">Send a DM to the user when their asset is archived</div></div>
-            <div class="toggle-sw on" id="notify-toggle" onclick="this.classList.toggle('on')"></div>
-          </div>
-        </div>
-
-        <div class="section-title">Whitelist</div>
-        <div class="card mb-28">
-          <div class="info-box" style="margin-bottom:14px;">Each asset type has its own whitelist. "All Types" applies globally across everything.</div>
-          <div class="wl-tabs" id="wl-tabs"></div>
-          <label class="field-label" id="wl-current-label">Whitelisted Users — All Types</label>
-          <textarea id="whitelist-input" placeholder="Enter Roblox user IDs or usernames, one per line" oninput="updateWhitelistCount()"></textarea>
-          <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);margin-top:8px;" id="whitelist-count">0 users</div>
-        </div>
-
-        <div class="btn-group">
-          <button class="btn btn-primary" onclick="saveConfig()">Save Config</button>
-          <button class="btn" onclick="exportConfig()">Export Config</button>
-          <button class="btn btn-danger" onclick="clearConfig()">Reset Config</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── HISTORY ── -->
-    <div class="tab-panel" id="tab-history">
-      <div style="max-width:1100px;margin:0 auto;">
-        <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;align-items:center;">
-          <input type="text" id="history-search" placeholder="Search by username, asset name..." oninput="filterHistory()" style="flex:1;min-width:180px;">
-          <select id="history-filter-type" onchange="filterHistory()" style="width:auto;">
-            <option value="">All Types</option>
-            <option>Audio</option><option>Image</option><option>Decal</option>
-            <option>Video</option><option>Mesh</option><option>Plugin</option>
-            <option>Animation</option><option>Model</option><option>Package</option>
-          </select>
-          <select id="history-filter-dm" onchange="filterHistory()" style="width:auto;">
-            <option value="">All DM Statuses</option>
-            <option value="sent">DM Sent</option>
-            <option value="failed">DM Failed</option>
-            <option value="n/a">DM N/A</option>
-          </select>
-          <button class="btn btn-sm" onclick="clearHistory()">Clear History</button>
-        </div>
-        <div id="history-list"><div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);padding:20px 0;text-align:center;">No moderation history yet.</div></div>
-      </div>
-    </div>
-
-    <!-- ── NOTIFICATIONS ── -->
-    <div class="tab-panel" id="tab-notifications">
-      <div style="max-width:800px;margin:0 auto;">
-        <div class="section-title">DM Template</div>
-        <div class="card mb-28">
-          <label class="field-label">Message Sent to Uploader</label>
-          <textarea id="dm-template" style="min-height:140px;"></textarea>
-          <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);margin-top:10px;line-height:1.8;">
-            Placeholders:
-            <code style="color:rgba(255,255,255,0.75);background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px;">[USER_NAME]</code>
-            <code style="color:rgba(255,255,255,0.75);background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px;">[AUDIO_NAME]</code>
-            <code style="color:rgba(255,255,255,0.75);background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px;">[GROUP_NAME]</code>
-            <code style="color:rgba(255,255,255,0.75);background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px;">[ALT_ACCOUNT]</code>
-          </div>
-        </div>
-        <div class="section-title">Alt Account</div>
-        <div class="card mb-28">
-          <label class="field-label">Alt Account Username (for [ALT_ACCOUNT] placeholder)</label>
-          <input type="text" id="alt-account" placeholder="e.g. YourBotAccountName">
-        </div>
-        <button class="btn btn-primary" onclick="saveNotifSettings()">Save Notification Settings</button>
-      </div>
-    </div>
-
-  </div>
-</div>
-
-<div id="toast-container"></div>
-
-<script>
-// ── STATE ─────────────────────────────────────────────────────────────────────
-const ALL_ASSET_TYPES = ['Audio','Image','Decal','Video','Mesh','Plugin','Animation','Model','Package'];
-const WL_KEYS = ['all', ...ALL_ASSET_TYPES];
-
-let STATE = {
-  profileId:   null,
-  profileName: null,
-  profileAvatar: null,
-  monitoring:  false,
-  hasCredential: false,
-  activeWlTab: 'all',
-};
-
-// ── API ───────────────────────────────────────────────────────────────────────
-async function api(method, path, body) {
-  const opts = { method, headers: {} };
-  if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
-  const r = await fetch(path, opts);
-  const data = await r.json().catch(() => ({ detail: r.statusText }));
-  if (!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
-  return data;
+# SENTINEL - Roblox Audio Moderation Backend
+# Start command: uvicorn main:app --host 0.0.0.0 --port $PORT
+
+from __future__ import annotations
+import asyncio, json, os, sqlite3, time, secrets, string, hashlib
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import List, Optional, Dict
+
+import httpx
+import psycopg2
+import psycopg2.extras
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+app = FastAPI(title="SENTINEL API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ── ASSET TYPES ───────────────────────────────────────────────────────────────
+
+ALL_ASSET_TYPES = [
+    "Audio", "Image", "Decal", "Video", "Mesh",
+    "Plugin", "Animation", "Model", "Package"
+]
+
+# ── SQLITE (local data — groups, history, config) ─────────────────────────────
+
+DB_PATH = os.environ.get("DB_PATH", "sentinel.db")
+
+def get_db() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    conn = get_db()
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS groups (
+            id TEXT, profile_id TEXT, name TEXT DEFAULT '', added_at REAL,
+            PRIMARY KEY (id, profile_id));
+        CREATE TABLE IF NOT EXISTS history (
+            id TEXT PRIMARY KEY, profile_id TEXT DEFAULT '',
+            username TEXT DEFAULT '', display_name TEXT DEFAULT '',
+            user_id TEXT DEFAULT '', audio_name TEXT DEFAULT '',
+            audio_id TEXT DEFAULT '', asset_type TEXT DEFAULT 'Audio',
+            group_id TEXT DEFAULT '', group_name TEXT DEFAULT '',
+            time TEXT, dm_status TEXT DEFAULT 'n/a', archived INTEGER DEFAULT 1);
+        CREATE TABLE IF NOT EXISTS config (
+            profile_id TEXT, key TEXT, value TEXT,
+            PRIMARY KEY (profile_id, key));
+    """)
+    conn.commit()
+    conn.close()
+
+init_db()
+
+# ── POSTGRES (profiles + saved credentials) ───────────────────────────────────
+
+PG_URL = os.environ.get("DATABASE_URL", "")
+
+def get_pg():
+    return psycopg2.connect(PG_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+
+def init_pg():
+    if not PG_URL:
+        print("[SENTINEL] No DATABASE_URL set — Postgres features disabled")
+        return
+    try:
+        conn = get_pg()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS profiles (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                pin_hash TEXT NOT NULL,
+                avatar_url TEXT DEFAULT '',
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS saved_credentials (
+                profile_id TEXT PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+                cookie_encrypted TEXT,
+                account_info JSONB,
+                saved_at TIMESTAMPTZ DEFAULT NOW()
+            );
+        """)
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("[SENTINEL] Postgres initialized")
+    except Exception as e:
+        print(f"[SENTINEL] Postgres init error: {e}")
+
+init_pg()
+
+def hash_pin(pin: str) -> str:
+    return hashlib.sha256(pin.encode()).hexdigest()
+
+# ── APP STATE ─────────────────────────────────────────────────────────────────
+
+class ProfileSession:
+    def __init__(self):
+        self.profile_id:   Optional[str]  = None
+        self.cookie:       Optional[str]  = None
+        self.monitoring:   bool           = False
+        self.monitor_task: Optional[asyncio.Task] = None
+        self.known_assets: dict           = {}
+        self.account_info: Optional[dict] = None
+
+_sessions: Dict[str, ProfileSession] = {}
+
+def get_session(profile_id: str) -> ProfileSession:
+    if profile_id not in _sessions:
+        _sessions[profile_id] = ProfileSession()
+        _sessions[profile_id].profile_id = profile_id
+    return _sessions[profile_id]
+
+# ── CONNECT CODES ─────────────────────────────────────────────────────────────
+
+_connect_codes: dict = {}  # code -> {expiry, profile_id}
+
+def generate_connect_code(profile_id: str) -> str:
+    now = datetime.now()
+    expired = [c for c, v in _connect_codes.items() if now > v["expiry"]]
+    for c in expired:
+        del _connect_codes[c]
+    code = ''.join(secrets.choice(string.digits) for _ in range(4))
+    _connect_codes[code] = {"expiry": now + timedelta(minutes=5), "profile_id": profile_id}
+    return code
+
+def validate_connect_code(code: str) -> Optional[str]:
+    entry = _connect_codes.get(code)
+    if not entry:
+        return None
+    if datetime.now() > entry["expiry"]:
+        del _connect_codes[code]
+        return None
+    profile_id = entry["profile_id"]
+    del _connect_codes[code]
+    return profile_id
+
+# ── CONFIG ────────────────────────────────────────────────────────────────────
+
+DEFAULT_CFG = {
+    "pollingInterval":     60,
+    "allowFastPolling":    False,
+    "archiveDelay":        0,
+    "archiveExisting":     False,
+    "notifyEnabled":       True,
+    "saveCookies":         False,
+    "assetTypeFilters":    ALL_ASSET_TYPES,
+    "whitelist_Audio":     [],
+    "whitelist_Image":     [],
+    "whitelist_Decal":     [],
+    "whitelist_Video":     [],
+    "whitelist_Mesh":      [],
+    "whitelist_Plugin":    [],
+    "whitelist_Animation": [],
+    "whitelist_Model":     [],
+    "whitelist_Package":   [],
+    "whitelist_all":       [],
+    "dmTemplate": (
+        "Hi [USER_NAME], your asset [AUDIO_NAME] was removed from [GROUP_NAME] "
+        "because we only accept uploads through approved channels.\n\n"
+        "If you believe this was a mistake, please contact group staff."
+    ),
+    "altAccount": "",
 }
 
-function pid() { return STATE.profileId; }
+def get_config(profile_id: str) -> dict:
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT key, value FROM config WHERE profile_id=?", (profile_id,)
+    ).fetchall()
+    conn.close()
+    cfg = dict(DEFAULT_CFG)
+    for row in rows:
+        try:
+            cfg[row["key"]] = json.loads(row["value"])
+        except Exception:
+            cfg[row["key"]] = row["value"]
+    return cfg
 
-// ── TOAST ─────────────────────────────────────────────────────────────────────
-function toast(msg, type='') {
-  const el = document.createElement('div');
-  el.className = 'toast ' + type;
-  el.textContent = msg;
-  document.getElementById('toast-container').appendChild(el);
-  setTimeout(() => el.remove(), 3200);
+def set_cfg(profile_id: str, key: str, value):
+    conn = get_db()
+    conn.execute(
+        "INSERT OR REPLACE INTO config (profile_id, key, value) VALUES (?,?,?)",
+        (profile_id, key, json.dumps(value))
+    )
+    conn.commit()
+    conn.close()
+
+# ── ROBLOX API HELPERS ────────────────────────────────────────────────────────
+
+ASSET_TYPE_IDS = {
+    "Audio": 3, "Image": 1, "Decal": 13, "Video": 62,
+    "Mesh": 4, "Plugin": 38, "Animation": 24,
+    "Model": 10, "Package": 32,
 }
 
-// ── TABS ──────────────────────────────────────────────────────────────────────
-function showTab(name) {
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-  document.getElementById('tab-' + name).classList.add('active');
-  document.querySelectorAll('.nav-tab').forEach(t => {
-    if (t.textContent.trim().toLowerCase().startsWith(name.slice(0,4))) t.classList.add('active');
-  });
-  if (name === 'history') { document.getElementById('history-badge').classList.remove('show'); refreshHistory(); }
-  if (name === 'config') { buildAssetFilterGrid(); buildWlTabs(); }
-}
+async def rblx_get(url: str, *, cookie=None, params=None) -> httpx.Response:
+    cookies: dict = {}
+    if cookie:
+        cookies[".ROBLOSECURITY"] = cookie
+    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as c:
+        return await c.get(url, cookies=cookies, params=params)
 
-// ── PROFILE SCREEN ────────────────────────────────────────────────────────────
-async function loadProfileScreen() {
-  const grid = document.getElementById('profile-grid');
-  grid.innerHTML = '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);">Loading...</div>';
-  try {
-    const profiles = await api('GET', '/api/profiles');
-    grid.innerHTML = '';
-    profiles.forEach(p => {
-      const card = document.createElement('div');
-      card.className = 'profile-card';
-      const initials = p.name.slice(0,2).toUpperCase();
-      card.innerHTML = `
-        <div class="profile-card-avatar">
-          ${p.avatar_url ? `<img src="${esc(p.avatar_url)}" onerror="this.style.display='none'">` : initials}
-        </div>
-        <div class="profile-card-name">${esc(p.name)}</div>
-        <div class="profile-card-sub">Click to sign in</div>`;
-      card.onclick = () => openPinModal(p);
-      grid.appendChild(card);
-    });
-    // Add new profile card
-    const addCard = document.createElement('div');
-    addCard.className = 'profile-card add-card';
-    addCard.innerHTML = `
-      <div class="profile-card-avatar" style="font-size:28px;color:rgba(255,255,255,0.3);">+</div>
-      <div class="profile-card-name" style="color:var(--text-dim);">New Profile</div>
-      <div class="profile-card-sub">Create a new profile</div>`;
-    addCard.onclick = () => document.getElementById('create-profile-modal').classList.add('open');
-    grid.appendChild(addCard);
-  } catch(e) {
-    grid.innerHTML = `<div style="font-family:var(--font-mono);font-size:11px;color:#ff6b6b;padding:20px;">Error loading profiles: ${esc(e.message)}</div>`;
-  }
-}
+async def get_csrf(cookie: str) -> str:
+    async with httpx.AsyncClient(timeout=10) as c:
+        r = await c.post("https://auth.roblox.com/v2/logout",
+                         cookies={".ROBLOSECURITY": cookie})
+        return r.headers.get("x-csrf-token", "")
 
-// ── PIN MODAL ─────────────────────────────────────────────────────────────────
-let _pinTarget = null;
-let _pinValue  = '';
-
-function openPinModal(profile) {
-  _pinTarget = profile;
-  _pinValue  = '';
-  document.getElementById('pin-modal-name').textContent = profile.name;
-  document.getElementById('pin-error').textContent = '';
-  const avatarEl = document.getElementById('pin-modal-avatar');
-  avatarEl.innerHTML = profile.avatar_url
-    ? `<img src="${esc(profile.avatar_url)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.style.display='none'">`
-    : profile.name.slice(0,2).toUpperCase();
-  updatePinDots();
-  document.getElementById('pin-modal').classList.add('open');
-}
-
-function closePinModal() {
-  document.getElementById('pin-modal').classList.remove('open');
-  _pinValue = ''; _pinTarget = null;
-  updatePinDots();
-}
-
-function updatePinDots() {
-  document.querySelectorAll('#pin-display .pin-dot').forEach((d, i) => {
-    d.classList.toggle('filled', i < _pinValue.length);
-  });
-}
-
-function pinKey(digit) {
-  if (_pinValue.length >= 8) return;
-  _pinValue += digit;
-  updatePinDots();
-  if (_pinValue.length >= 4) submitPin();
-}
-
-function pinBackspace() {
-  _pinValue = _pinValue.slice(0,-1);
-  updatePinDots();
-  document.getElementById('pin-error').textContent = '';
-}
-
-async function submitPin() {
-  if (!_pinTarget) return;
-  try {
-    const res = await api('POST', '/api/profiles/login', { profile_id: _pinTarget.id, pin: _pinValue });
-    document.getElementById('pin-modal').classList.remove('open');
-    await loginToProfile(res);
-  } catch(e) {
-    document.getElementById('pin-error').textContent = 'Wrong PIN — try again';
-    _pinValue = '';
-    updatePinDots();
-  }
-}
-
-// ── CREATE PROFILE ────────────────────────────────────────────────────────────
-function closeCreateProfile() { document.getElementById('create-profile-modal').classList.remove('open'); }
-
-async function createProfile() {
-  const name   = document.getElementById('new-profile-name').value.trim();
-  const pin    = document.getElementById('new-profile-pin').value.trim();
-  const avatar = document.getElementById('new-profile-avatar').value.trim();
-  if (!name) { toast('Enter a profile name', 'error'); return; }
-  if (pin.length < 4) { toast('PIN must be at least 4 digits', 'error'); return; }
-  try {
-    await api('POST', '/api/profiles', { name, pin, avatar_url: avatar });
-    closeCreateProfile();
-    document.getElementById('new-profile-name').value = '';
-    document.getElementById('new-profile-pin').value  = '';
-    document.getElementById('new-profile-avatar').value = '';
-    await loadProfileScreen();
-    toast('Profile created!', 'success');
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
-}
-
-// ── LOGIN TO PROFILE ──────────────────────────────────────────────────────────
-async function loginToProfile(profileData) {
-  STATE.profileId     = profileData.id;
-  STATE.profileName   = profileData.name;
-  STATE.profileAvatar = profileData.avatar_url;
-  STATE.hasCredential = profileData.hasCredential || false;
-
-  // Update topbar
-  const avatarEl = document.getElementById('topbar-avatar');
-  if (profileData.avatar_url) {
-    avatarEl.innerHTML = `<img src="${esc(profileData.avatar_url)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.style.display='none'">`;
-  } else {
-    avatarEl.textContent = profileData.name.slice(0,2).toUpperCase();
-  }
-  document.getElementById('topbar-profile-name').textContent = profileData.name;
-
-  // Hide profile screen, show app
-  document.getElementById('profile-screen').classList.add('hidden');
-
-  // If saved credentials exist, restore them
-  if (profileData.hasCredential && profileData.account) {
-    updateAccountDisplay(profileData.account);
-  }
-
-  await initApp();
-  toast(`Welcome, ${profileData.name}!`, 'success');
-}
-
-// ── APP INIT ──────────────────────────────────────────────────────────────────
-async function initApp() {
-  await Promise.all([
-    refreshStatus(),
-    refreshStats(),
-    refreshGroups(),
-    refreshHistory(),
-    loadConfigFromApi(),
-    loadNotifFromApi(),
-  ]);
-  startLiveUpdates();
-}
-
-let _liveInterval = null;
-let _prevHistCount = 0;
-
-function startLiveUpdates() {
-  if (_liveInterval) clearInterval(_liveInterval);
-  _liveInterval = setInterval(async () => {
-    try {
-      await refreshStatus();
-      await refreshStats();
-      if (STATE.monitoring) await refreshHistory();
-    } catch {}
-  }, 4000);
-}
-
-// ── STATUS ────────────────────────────────────────────────────────────────────
-async function refreshStatus() {
-  const status = await api('GET', `/api/status?profile_id=${pid()}`);
-  STATE.monitoring    = status.monitoring;
-  STATE.hasCredential = status.hasCredential;
-  applyMonitoringUI(status.monitoring);
-  if (status.account) updateAccountDisplay(status.account);
-
-  // Show/hide connect vs connected sections
-  const connectSection   = document.getElementById('connect-code-section');
-  const connectedSection = document.getElementById('connected-account-section');
-  if (status.hasCredential) {
-    connectSection.style.display   = 'none';
-    connectedSection.style.display = 'block';
-  } else {
-    connectSection.style.display   = 'block';
-    connectedSection.style.display = 'none';
-  }
-}
-
-function applyMonitoringUI(on) {
-  const dot    = document.getElementById('main-status-dot');
-  const txt    = document.getElementById('main-status-text');
-  const toggle = document.getElementById('monitor-toggle');
-  dot.className = 'status-dot ' + (on ? 'online' : 'error');
-  txt.textContent = on ? 'MONITORING' : 'OFFLINE';
-  if (toggle) toggle.classList.toggle('on', on);
-}
-
-function updateAccountDisplay(acc) {
-  if (!acc) return;
-  const el = document.getElementById('conn-account-display');
-  if (el) el.innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px;">
-      ${acc.avatarUrl ? `<img src="${esc(acc.avatarUrl)}" style="width:34px;height:34px;border-radius:50%;border:1px solid rgba(255,255,255,0.18);">` : ''}
-      <div>
-        <div style="font-weight:600;font-size:13px;">${esc(acc.displayName)}</div>
-        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);">@${esc(acc.username)} · UID ${esc(acc.userId)}</div>
-      </div>
-    </div>`;
-}
-
-// ── MONITORING ────────────────────────────────────────────────────────────────
-async function toggleMonitor(el) {
-  const turningOn = !el.classList.contains('on');
-  try {
-    if (turningOn) {
-      await api('POST', '/api/monitoring/start', { profile_id: pid() });
-      STATE.monitoring = true;
-      toast('Monitoring started', 'success');
-    } else {
-      await api('POST', '/api/monitoring/stop', { profile_id: pid() });
-      STATE.monitoring = false;
-      toast('Monitoring paused', 'warn');
+async def validate_cookie(cookie: str) -> dict:
+    r = await rblx_get("https://users.roblox.com/v1/users/authenticated", cookie=cookie)
+    if r.status_code != 200:
+        raise HTTPException(400, "Invalid or expired cookie")
+    d = r.json()
+    uid = str(d["id"])
+    avatar_url = None
+    try:
+        ar = await rblx_get(
+            "https://thumbnails.roblox.com/v1/users/avatar-headshot",
+            cookie=cookie,
+            params={"userIds": uid, "size": "150x150", "format": "Png", "isCircular": "false"},
+        )
+        if ar.status_code == 200:
+            data = ar.json().get("data", [])
+            if data:
+                avatar_url = data[0].get("imageUrl")
+    except Exception:
+        pass
+    return {
+        "userId":      uid,
+        "username":    d["name"],
+        "displayName": d["displayName"],
+        "avatarUrl":   avatar_url,
     }
-    applyMonitoringUI(STATE.monitoring);
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
-}
 
-async function toggleArchiveExisting(el) {
-  el.classList.toggle('on');
-  const on = el.classList.contains('on');
-  try {
-    await api('POST', '/api/config', { profile_id: pid(), archiveExisting: on });
-  } catch(e) { toast('Error saving: ' + e.message, 'error'); }
-}
+async def get_group_name(group_id: str, cookie=None) -> str:
+    try:
+        r = await rblx_get(f"https://groups.roblox.com/v1/groups/{group_id}", cookie=cookie)
+        if r.status_code == 200:
+            return r.json().get("name", f"Group {group_id}")
+    except Exception:
+        pass
+    return f"Group {group_id}"
 
-// ── CONNECT CODE ──────────────────────────────────────────────────────────────
-let _codeTimer = null;
-let _pollTimer = null;
+async def fetch_group_assets(group_id: str, asset_type: str, *, cookie=None) -> list[dict]:
+    assets: list[dict] = []
+    if not cookie:
+        return assets
+    cursor = None
+    for _ in range(5):
+        params = {"assetType": asset_type, "sortOrder": "Desc", "limit": 100}
+        if cursor:
+            params["cursor"] = cursor
+        r = await rblx_get(
+            f"https://develop.roblox.com/v1/groups/{group_id}/assets",
+            cookie=cookie, params=params,
+        )
+        if r.status_code != 200:
+            break
+        d = r.json()
+        for item in d.get("data", []):
+            assets.append({
+                "id":          str(item["id"]),
+                "name":        item.get("name", "Unknown"),
+                "creatorId":   str(item.get("creatorId", "")),
+                "creatorName": item.get("creatorName", ""),
+                "assetType":   asset_type,
+            })
+        cursor = d.get("nextPageCursor")
+        if not cursor:
+            break
+    return assets
 
-async function showConnectCode() {
-  const box = document.getElementById('connect-code-box');
-  box.style.display = 'block';
-  if (_codeTimer) clearInterval(_codeTimer);
-  if (_pollTimer) clearInterval(_pollTimer);
+async def archive_asset(asset_id: str, *, cookie=None) -> bool:
+    if not cookie:
+        return False
+    csrf = await get_csrf(cookie)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.post(
+            f"https://develop.roblox.com/v1/assets/{asset_id}/archive",
+            headers={"X-CSRF-TOKEN": csrf},
+            cookies={".ROBLOSECURITY": cookie},
+        )
+        if r.status_code in (200, 204):
+            return True
+        r2 = await c.post(
+            f"https://www.roblox.com/item-configuration/v1/items/{asset_id}/archive",
+            headers={"X-CSRF-TOKEN": csrf, "Content-Type": "application/json"},
+            cookies={".ROBLOSECURITY": cookie},
+            json={},
+        )
+        return r2.status_code in (200, 204)
 
-  try {
-    const res = await api('POST', '/api/connect-code/generate', { profile_id: pid() });
-    document.getElementById('connect-code-display').textContent = res.code;
+async def send_dm(user_id: str, subject: str, body: str, cookie: str) -> bool:
+    csrf = await get_csrf(cookie)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.post(
+            "https://privatemessages.roblox.com/v1/messages",
+            headers={"X-CSRF-TOKEN": csrf, "Content-Type": "application/json"},
+            cookies={".ROBLOSECURITY": cookie},
+            json={"userId": int(user_id), "subject": subject, "body": body},
+        )
+        return r.status_code in (200, 204)
 
-    let secs = 300;
-    _codeTimer = setInterval(() => {
-      secs--;
-      const m = Math.floor(secs / 60);
-      const s = String(secs % 60).padStart(2, '0');
-      document.getElementById('code-expiry-text').textContent = `Expires in ${m}:${s}`;
-      if (secs <= 0) { clearInterval(_codeTimer); showConnectCode(); }
-    }, 1000);
+# ── MONITORING LOOP ───────────────────────────────────────────────────────────
 
-    _pollTimer = setInterval(async () => {
-      try {
-        const status = await api('GET', `/api/status?profile_id=${pid()}`);
-        if (status.hasCredential) {
-          clearInterval(_pollTimer);
-          clearInterval(_codeTimer);
-          STATE.hasCredential = true;
-          document.getElementById('code-expiry-text').textContent = '✓ Extension connected!';
-          document.getElementById('connect-code-display').classList.add('connected');
-          document.getElementById('connect-code-section').style.display   = 'none';
-          document.getElementById('connected-account-section').style.display = 'block';
-          if (status.account) updateAccountDisplay(status.account);
-          toast('✓ Extension connected!', 'success');
+async def monitor_loop(profile_id: str):
+    session = get_session(profile_id)
+    print(f"[SENTINEL] Monitor loop started for profile {profile_id}")
+
+    while session.monitoring:
+        cfg              = get_config(profile_id)
+        poll_sec         = int(cfg.get("pollingInterval", 60))
+        delay_sec        = int(cfg.get("archiveDelay", 0))
+        notify           = bool(cfg.get("notifyEnabled", True))
+        archive_existing = bool(cfg.get("archiveExisting", False))
+        asset_filters    = cfg.get("assetTypeFilters", ALL_ASSET_TYPES)
+        whitelist_all    = {str(u).strip().lower() for u in cfg.get("whitelist_all", [])}
+        dm_tmpl          = str(cfg.get("dmTemplate", DEFAULT_CFG["dmTemplate"]))
+        alt              = str(cfg.get("altAccount", ""))
+
+        conn   = get_db()
+        groups = conn.execute(
+            "SELECT id, name FROM groups WHERE profile_id=?", (profile_id,)
+        ).fetchall()
+        conn.close()
+
+        for grp in groups:
+            gid, gname = grp["id"], grp["name"]
+            try:
+                all_assets: list[dict] = []
+                for asset_type in asset_filters:
+                    type_assets = await fetch_group_assets(
+                        gid, asset_type, cookie=session.cookie
+                    )
+                    all_assets.extend(type_assets)
+
+                current    = {a["id"]: a for a in all_assets}
+                current_ids = set(current)
+                group_key  = f"{profile_id}:{gid}"
+
+                if group_key not in session.known_assets:
+                    session.known_assets[group_key] = current_ids
+                    print(f"[SENTINEL] Profile {profile_id} Group {gid} baseline: {len(current_ids)} assets")
+                    if archive_existing:
+                        new_ids = current_ids
+                    else:
+                        continue
+                else:
+                    new_ids = current_ids - session.known_assets[group_key]
+                    session.known_assets[group_key] = current_ids
+
+                for aid in new_ids:
+                    a            = current.get(aid, {})
+                    creator_id   = a.get("creatorId", "")
+                    creator_name = a.get("creatorName", "Unknown")
+                    asset_type   = a.get("assetType", "Unknown")
+
+                    # Global whitelist check
+                    if creator_id.lower() in whitelist_all or creator_name.lower() in whitelist_all:
+                        print(f"[SENTINEL] Global whitelist skip: {creator_name}")
+                        continue
+
+                    # Per-type whitelist check
+                    type_wl = {str(u).strip().lower() for u in cfg.get(f"whitelist_{asset_type}", [])}
+                    if creator_id.lower() in type_wl or creator_name.lower() in type_wl:
+                        print(f"[SENTINEL] Type whitelist skip: {creator_name} ({asset_type})")
+                        continue
+
+                    print(f"[SENTINEL] New {asset_type} {aid} ({a.get('name')}) by {creator_name}")
+
+                    if delay_sec > 0:
+                        await asyncio.sleep(delay_sec)
+                        if not session.monitoring:
+                            break
+
+                    ok = await archive_asset(aid, cookie=session.cookie)
+
+                    dm_status = "n/a"
+                    if notify and session.cookie and creator_id:
+                        try:
+                            msg = (dm_tmpl
+                                   .replace("[USER_NAME]",  creator_name)
+                                   .replace("[AUDIO_NAME]", a.get("name", ""))
+                                   .replace("[ALT_ACCOUNT]", alt)
+                                   .replace("[GROUP_NAME]", gname))
+                            sent = await send_dm(creator_id, "Asset Policy Notice", msg, session.cookie)
+                            dm_status = "sent" if sent else "failed"
+                        except Exception as e:
+                            print(f"[SENTINEL] DM error: {e}")
+                            dm_status = "failed"
+
+                    conn = get_db()
+                    conn.execute(
+                        "INSERT OR IGNORE INTO history"
+                        " (id, profile_id, username, display_name, user_id,"
+                        "  audio_name, audio_id, asset_type, group_id, group_name,"
+                        "  time, dm_status, archived)"
+                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1)",
+                        (
+                            f"{aid}_{int(time.time())}",
+                            profile_id,
+                            creator_name, creator_name, creator_id,
+                            a.get("name", "Unknown"), aid, asset_type,
+                            gid, gname,
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            dm_status,
+                        ),
+                    )
+                    conn.commit()
+                    conn.close()
+                    print(f"[SENTINEL] archived={ok} dm={dm_status}")
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                print(f"[SENTINEL] Error in group {gid}: {e}")
+
+        await asyncio.sleep(poll_sec)
+
+    print(f"[SENTINEL] Monitor loop stopped for profile {profile_id}")
+
+# ── PYDANTIC MODELS ───────────────────────────────────────────────────────────
+
+class ProfileCreate(BaseModel):
+    name:       str
+    pin:        str
+    avatar_url: str = ""
+
+class ProfileLogin(BaseModel):
+    profile_id: str
+    pin:        str
+
+class ProfileUpdate(BaseModel):
+    profile_id: str
+    pin:        str
+    new_pin:    Optional[str] = None
+    name:       Optional[str] = None
+    avatar_url: Optional[str] = None
+
+class ConnectCodeBody(BaseModel):
+    code:   str
+    cookie: str
+
+class GenerateCodeBody(BaseModel):
+    profile_id: str
+
+class GroupBody(BaseModel):
+    id:         str
+    name:       str = ""
+    profile_id: str
+
+class ConfigBody(BaseModel):
+    profile_id:          str
+    pollingInterval:     Optional[int]       = None
+    allowFastPolling:    Optional[bool]      = None
+    archiveDelay:        Optional[int]       = None
+    archiveExisting:     Optional[bool]      = None
+    notifyEnabled:       Optional[bool]      = None
+    saveCookies:         Optional[bool]      = None
+    assetTypeFilters:    Optional[List[str]] = None
+    whitelist_Audio:     Optional[List[str]] = None
+    whitelist_Image:     Optional[List[str]] = None
+    whitelist_Decal:     Optional[List[str]] = None
+    whitelist_Video:     Optional[List[str]] = None
+    whitelist_Mesh:      Optional[List[str]] = None
+    whitelist_Plugin:    Optional[List[str]] = None
+    whitelist_Animation: Optional[List[str]] = None
+    whitelist_Model:     Optional[List[str]] = None
+    whitelist_Package:   Optional[List[str]] = None
+    whitelist_all:       Optional[List[str]] = None
+    dmTemplate:          Optional[str]       = None
+    altAccount:          Optional[str]       = None
+
+class MonitorBody(BaseModel):
+    profile_id: str
+
+# ── PROFILE ROUTES ────────────────────────────────────────────────────────────
+
+@app.get("/api/profiles")
+def api_list_profiles():
+    if not PG_URL:
+        raise HTTPException(503, "Postgres not configured")
+    try:
+        conn = get_pg()
+        cur  = conn.cursor()
+        cur.execute("SELECT id, name, avatar_url, created_at FROM profiles ORDER BY created_at")
+        rows = cur.fetchall()
+        cur.close(); conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+@app.post("/api/profiles")
+def api_create_profile(body: ProfileCreate):
+    if not PG_URL:
+        raise HTTPException(503, "Postgres not configured")
+    if not body.name.strip():
+        raise HTTPException(400, "Name is required")
+    if len(body.pin) < 4:
+        raise HTTPException(400, "PIN must be at least 4 digits")
+    try:
+        profile_id = secrets.token_hex(8)
+        conn = get_pg()
+        cur  = conn.cursor()
+        cur.execute(
+            "INSERT INTO profiles (id, name, pin_hash, avatar_url) VALUES (%s,%s,%s,%s)",
+            (profile_id, body.name.strip(), hash_pin(body.pin), body.avatar_url)
+        )
+        conn.commit()
+        cur.close(); conn.close()
+        return {"id": profile_id, "name": body.name.strip(), "avatar_url": body.avatar_url}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+@app.post("/api/profiles/login")
+def api_login_profile(body: ProfileLogin):
+    if not PG_URL:
+        raise HTTPException(503, "Postgres not configured")
+    try:
+        conn = get_pg()
+        cur  = conn.cursor()
+        cur.execute(
+            "SELECT id, name, avatar_url FROM profiles WHERE id=%s AND pin_hash=%s",
+            (body.profile_id, hash_pin(body.pin))
+        )
+        row = cur.fetchone()
+        if not row:
+            cur.close(); conn.close()
+            raise HTTPException(401, "Invalid PIN")
+
+        saved_cookie  = None
+        saved_account = None
+        cur.execute(
+            "SELECT cookie_encrypted, account_info FROM saved_credentials WHERE profile_id=%s",
+            (body.profile_id,)
+        )
+        cred = cur.fetchone()
+        if cred:
+            saved_cookie  = cred["cookie_encrypted"]
+            saved_account = cred["account_info"]
+
+        cur.close(); conn.close()
+
+        if saved_cookie and saved_account:
+            session = get_session(body.profile_id)
+            session.cookie       = saved_cookie
+            session.account_info = saved_account
+
+        return {
+            "id":            row["id"],
+            "name":          row["name"],
+            "avatar_url":    row["avatar_url"],
+            "hasCredential": bool(saved_cookie),
+            "account":       saved_account,
         }
-      } catch {}
-    }, 3000);
-  } catch(e) { toast('Could not generate code: ' + e.message, 'error'); }
-}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
-async function testConnection() {
-  try {
-    const status = await api('GET', `/api/status?profile_id=${pid()}`);
-    toast(status.hasCredential ? `✓ Connected — ${status.account?.displayName}` : 'No credential found', status.hasCredential ? 'success' : 'error');
-  } catch(e) { toast('Failed: ' + e.message, 'error'); }
-}
+@app.put("/api/profiles")
+def api_update_profile(body: ProfileUpdate):
+    if not PG_URL:
+        raise HTTPException(503, "Postgres not configured")
+    try:
+        conn = get_pg()
+        cur  = conn.cursor()
+        cur.execute(
+            "SELECT id FROM profiles WHERE id=%s AND pin_hash=%s",
+            (body.profile_id, hash_pin(body.pin))
+        )
+        if not cur.fetchone():
+            cur.close(); conn.close()
+            raise HTTPException(401, "Invalid PIN")
 
-// ── GROUPS ────────────────────────────────────────────────────────────────────
-async function addGroup() {
-  let val = document.getElementById('group-url-input').value.trim();
-  let gid = val;
-  const match = val.match(/groups\/(\d+)/);
-  if (match) gid = match[1];
-  else if (!/^\d+$/.test(val)) { toast('Invalid group URL or ID', 'error'); return; }
-  try {
-    const g = await api('POST', '/api/groups', { id: gid, profile_id: pid() });
-    document.getElementById('group-url-input').value = '';
-    await refreshGroups();
-    await refreshStats();
-    toast(`Group "${g.name}" added`, 'success');
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
-}
+        updates, params = [], []
+        if body.new_pin:
+            updates.append("pin_hash=%s"); params.append(hash_pin(body.new_pin))
+        if body.name:
+            updates.append("name=%s"); params.append(body.name.strip())
+        if body.avatar_url is not None:
+            updates.append("avatar_url=%s"); params.append(body.avatar_url)
 
-function addGroupFromSettings() {
-  document.getElementById('group-url-input').value = document.getElementById('settings-group-url').value;
-  addGroup();
-  document.getElementById('settings-group-url').value = '';
-}
+        if updates:
+            params.append(body.profile_id)
+            cur.execute(f"UPDATE profiles SET {', '.join(updates)} WHERE id=%s", params)
+            conn.commit()
 
-async function removeGroup(id) {
-  if (!confirm('Remove this group?')) return;
-  try {
-    await api('DELETE', `/api/groups/${id}?profile_id=${pid()}`);
-    await refreshGroups();
-    await refreshStats();
-    toast('Group removed', 'warn');
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
-}
+        cur.close(); conn.close()
+        return {"updated": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
-async function refreshGroups() {
-  const groups = await api('GET', `/api/groups?profile_id=${pid()}`).catch(() => []);
-  const list = document.getElementById('groups-list');
-  if (!list) return;
-  if (!groups.length) {
-    list.innerHTML = '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);padding:20px 0;text-align:center;">No groups added yet.</div>';
-    return;
-  }
-  list.innerHTML = groups.map(g => `
-    <div class="group-item">
-      <div style="display:flex;align-items:center;gap:12px;">
-        <div style="width:36px;height:36px;border:1px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.4);font-family:var(--font-mono);font-size:11px;flex-shrink:0;">GRP</div>
-        <div>
-          <div style="font-weight:700;font-size:15px;">${esc(g.name)}</div>
-          <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);">ID: ${esc(g.id)}</div>
-        </div>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;">
-        <span class="badge badge-active">● Monitoring</span>
-        <button class="btn btn-danger btn-sm" onclick="removeGroup('${esc(g.id)}')">Remove</button>
-      </div>
-    </div>`).join('');
-}
+@app.delete("/api/profiles/{profile_id}")
+def api_delete_profile(profile_id: str, pin: str):
+    if not PG_URL:
+        raise HTTPException(503, "Postgres not configured")
+    try:
+        conn = get_pg()
+        cur  = conn.cursor()
+        cur.execute(
+            "SELECT id FROM profiles WHERE id=%s AND pin_hash=%s",
+            (profile_id, hash_pin(pin))
+        )
+        if not cur.fetchone():
+            cur.close(); conn.close()
+            raise HTTPException(401, "Invalid PIN")
+        cur.execute("DELETE FROM profiles WHERE id=%s", (profile_id,))
+        conn.commit()
+        cur.close(); conn.close()
+        if profile_id in _sessions:
+            del _sessions[profile_id]
+        return {"deleted": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
-// ── HISTORY ───────────────────────────────────────────────────────────────────
-let _cachedHistory = [];
+# ── CONNECT CODE ROUTES ───────────────────────────────────────────────────────
 
-async function refreshHistory() {
-  const search = document.getElementById('history-search')?.value || '';
-  const params = new URLSearchParams({ limit: 200, profile_id: pid() });
-  if (search) params.append('search', search);
-  const items = await api('GET', `/api/history?${params}`).catch(() => []);
+@app.post("/api/connect-code/generate")
+def api_generate_code(body: GenerateCodeBody):
+    code = generate_connect_code(body.profile_id)
+    return {"code": code, "expiresIn": 300}
 
-  if (items.length > _prevHistCount && _prevHistCount > 0) {
-    document.getElementById('history-badge').classList.add('show');
-    const newest = items[0];
-    toast(`Archived: "${newest.audio_name}" by ${newest.display_name || newest.username}`, 'success');
-  }
-  _prevHistCount = items.length;
-  _cachedHistory = items;
+@app.post("/api/connect-code/redeem")
+async def api_redeem_code(body: ConnectCodeBody):
+    profile_id = validate_connect_code(body.code)
+    if not profile_id:
+        raise HTTPException(400, "Invalid or expired code")
+    info = await validate_cookie(body.cookie)
+    session = get_session(profile_id)
+    session.cookie       = body.cookie
+    session.account_info = info
 
-  // Recent activity on dashboard
-  const ra = document.getElementById('recent-activity');
-  if (ra) {
-    const recent = items.slice(0,10);
-    if (!recent.length) {
-      ra.innerHTML = '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);padding:20px 0;text-align:center;">No activity yet.</div>';
-    } else {
-      ra.innerHTML = recent.map(e => `
-        <div style="padding:8px 0;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;color:var(--text-dim);">
-          <span style="color:rgba(255,255,255,0.4);">▶</span>
-          [${esc(e.time)}]
-          <span style="color:rgba(200,180,255,0.8);">${esc(e.asset_type || 'Asset')}</span>
-          "${esc(e.audio_name)}" — <span style="color:rgba(255,255,255,0.7);">${esc(e.display_name||e.username)}</span>
-          · DM: ${dmStatusBadge(e.dm_status)}
-          ${e.group_name ? `<span style="color:rgba(255,255,255,0.35);margin-left:6px;">📂 ${esc(e.group_name)}</span>` : ''}
-        </div>`).join('');
+    cfg = get_config(profile_id)
+    if cfg.get("saveCookies") and PG_URL:
+        try:
+            conn = get_pg()
+            cur  = conn.cursor()
+            cur.execute(
+                """INSERT INTO saved_credentials (profile_id, cookie_encrypted, account_info)
+                   VALUES (%s,%s,%s)
+                   ON CONFLICT (profile_id) DO UPDATE
+                   SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
+                (profile_id, body.cookie, json.dumps(info), body.cookie, json.dumps(info))
+            )
+            conn.commit()
+            cur.close(); conn.close()
+        except Exception as e:
+            print(f"[SENTINEL] Failed to save credentials: {e}")
+
+    return {**info, "profile_id": profile_id}
+
+# ── STATUS ────────────────────────────────────────────────────────────────────
+
+@app.get("/api/status")
+def api_status(profile_id: str = ""):
+    if not profile_id:
+        return {"monitoring": False, "hasCredential": False, "account": None}
+    session = get_session(profile_id)
+    return {
+        "monitoring":    session.monitoring,
+        "account":       session.account_info,
+        "hasCredential": bool(session.cookie),
     }
-  }
 
-  if (document.getElementById('tab-history')?.classList.contains('active')) renderHistoryList(items);
-}
+@app.post("/api/credentials/clear")
+def api_clear_credentials(body: MonitorBody):
+    if PG_URL:
+        try:
+            conn = get_pg()
+            cur  = conn.cursor()
+            cur.execute("DELETE FROM saved_credentials WHERE profile_id=%s", (body.profile_id,))
+            conn.commit()
+            cur.close(); conn.close()
+        except Exception as e:
+            print(f"[SENTINEL] Failed to clear credentials: {e}")
+    session = get_session(body.profile_id)
+    session.cookie       = None
+    session.account_info = None
+    return {"cleared": True}
 
-function filterHistory() { refreshHistory(); }
+# ── MONITORING ────────────────────────────────────────────────────────────────
 
-function renderHistoryList(items) {
-  const list = document.getElementById('history-list');
-  if (!list) return;
-  const dmq   = document.getElementById('history-filter-dm')?.value || '';
-  const typeq = document.getElementById('history-filter-type')?.value || '';
-  let filtered = items;
-  if (dmq)   filtered = filtered.filter(i => i.dm_status === dmq);
-  if (typeq) filtered = filtered.filter(i => i.asset_type === typeq);
-  if (!filtered.length) {
-    list.innerHTML = '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);padding:20px 0;text-align:center;">No history.</div>';
-    return;
-  }
-  list.innerHTML = filtered.map(item => `
-    <div class="history-item">
-      <div class="history-avatar">${esc(((item.display_name||item.username||'?').slice(0,2)).toUpperCase())}</div>
-      <div class="history-user" style="flex:1;min-width:0;">
-        <div class="display-name">${esc(item.display_name||item.username)}</div>
-        <div class="username">@${esc(item.username)} · UID: ${esc(item.user_id||'—')}</div>
-        <div class="history-audio">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-          ${esc(item.audio_name)} · ID: ${esc(item.audio_id)}
-          <span class="badge badge-info" style="margin-left:6px;">${esc(item.asset_type||'Audio')}</span>
-          ${item.group_name ? `<span style="color:rgba(255,255,255,0.4);margin-left:8px;">📂 ${esc(item.group_name)}</span>` : ''}
-        </div>
-      </div>
-      <div class="history-meta">
-        <div class="history-time">${esc(item.time)}</div>
-        ${dmStatusBadge(item.dm_status)}
-      </div>
-    </div>`).join('');
-}
+@app.post("/api/monitoring/start")
+async def api_start(body: MonitorBody):
+    session = get_session(body.profile_id)
+    if not session.cookie:
+        raise HTTPException(400, "No credentials. Connect extension first.")
+    if session.monitoring:
+        return {"status": "already_running"}
+    session.monitoring   = True
+    session.monitor_task = asyncio.create_task(monitor_loop(body.profile_id))
+    return {"status": "started"}
 
-function dmStatusBadge(status) {
-  if (status === 'sent')   return '<span class="badge badge-active">DM Sent</span>';
-  if (status === 'failed') return '<span class="badge badge-inactive">DM Failed</span>';
-  return '<span class="badge badge-info">DM N/A</span>';
-}
+@app.post("/api/monitoring/stop")
+async def api_stop(body: MonitorBody):
+    session = get_session(body.profile_id)
+    session.monitoring = False
+    if session.monitor_task:
+        session.monitor_task.cancel()
+        try:
+            await session.monitor_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        session.monitor_task = None
+    return {"status": "stopped"}
 
-async function clearHistory() {
-  if (!confirm('Clear all history for this profile?')) return;
-  await api('DELETE', `/api/history?profile_id=${pid()}`);
-  _cachedHistory = []; _prevHistCount = 0;
-  await refreshHistory(); await refreshStats();
-  toast('History cleared', 'warn');
-}
+# ── GROUPS ────────────────────────────────────────────────────────────────────
 
-// ── STATS ─────────────────────────────────────────────────────────────────────
-async function refreshStats() {
-  const s = await api('GET', `/api/stats?profile_id=${pid()}`).catch(() => ({}));
-  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v ?? '0'; };
-  set('stat-archived', s.archived);
-  set('stat-dms', s.dms);
-  set('stat-groups', s.groups);
-  set('stat-whitelisted', s.whitelisted);
-}
+@app.get("/api/groups")
+def api_list_groups(profile_id: str = ""):
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, name, added_at FROM groups WHERE profile_id=? ORDER BY added_at DESC",
+        (profile_id,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
-// ── CONFIG ────────────────────────────────────────────────────────────────────
-let _cfg = {};
+@app.post("/api/groups")
+async def api_add_group(body: GroupBody):
+    gid = body.id.strip()
+    if not gid.isdigit():
+        raise HTTPException(400, "Group ID must be numeric")
+    session = get_session(body.profile_id)
+    name = body.name.strip() or await get_group_name(gid, cookie=session.cookie)
+    conn = get_db()
+    conn.execute(
+        "INSERT OR REPLACE INTO groups (id, profile_id, name, added_at) VALUES (?,?,?,?)",
+        (gid, body.profile_id, name, time.time())
+    )
+    conn.commit()
+    conn.close()
+    return {"id": gid, "name": name, "added_at": time.time()}
 
-async function loadConfigFromApi() {
-  _cfg = await api('GET', `/api/config?profile_id=${pid()}`).catch(() => ({}));
+@app.delete("/api/groups/{group_id}")
+def api_remove_group(group_id: str, profile_id: str = ""):
+    conn = get_db()
+    conn.execute("DELETE FROM groups WHERE id=? AND profile_id=?", (group_id, profile_id))
+    conn.commit()
+    conn.close()
+    session = get_session(profile_id)
+    session.known_assets.pop(f"{profile_id}:{group_id}", None)
+    return {"deleted": True}
 
-  const poll  = document.getElementById('polling-slider');
-  const delay = document.getElementById('delay-slider');
-  if (poll)  { poll.value  = _cfg.pollingInterval ?? 60; document.getElementById('polling-val').textContent  = (_cfg.pollingInterval ?? 60) + 's'; }
-  if (delay) { delay.value = _cfg.archiveDelay    ?? 0;  document.getElementById('delay-val').textContent    = (_cfg.archiveDelay    ?? 0)  + 's'; }
+# ── HISTORY ───────────────────────────────────────────────────────────────────
 
-  const nt = document.getElementById('notify-toggle');
-  if (nt) nt.className = 'toggle-sw' + (_cfg.notifyEnabled !== false ? ' on' : '');
+@app.get("/api/history")
+def api_history(profile_id: str = "", limit: int = 200, search: str = ""):
+    conn = get_db()
+    if search:
+        s = f"%{search}%"
+        rows = conn.execute(
+            "SELECT * FROM history WHERE profile_id=?"
+            " AND (username LIKE ? OR audio_name LIKE ? OR audio_id LIKE ?)"
+            " ORDER BY time DESC LIMIT ?",
+            (profile_id, s, s, s, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM history WHERE profile_id=? ORDER BY time DESC LIMIT ?",
+            (profile_id, limit)
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
-  const ae = document.getElementById('archive-existing-toggle');
-  if (ae) ae.className = 'toggle-sw' + (_cfg.archiveExisting ? ' on' : '');
+@app.delete("/api/history")
+def api_clear_history(profile_id: str = ""):
+    conn = get_db()
+    conn.execute("DELETE FROM history WHERE profile_id=?", (profile_id,))
+    conn.commit()
+    conn.close()
+    return {"cleared": True}
 
-  const fp = document.getElementById('fast-poll-toggle');
-  if (fp) fp.className = 'toggle-sw' + (_cfg.allowFastPolling ? ' on' : '');
+# ── STATS ─────────────────────────────────────────────────────────────────────
 
-  const sc = document.getElementById('save-cookies-toggle');
-  if (sc) sc.className = 'toggle-sw' + (_cfg.saveCookies ? ' on' : '');
+@app.get("/api/stats")
+def api_stats(profile_id: str = ""):
+    conn = get_db()
+    archived = conn.execute(
+        "SELECT COUNT(*) FROM history WHERE profile_id=? AND archived=1", (profile_id,)
+    ).fetchone()[0]
+    dms = conn.execute(
+        "SELECT COUNT(*) FROM history WHERE profile_id=? AND dm_status='sent'", (profile_id,)
+    ).fetchone()[0]
+    groups = conn.execute(
+        "SELECT COUNT(*) FROM groups WHERE profile_id=?", (profile_id,)
+    ).fetchone()[0]
+    conn.close()
+    wl = len(get_config(profile_id).get("whitelist_all", []))
+    return {"archived": archived, "dms": dms, "groups": groups, "whitelisted": wl}
 
-  // Update polling slider min based on fast poll setting
-  if (poll) poll.min = _cfg.allowFastPolling ? '5' : '30';
+# ── CONFIG ────────────────────────────────────────────────────────────────────
 
-  buildAssetFilterGrid();
-  buildWlTabs();
-}
+@app.get("/api/config")
+def api_get_config(profile_id: str = ""):
+    return get_config(profile_id)
 
-async function loadNotifFromApi() {
-  const cfg = await api('GET', `/api/config?profile_id=${pid()}`).catch(() => ({}));
-  const tmpl = document.getElementById('dm-template');
-  const alt  = document.getElementById('alt-account');
-  if (tmpl) tmpl.value = cfg.dmTemplate || '';
-  if (alt)  alt.value  = cfg.altAccount || '';
-}
+@app.post("/api/config")
+def api_update_config(body: ConfigBody):
+    data = body.model_dump(exclude_none=True)
+    pid  = data.pop("profile_id", "")
+    for k, v in data.items():
+        set_cfg(pid, k, v)
+    # If saveCookies toggled off, wipe saved credentials
+    if "saveCookies" in data and not data["saveCookies"] and PG_URL:
+        try:
+            conn = get_pg()
+            cur  = conn.cursor()
+            cur.execute("DELETE FROM saved_credentials WHERE profile_id=%s", (pid,))
+            conn.commit()
+            cur.close(); conn.close()
+        except Exception as e:
+            print(f"[SENTINEL] Error clearing credentials on toggle off: {e}")
+    return get_config(pid)
 
-function buildAssetFilterGrid() {
-  const grid = document.getElementById('asset-filter-grid');
-  if (!grid) return;
-  const selected = _cfg.assetTypeFilters || ALL_ASSET_TYPES;
-  grid.innerHTML = ALL_ASSET_TYPES.map(t => `
-    <div class="asset-chip ${selected.includes(t) ? 'selected' : ''}" onclick="toggleAssetChip(this,'${t}')">
-      <div class="asset-chip-dot"></div>
-      ${t}
-    </div>`).join('');
-}
+# ── MISC ──────────────────────────────────────────────────────────────────────
 
-function toggleAssetChip(el, type) {
-  el.classList.toggle('selected');
-}
+@app.get("/api/health")
+def health():
+    return {"ok": True}
 
-function selectAllAssetTypes() {
-  document.querySelectorAll('.asset-chip').forEach(c => c.classList.add('selected'));
-}
+@app.get("/api/asset-types")
+def api_asset_types():
+    return ALL_ASSET_TYPES
 
-function buildWlTabs() {
-  const tabs = document.getElementById('wl-tabs');
-  if (!tabs) return;
-  tabs.innerHTML = ['all', ...ALL_ASSET_TYPES].map(t => `
-    <button class="wl-tab ${STATE.activeWlTab === t ? 'active' : ''}" onclick="switchWlTab('${t}')">
-      ${t === 'all' ? 'All Types' : t}
-    </button>`).join('');
-  loadWlForTab(STATE.activeWlTab);
-}
+# ── SERVE FRONTEND ────────────────────────────────────────────────────────────
 
-function switchWlTab(tab) {
-  // Save current tab's value first
-  saveWlTab(STATE.activeWlTab);
-  STATE.activeWlTab = tab;
-  buildWlTabs();
-  loadWlForTab(tab);
-}
+BASE_DIR   = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
 
-function saveWlTab(tab) {
-  const key   = tab === 'all' ? 'whitelist_all' : `whitelist_${tab}`;
-  const value = document.getElementById('whitelist-input')?.value.split('\n').filter(l => l.trim()) || [];
-  _cfg[key] = value;
-}
+@app.get("/", response_class=HTMLResponse)
+def serve_root():
+    p = STATIC_DIR / "index.html"
+    return HTMLResponse(
+        p.read_text() if p.exists() else "<h1>Frontend missing</h1>", 200
+    )
 
-function loadWlForTab(tab) {
-  const key   = tab === 'all' ? 'whitelist_all' : `whitelist_${tab}`;
-  const label = document.getElementById('wl-current-label');
-  const input = document.getElementById('whitelist-input');
-  if (label) label.textContent = `Whitelisted Users — ${tab === 'all' ? 'All Types' : tab}`;
-  if (input) input.value = (_cfg[key] || []).join('\n');
-  updateWhitelistCount();
-}
-
-function updateWhitelistCount() {
-  const val   = document.getElementById('whitelist-input')?.value || '';
-  const count = val.split('\n').filter(l => l.trim()).length;
-  const el    = document.getElementById('whitelist-count');
-  if (el) el.textContent = count + ' user' + (count !== 1 ? 's' : '');
-}
-
-function checkFastPollWarning(val) {
-  const warn = document.getElementById('fast-poll-warning');
-  const fp   = document.getElementById('fast-poll-toggle');
-  if (!warn) return;
-  const fastEnabled = fp?.classList.contains('on');
-  warn.style.display = (val < 30 && fastEnabled) ? 'block' : 'none';
-}
-
-function toggleFastPoll(el) {
-  el.classList.toggle('on');
-  const on   = el.classList.contains('on');
-  const poll = document.getElementById('polling-slider');
-  if (poll) {
-    poll.min = on ? '5' : '30';
-    if (!on && parseInt(poll.value) < 30) { poll.value = '30'; document.getElementById('polling-val').textContent = '30s'; }
-  }
-  if (!on) document.getElementById('fast-poll-warning').style.display = 'none';
-}
-
-async function toggleSaveCookies(el) {
-  el.classList.toggle('on');
-  const on = el.classList.contains('on');
-  try {
-    await api('POST', '/api/config', { profile_id: pid(), saveCookies: on });
-    toast(on ? 'Credentials will now be saved' : 'Credentials cleared from database', on ? 'success' : 'warn');
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
-}
-
-async function saveConfig() {
-  // Save current whitelist tab first
-  saveWlTab(STATE.activeWlTab);
-
-  const selectedTypes = [...document.querySelectorAll('.asset-chip.selected')].map(c => c.textContent.trim());
-
-  const body = {
-    profile_id:      pid(),
-    pollingInterval: parseInt(document.getElementById('polling-slider').value),
-    archiveDelay:    parseInt(document.getElementById('delay-slider').value),
-    notifyEnabled:   document.getElementById('notify-toggle').classList.contains('on'),
-    archiveExisting: document.getElementById('archive-existing-toggle').classList.contains('on'),
-    allowFastPolling: document.getElementById('fast-poll-toggle').classList.contains('on'),
-    assetTypeFilters: selectedTypes,
-  };
-
-  // Add all whitelists
-  ['all', ...ALL_ASSET_TYPES].forEach(t => {
-    const key = t === 'all' ? 'whitelist_all' : `whitelist_${t}`;
-    body[key === 'whitelist_all' ? 'whitelist_all' : key] = _cfg[key] || [];
-  });
-
-  try {
-    await api('POST', '/api/config', body);
-    await refreshStats();
-    toast('Config saved', 'success');
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
-}
-
-async function saveNotifSettings() {
-  try {
-    await api('POST', '/api/config', {
-      profile_id: pid(),
-      dmTemplate: document.getElementById('dm-template').value,
-      altAccount: document.getElementById('alt-account').value,
-    });
-    toast('Notification settings saved', 'success');
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
-}
-
-async function exportConfig() {
-  const [cfg, groups] = await Promise.all([
-    api('GET', `/api/config?profile_id=${pid()}`),
-    api('GET', `/api/groups?profile_id=${pid()}`),
-  ]);
-  const blob = new Blob([JSON.stringify({ config: cfg, groups }, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `sentinel_config_${STATE.profileName || 'profile'}.json`;
-  a.click();
-  toast('Config exported', 'success');
-}
-
-async function clearConfig() {
-  if (!confirm('Reset config to defaults?')) return;
-  await api('POST', '/api/config', { profile_id: pid(), pollingInterval: 60, archiveDelay: 0, notifyEnabled: true, whitelist_all: [], dmTemplate: '', altAccount: '' });
-  await loadConfigFromApi();
-  await loadNotifFromApi();
-  toast('Config reset', 'warn');
-}
-
-function updateSlider(id, val, suffix) {
-  document.getElementById(id).textContent = val + (suffix || '');
-}
-
-// ── SETTINGS MODAL ────────────────────────────────────────────────────────────
-function openSettings() {
-  document.getElementById('settings-modal').classList.add('open');
-  const info = document.getElementById('settings-profile-info');
-  if (info) info.textContent = `Signed in as: ${STATE.profileName || '—'} (ID: ${STATE.profileId || '—'})`;
-  const sc = document.getElementById('save-cookies-toggle');
-  if (_cfg && sc) sc.className = 'toggle-sw' + (_cfg.saveCookies ? ' on' : '');
-}
-
-function closeSettings() { document.getElementById('settings-modal').classList.remove('open'); }
-
-function openChangePinModal() {
-  closeSettings();
-  document.getElementById('change-pin-modal').classList.add('open');
-}
-
-function openChangeNameModal() {
-  closeSettings();
-  document.getElementById('change-name-modal').classList.add('open');
-}
-
-async function changePin() {
-  const current = document.getElementById('cp-current').value.trim();
-  const newPin  = document.getElementById('cp-new').value.trim();
-  if (!current || !newPin) { toast('Fill in both fields', 'error'); return; }
-  try {
-    await api('PUT', '/api/profiles', { profile_id: pid(), pin: current, new_pin: newPin });
-    document.getElementById('change-pin-modal').classList.remove('open');
-    document.getElementById('cp-current').value = '';
-    document.getElementById('cp-new').value = '';
-    toast('PIN updated', 'success');
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
-}
-
-async function changeName() {
-  const pin  = document.getElementById('cn-pin').value.trim();
-  const name = document.getElementById('cn-name').value.trim();
-  if (!pin || !name) { toast('Fill in both fields', 'error'); return; }
-  try {
-    await api('PUT', '/api/profiles', { profile_id: pid(), pin, name });
-    STATE.profileName = name;
-    document.getElementById('topbar-profile-name').textContent = name;
-    document.getElementById('change-name-modal').classList.remove('open');
-    document.getElementById('cn-pin').value  = '';
-    document.getElementById('cn-name').value = '';
-    toast('Name updated', 'success');
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
-}
-
-function signOutProfile() {
-  if (_liveInterval) clearInterval(_liveInterval);
-  STATE.profileId = null; STATE.profileName = null; STATE.hasCredential = false;
-  closeSettings();
-  document.getElementById('profile-screen').classList.remove('hidden');
-  loadProfileScreen();
-  toast('Signed out', 'warn');
-}
-
-async function deleteProfilePrompt() {
-  const pin = prompt('Enter your PIN to delete this profile. THIS CANNOT BE UNDONE.');
-  if (!pin) return;
-  try {
-    await api('DELETE', `/api/profiles/${pid()}?pin=${encodeURIComponent(pin)}`);
-    signOutProfile();
-    toast('Profile deleted', 'warn');
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
-}
-
-async function clearAllHistory() {
-  if (!confirm('Clear all history for this profile?')) return;
-  await api('DELETE', `/api/history?profile_id=${pid()}`);
-  _cachedHistory = []; _prevHistCount = 0;
-  await refreshHistory(); await refreshStats();
-  closeSettings();
-  toast('History cleared', 'warn');
-}
-
-async function clearCredentials() {
-  if (!confirm('Disconnect Roblox account? You will need to reconnect the extension.')) return;
-  await api('POST', '/api/credentials/clear', { profile_id: pid() });
-  STATE.hasCredential = false;
-  document.getElementById('connect-code-section').style.display   = 'block';
-  document.getElementById('connected-account-section').style.display = 'none';
-  document.getElementById('conn-account-display').innerHTML = 'No account connected';
-  closeSettings();
-  toast('Roblox account disconnected', 'warn');
-}
-
-// ── HELPERS ───────────────────────────────────────────────────────────────────
-function esc(s) {
-  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-// ── BOOT ──────────────────────────────────────────────────────────────────────
-loadProfileScreen();
-</script>
-</body>
-</html>
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
