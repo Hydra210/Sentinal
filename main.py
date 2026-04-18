@@ -184,22 +184,28 @@ async def fetch_group_audios(group_id: str, *, cookie=None, api_key=None) -> lis
 
     if cookie:
         cursor = None
-        for _ in range(5):  # max 500 assets (5x100)
-            params = {"assetType": "Audio", "sortOrder": "Desc", "limit": 100}
+        for _ in range(20):  # up to 2000 assets
+            params = {
+                "groupId": group_id,
+                "assetType": "Audio",
+                "sortOrder": "Desc",
+                "limit": 100,
+            }
             if cursor:
                 params["cursor"] = cursor
             r = await rblx_get(
-                f"https://develop.roblox.com/v1/groups/{group_id}/assets",
+                "https://itemconfiguration.roblox.com/v1/creations/get-assets",
                 cookie=cookie, params=params,
             )
+            print(f"[SENTINEL] fetch status={r.status_code} body={r.text[:300]}")
             if r.status_code != 200:
                 break
             d = r.json()
             for item in d.get("data", []):
                 assets.append({
-                    "id":          str(item["id"]),
+                    "id":          str(item.get("assetId", "")),
                     "name":        item.get("name", "Unknown"),
-                    "creatorId":   str(item.get("creatorId", "")),
+                    "creatorId":   str(item.get("creatorTargetId", "")),
                     "creatorName": item.get("creatorName", ""),
                 })
             cursor = d.get("nextPageCursor")
@@ -213,20 +219,27 @@ async def archive_asset(asset_id: str, *, cookie=None, api_key=None) -> bool:
         csrf = await get_csrf(cookie)
         async with httpx.AsyncClient(timeout=15) as c:
             r = await c.post(
-                f"https://develop.roblox.com/v1/assets/{asset_id}/archive",
-                headers={"X-CSRF-TOKEN": csrf},
-                cookies={".ROBLOSECURITY": cookie},
-            )
-            if r.status_code in (200, 204):
-                return True
-            r2 = await c.post(
-                f"https://www.roblox.com/item-configuration/v1/items/{asset_id}/archive",
+                f"https://itemconfiguration.roblox.com/v1/assets/{asset_id}/archive",
                 headers={"X-CSRF-TOKEN": csrf, "Content-Type": "application/json"},
                 cookies={".ROBLOSECURITY": cookie},
                 json={},
             )
-            return r2.status_code in (200, 204)
+            print(f"[SENTINEL] archive status={r.status_code} body={r.text[:200]}")
+            return r.status_code in (200, 204)
+    return False
 
+async def restore_asset(asset_id: str, *, cookie=None) -> bool:
+    if cookie:
+        csrf = await get_csrf(cookie)
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.post(
+                f"https://itemconfiguration.roblox.com/v1/assets/{asset_id}/restore",
+                headers={"X-CSRF-TOKEN": csrf, "Content-Type": "application/json"},
+                cookies={".ROBLOSECURITY": cookie},
+                json={},
+            )
+            print(f"[SENTINEL] restore status={r.status_code} body={r.text[:200]}")
+            return r.status_code in (200, 204)
     return False
 
 async def send_dm(user_id: str, subject: str, body: str, cookie: str) -> bool:
@@ -455,6 +468,21 @@ def api_history(limit: int = 200, search: str = ""):
         ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+@app.post("/api/history/{entry_id}/restore")
+async def api_restore(entry_id: str):
+    conn = get_db()
+    row = conn.execute("SELECT audio_id FROM history WHERE id=?", (entry_id,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(404, "History entry not found")
+    ok = await restore_asset(row["audio_id"], cookie=state.cookie)
+    if ok:
+        conn = get_db()
+        conn.execute("UPDATE history SET archived=0 WHERE id=?", (entry_id,))
+        conn.commit()
+        conn.close()
+    return {"restored": ok}
 
 @app.delete("/api/history")
 def api_clear_history():
