@@ -201,12 +201,37 @@ async def fetch_group_audios(group_id: str, *, cookie=None, api_key=None) -> lis
             if r.status_code != 200:
                 break
             d = r.json()
-            for item in d.get("data", []):
+            raw = d.get("data", [])
+
+            # Batch-fetch creator info
+            ids = [str(item.get("assetId", "")) for item in raw if item.get("assetId")]
+            creator_map = {}
+            if ids:
+                try:
+                    details_r = await rblx_get(
+                        "https://economy.roblox.com/v2/assets",
+                        cookie=cookie,
+                        params={"assetIds": ",".join(ids)},
+                    )
+                    if details_r.status_code == 200:
+                        for d2 in details_r.json().get("data", []):
+                            aid = str(d2.get("id", ""))
+                            creator = d2.get("creator", {})
+                            creator_map[aid] = {
+                                "creatorId":   str(creator.get("targetId", "")),
+                                "creatorName": creator.get("name", ""),
+                            }
+                except Exception as e:
+                    print(f"[SENTINEL] creator lookup error: {e}")
+
+            for item in raw:
+                aid = str(item.get("assetId", ""))
+                info = creator_map.get(aid, {"creatorId": "", "creatorName": ""})
                 assets.append({
-                    "id":          str(item.get("assetId", "")),
+                    "id":          aid,
                     "name":        item.get("name", "Unknown"),
-                    "creatorId":   str(item.get("creatorTargetId", "")),
-                    "creatorName": item.get("creatorName", ""),
+                    "creatorId":   info["creatorId"],
+                    "creatorName": info["creatorName"],
                 })
             cursor = d.get("nextPageCursor")
             if not cursor:
