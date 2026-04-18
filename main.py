@@ -137,11 +137,18 @@ async def rblx_get(url: str, *, cookie=None, api_key=None, params=None) -> httpx
     async with httpx.AsyncClient(timeout=15, follow_redirects=True) as c:
         return await c.get(url, headers=headers, cookies=cookies, params=params)
 
+ROBLOX_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
 async def get_csrf(cookie: str) -> str:
     async with httpx.AsyncClient(timeout=10) as c:
-        r = await c.post("https://auth.roblox.com/v2/logout",
-                         cookies={".ROBLOSECURITY": cookie})
-        return r.headers.get("x-csrf-token", "")
+        r = await c.post(
+            "https://auth.roblox.com/v2/logout",
+            cookies={".ROBLOSECURITY": cookie},
+            headers={"User-Agent": ROBLOX_UA, "Content-Type": "application/json"},
+        )
+        token = r.headers.get("x-csrf-token", "")
+        print(f"[SENTINEL] CSRF status={r.status_code} token={'OK' if token else 'EMPTY'}")
+        return token
 
 async def validate_cookie(cookie: str) -> dict:
     r = await rblx_get("https://users.roblox.com/v1/users/authenticated", cookie=cookie)
@@ -240,18 +247,53 @@ async def fetch_group_audios(group_id: str, *, cookie=None, api_key=None) -> lis
     return assets
 
 async def archive_asset(asset_id: str, *, cookie=None, api_key=None) -> bool:
-    if cookie:
-        csrf = await get_csrf(cookie)
-        async with httpx.AsyncClient(timeout=15) as c:
-            r = await c.post(
+    if not cookie:
+        return False
+    csrf = await get_csrf(cookie)
+    if not csrf:
+        print("[SENTINEL] archive FAILED - could not get CSRF token")
+        return False
+    base_headers = {
+        "X-CSRF-TOKEN": csrf,
+        "Content-Type": "application/json",
+        "User-Agent": ROBLOX_UA,
+        "Referer": "https://www.roblox.com/",
+        "Origin": "https://www.roblox.com",
+    }
+    async with httpx.AsyncClient(timeout=15) as c:
+        # Primary endpoint
+        r = await c.post(
+            f"https://itemconfiguration.roblox.com/v1/assets/{asset_id}/archive",
+            headers=base_headers,
+            cookies={".ROBLOSECURITY": cookie},
+            json={},
+        )
+        print(f"[SENTINEL] archive primary status={r.status_code} body={r.text[:300]}")
+        if r.status_code in (200, 204):
+            return True
+        # If 403 with new CSRF token, retry once
+        new_csrf = r.headers.get("x-csrf-token", "")
+        if r.status_code == 403 and new_csrf:
+            print(f"[SENTINEL] retrying archive with refreshed CSRF")
+            base_headers["X-CSRF-TOKEN"] = new_csrf
+            r2 = await c.post(
                 f"https://itemconfiguration.roblox.com/v1/assets/{asset_id}/archive",
-                headers={"X-CSRF-TOKEN": csrf, "Content-Type": "application/json"},
+                headers=base_headers,
                 cookies={".ROBLOSECURITY": cookie},
                 json={},
             )
-            print(f"[SENTINEL] archive status={r.status_code} body={r.text[:200]}")
-            return r.status_code in (200, 204)
-    return False
+            print(f"[SENTINEL] archive retry status={r2.status_code} body={r2.text[:300]}")
+            if r2.status_code in (200, 204):
+                return True
+        # Fallback: develop endpoint
+        r3 = await c.post(
+            f"https://develop.roblox.com/v1/assets/{asset_id}/archive",
+            headers=base_headers,
+            cookies={".ROBLOSECURITY": cookie},
+            json={},
+        )
+        print(f"[SENTINEL] archive fallback status={r3.status_code} body={r3.text[:300]}")
+        return r3.status_code in (200, 204)
 
 async def restore_asset(asset_id: str, *, cookie=None) -> bool:
     if cookie:
