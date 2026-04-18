@@ -2,8 +2,8 @@
 # Start command: uvicorn main:app --host 0.0.0.0 --port $PORT
 
 from __future__ import annotations
-import asyncio, json, os, sqlite3, time
-from datetime import datetime
+import asyncio, json, os, sqlite3, time, secrets, string
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
 
@@ -64,6 +64,30 @@ class _State:
     account_info: Optional[dict] = None
 
 state = _State()
+
+# ── CONNECT CODES ─────────────────────────────────────────────────────────────
+
+_connect_codes: dict = {}  # code -> expiry datetime
+
+def generate_connect_code() -> str:
+    # Clean up expired codes first
+    now = datetime.now()
+    expired = [c for c, exp in _connect_codes.items() if now > exp]
+    for c in expired:
+        del _connect_codes[c]
+    code = ''.join(secrets.choice(string.digits) for _ in range(4))
+    _connect_codes[code] = now + timedelta(minutes=5)
+    return code
+
+def validate_connect_code(code: str) -> bool:
+    expiry = _connect_codes.get(code)
+    if not expiry:
+        return False
+    if datetime.now() > expiry:
+        del _connect_codes[code]
+        return False
+    del _connect_codes[code]  # single use
+    return True
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 
@@ -145,16 +169,6 @@ async def validate_cookie(cookie: str) -> dict:
         "avatarUrl":   avatar_url,
     }
 
-async def validate_apikey(api_key: str) -> dict:
-    r = await rblx_get(
-        "https://apis.roblox.com/assets/v1/assets",
-        api_key=api_key,
-        params={"maxPageSize": 1},
-    )
-    if r.status_code == 401:
-        raise HTTPException(400, "Invalid API key")
-    return {"valid": True}
-
 async def get_group_name(group_id: str, cookie=None) -> str:
     try:
         r = await rblx_get(f"https://groups.roblox.com/v1/groups/{group_id}", cookie=cookie)
@@ -192,47 +206,8 @@ async def fetch_group_audios(group_id: str, *, cookie=None, api_key=None) -> lis
             if not cursor:
                 break
 
-    else:
-        # API key mode -- use Open Cloud v1 assets API
-        cursor = None
-        for _ in range(5):
-            params = {
-                "groupId": group_id,
-                "assetType": "Audio",
-                "limit": "100",
-            }
-            if cursor:
-                params["cursor"] = cursor
-            r = await rblx_get(
-                f"https://apis.roblox.com/toolbox-service/v1/groups/{group_id}/assets",
-                api_key=api_key,
-                params=params,
-            )
-            print(f"[SENTINEL] opencloud fetch group={group_id} status={r.status_code} body={r.text[:400]}")
-            if r.status_code != 200:
-                # Try alternate endpoint
-                r = await rblx_get(
-                    f"https://apis.roblox.com/assets/v1/assets?groupId={group_id}&assetType=Audio&limit=100",
-                    api_key=api_key,
-                )
-                print(f"[SENTINEL] opencloud alt fetch status={r.status_code} body={r.text[:400]}")
-                if r.status_code != 200:
-                    break
-            d = r.json()
-            print(f"[SENTINEL] response keys: {list(d.keys())}")
-            for item in d.get("assets", d.get("data", [])):
-                creator = item.get("creationContext", {}).get("creator", {})
-                assets.append({
-                    "id":          str(item.get("assetId", item.get("id", ""))),
-                    "name":        item.get("displayName", item.get("name", "Unknown")),
-                    "creatorId":   str(creator.get("userId", item.get("creatorId", ""))),
-                    "creatorName": str(creator.get("userId", item.get("creatorName", ""))),
-                })
-            cursor = d.get("nextPageToken", d.get("nextPageCursor"))
-            if not cursor:
-                break
-
     return assets
+
 async def archive_asset(asset_id: str, *, cookie=None, api_key=None) -> bool:
     if cookie:
         csrf = await get_csrf(cookie)
@@ -250,24 +225,6 @@ async def archive_asset(asset_id: str, *, cookie=None, api_key=None) -> bool:
                 cookies={".ROBLOSECURITY": cookie},
                 json={},
             )
-            return r2.status_code in (200, 204)
-
-    if api_key:
-        async with httpx.AsyncClient(timeout=15) as c:
-            r = await c.post(
-                f"https://apis.roblox.com/cloud/v2/assets/{asset_id}:archive",
-                headers={"x-api-key": api_key, "Content-Type": "application/json"},
-                json={},
-            )
-            print(f"[SENTINEL] archive v2 status={r.status_code} body={r.text[:200]}")
-            if r.status_code in (200, 204):
-                return True
-            r2 = await c.patch(
-                f"https://apis.roblox.com/assets/v1/assets/{asset_id}",
-                headers={"x-api-key": api_key, "Content-Type": "application/json"},
-                json={"assetType": "Audio", "archived": True},
-            )
-            print(f"[SENTINEL] archive v1 status={r2.status_code} body={r2.text[:200]}")
             return r2.status_code in (200, 204)
 
     return False
@@ -381,9 +338,6 @@ async def monitor_loop():
 class CookieBody(BaseModel):
     cookie: str
 
-class ApiKeyBody(BaseModel):
-    apiKey: str
-
 class GroupBody(BaseModel):
     id:   str
     name: str = ""
@@ -396,32 +350,15 @@ class ConfigBody(BaseModel):
     dmTemplate:      Optional[str]       = None
     altAccount:      Optional[str]       = None
 
+class ConnectCodeBody(BaseModel):
+    code:   str
+    cookie: str
+
 # ── ROUTES ────────────────────────────────────────────────────────────────────
 
 @app.get("/api/health")
 def health():
     return {"ok": True, "monitoring": state.monitoring}
-
-@app.post("/api/validate-cookie")
-async def api_validate_cookie(body: CookieBody):
-    info = await validate_cookie(body.cookie)
-    state.cookie       = body.cookie
-    state.api_key      = None
-    state.mode         = "cookie"
-    state.account_info = info
-    return info
-
-@app.post("/api/validate-apikey")
-async def api_validate_apikey(body: ApiKeyBody):
-    res = await validate_apikey(body.apiKey)
-    state.api_key      = body.apiKey
-    state.cookie       = None
-    state.mode         = "api"
-    state.account_info = {
-        "userId": "", "username": "API Key Mode",
-        "displayName": "Open Cloud", "avatarUrl": None,
-    }
-    return res
 
 @app.get("/api/status")
 def api_status():
@@ -431,6 +368,22 @@ def api_status():
         "account":       state.account_info,
         "hasCredential": bool(state.cookie or state.api_key),
     }
+
+@app.post("/api/connect-code/generate")
+def api_generate_code():
+    code = generate_connect_code()
+    return {"code": code, "expiresIn": 300}
+
+@app.post("/api/connect-code/redeem")
+async def api_redeem_code(body: ConnectCodeBody):
+    if not validate_connect_code(body.code):
+        raise HTTPException(400, "Invalid or expired code")
+    info = await validate_cookie(body.cookie)
+    state.cookie       = body.cookie
+    state.api_key      = None
+    state.mode         = "cookie"
+    state.account_info = info
+    return info
 
 @app.post("/api/monitoring/start")
 async def api_start():
