@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SENTINEL — Roblox Audio Moderation</title>
+<title>SENTINEL — Roblox Asset Moderation</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&family=Outfit:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -16,1116 +16,339 @@
     --border: rgba(255,255,255,0.07);
     --border-bright: rgba(255,255,255,0.18);
     --accent: #ffffff;
-    --accent2: #e0e0e0;
     --accent3: #ff3b3b;
     --warn: #f0c040;
     --text: #e8e8e8;
     --text-dim: rgba(232,232,232,0.45);
     --text-dimmer: rgba(232,232,232,0.22);
-    --glow: 0 0 24px rgba(255,255,255,0.06);
-    --glow-strong: 0 0 48px rgba(255,255,255,0.1);
     --font-mono: 'DM Mono', monospace;
     --font-ui: 'Outfit', sans-serif;
     --font-display: 'Syne', sans-serif;
   }
 
-  html, body {
-    height: 100%;
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--font-ui);
-    font-size: 15px;
-    overflow: hidden;
-  }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font-ui); font-size: 15px; overflow: hidden; }
 
-  /* SUBTLE NOISE TEXTURE */
   body::after {
-    content: '';
-    position: fixed;
-    inset: 0;
+    content: ''; position: fixed; inset: 0;
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
-    pointer-events: none;
-    z-index: 9999;
-    opacity: 0.4;
+    pointer-events: none; z-index: 9999; opacity: 0.4;
   }
 
-  /* GRID BG */
   #grid-bg {
-    position: fixed;
-    inset: 0;
-    background-image:
-      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
-    background-size: 56px 56px;
-    pointer-events: none;
-    z-index: 0;
+    position: fixed; inset: 0;
+    background-image: linear-gradient(rgba(255,255,255,0.025) 1px,transparent 1px), linear-gradient(90deg,rgba(255,255,255,0.025) 1px,transparent 1px);
+    background-size: 56px 56px; pointer-events: none; z-index: 0;
   }
 
-  /* CORNER DECORATIONS */
-  .corner-decor {
-    position: fixed;
-    width: 80px; height: 80px;
-    pointer-events: none;
-    z-index: 2;
-  }
-  .corner-decor::before, .corner-decor::after {
-    content: '';
-    position: absolute;
-    background: rgba(255,255,255,0.3);
-    opacity: 1;
-  }
+  .corner-decor { position: fixed; width: 80px; height: 80px; pointer-events: none; z-index: 2; }
+  .corner-decor::before, .corner-decor::after { content: ''; position: absolute; background: rgba(255,255,255,0.3); }
   .corner-decor.tl { top: 12px; left: 12px; }
-  .corner-decor.tl::before { top: 0; left: 0; width: 30px; height: 2px; }
-  .corner-decor.tl::after { top: 0; left: 0; width: 2px; height: 30px; }
+  .corner-decor.tl::before { top:0;left:0;width:30px;height:2px; } .corner-decor.tl::after { top:0;left:0;width:2px;height:30px; }
   .corner-decor.tr { top: 12px; right: 12px; }
-  .corner-decor.tr::before { top: 0; right: 0; width: 30px; height: 2px; }
-  .corner-decor.tr::after { top: 0; right: 0; width: 2px; height: 30px; }
+  .corner-decor.tr::before { top:0;right:0;width:30px;height:2px; } .corner-decor.tr::after { top:0;right:0;width:2px;height:30px; }
   .corner-decor.bl { bottom: 12px; left: 12px; }
-  .corner-decor.bl::before { bottom: 0; left: 0; width: 30px; height: 2px; }
-  .corner-decor.bl::after { bottom: 0; left: 0; width: 2px; height: 30px; }
+  .corner-decor.bl::before { bottom:0;left:0;width:30px;height:2px; } .corner-decor.bl::after { bottom:0;left:0;width:2px;height:30px; }
   .corner-decor.br { bottom: 12px; right: 12px; }
-  .corner-decor.br::before { bottom: 0; right: 0; width: 30px; height: 2px; }
-  .corner-decor.br::after { bottom: 0; right: 0; width: 2px; height: 30px; }
+  .corner-decor.br::before { bottom:0;right:0;width:30px;height:2px; } .corner-decor.br::after { bottom:0;right:0;width:2px;height:30px; }
 
-  /* LAYOUT */
-  #app {
-    position: relative;
-    z-index: 1;
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    overflow: hidden;
-  }
+  /* ── LAYOUT ── */
+  #app { position: relative; z-index: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
-  /* TOPBAR */
+  /* ── TOPBAR ── */
   #topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 28px;
-    border-bottom: 1px solid var(--border);
-    background: rgba(10,10,10,0.96);
-    backdrop-filter: blur(16px);
-    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 28px; border-bottom: 1px solid var(--border);
+    background: rgba(10,10,10,0.96); backdrop-filter: blur(16px); flex-shrink: 0;
   }
 
-  .logo-lockup {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-  }
-
-  .logo-icon {
-    width: 36px; height: 36px;
-    border: 1px solid rgba(255,255,255,0.2);
-    display: flex; align-items: center; justify-content: center;
-    position: relative;
-    border-radius: 8px;
-    background: rgba(255,255,255,0.06);
-  }
-
+  .logo-lockup { display: flex; align-items: center; gap: 14px; }
+  .logo-icon { width: 36px; height: 36px; border: 1px solid rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; border-radius: 8px; background: rgba(255,255,255,0.06); }
   .logo-icon svg { width: 18px; height: 18px; }
+  .logo-text { font-family: var(--font-display); font-size: 22px; font-weight: 800; letter-spacing: 5px; color: #fff; }
+  .logo-sub { font-family: var(--font-mono); font-size: 9px; color: var(--text-dimmer); letter-spacing: 2px; text-transform: uppercase; margin-top: 2px; }
 
-  .logo-text {
-    font-family: var(--font-display);
-    font-size: 22px;
-    font-weight: 800;
-    letter-spacing: 5px;
-    color: #ffffff;
-    text-shadow: none;
-  }
-
-  .logo-sub {
-    font-family: var(--font-mono);
-    font-size: 9px;
-    color: var(--text-dimmer);
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    margin-top: 2px;
-  }
-
-  .status-pill {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 14px;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text-dim);
-    letter-spacing: 1px;
-  }
-
-  .status-dot {
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    background: var(--text-dimmer);
-    transition: all 0.4s;
-  }
-
-  .status-dot.online { background: var(--accent2); box-shadow: 0 0 8px var(--accent2); animation: pulse-dot 2s infinite; }
-  .status-dot.warn { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+  .status-pill { display: flex; align-items: center; gap: 8px; padding: 6px 14px; border: 1px solid var(--border); background: var(--surface); font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); letter-spacing: 1px; border-radius: 6px; }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dimmer); transition: all 0.4s; }
+  .status-dot.online { background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: pulse-dot 2s infinite; }
   .status-dot.error { background: var(--accent3); box-shadow: 0 0 8px var(--accent3); }
+  @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.4} }
 
-  @keyframes pulse-dot {
-    0%,100% { opacity: 1; }
-    50% { opacity: 0.4; }
+  /* profile pill in topbar */
+  .profile-pill {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 14px; border: 1px solid var(--border);
+    background: var(--surface); border-radius: 6px; cursor: pointer;
+    transition: border-color 0.2s;
   }
+  .profile-pill:hover { border-color: var(--border-bright); }
+  .profile-pill-avatar { width: 24px; height: 24px; border-radius: 50%; background: var(--surface3); border: 1px solid var(--border); overflow: hidden; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-weight: 700; font-size: 11px; color: rgba(255,255,255,0.6); flex-shrink: 0; }
+  .profile-pill-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+  .profile-pill-name { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); letter-spacing: 1px; }
 
-  /* NAV TABS */
-  #nav {
-    display: flex;
-    gap: 2px;
-    padding: 0 28px;
-    background: rgba(10,10,10,0.92);
-    border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
-  }
-
-  .nav-tab {
-    padding: 11px 22px;
-    font-family: var(--font-display);
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    color: var(--text-dimmer);
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    transition: all 0.25s;
-    position: relative;
-    white-space: nowrap;
-    background: none;
-    border-top: none;
-    border-left: none;
-    border-right: none;
-  }
-
+  /* ── NAV ── */
+  #nav { display: flex; gap: 2px; padding: 0 28px; background: rgba(10,10,10,0.92); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .nav-tab { padding: 11px 22px; font-family: var(--font-display); font-size: 13px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--text-dimmer); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.25s; background: none; border-top: none; border-left: none; border-right: none; white-space: nowrap; }
   .nav-tab:hover { color: var(--text); }
-  .nav-tab.active {
-    color: #ffffff;
-    border-bottom-color: #ffffff;
-    text-shadow: none;
-  }
-
-  .nav-tab .tab-badge {
-    position: absolute;
-    top: 6px; right: 6px;
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    background: var(--accent3);
-    box-shadow: 0 0 6px var(--accent3);
-    display: none;
-  }
-
+  .nav-tab.active { color: #fff; border-bottom-color: #fff; }
+  .nav-tab .tab-badge { position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent3); box-shadow: 0 0 6px var(--accent3); display: none; }
   .nav-tab .tab-badge.show { display: block; }
 
-  /* CONTENT AREA */
-  #content {
-    flex: 1;
-    overflow: hidden;
-    position: relative;
-  }
-
-  .tab-panel {
-    position: absolute;
-    inset: 0;
-    overflow-y: auto;
-    padding: 28px;
-    display: none;
-    animation: fadeIn 0.2s ease;
-  }
-
+  /* ── CONTENT ── */
+  #content { flex: 1; overflow: hidden; position: relative; }
+  .tab-panel { position: absolute; inset: 0; overflow-y: auto; padding: 28px; display: none; animation: fadeIn 0.2s ease; }
   .tab-panel.active { display: block; }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
 
-  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-
-  /* SCROLLBAR */
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
 
-  /* CARDS */
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    padding: 20px;
-    position: relative;
-    transition: border-color 0.25s, box-shadow 0.25s;
-    border-radius: 12px;
-  }
-
-  .card::before {
-    display: none;
-  }
-
+  /* ── CARDS ── */
+  .card { background: var(--surface); border: 1px solid var(--border); padding: 20px; border-radius: 12px; transition: border-color 0.25s, box-shadow 0.25s; }
   .card:hover { border-color: rgba(255,255,255,0.14); box-shadow: 0 4px 32px rgba(0,0,0,0.4); }
 
-  .card.warn-card { border-color: rgba(255,179,71,0.3); }
-  .card.success-card { border-color: rgba(0,255,157,0.3); }
-  .card.danger-card { border-color: rgba(255,77,109,0.3); }
+  .section-title { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: rgba(255,255,255,0.6); margin-bottom: 18px; display: flex; align-items: center; gap: 12px; }
+  .section-title::before { content: ''; display: inline-block; width: 16px; height: 1px; background: rgba(255,255,255,0.35); }
+  .section-title::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg,rgba(255,255,255,0.08),transparent); }
 
-  /* SECTION HEADERS */
-  .section-title {
-    font-family: var(--font-display);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 3px;
-    text-transform: uppercase;
-    color: rgba(255,255,255,0.6);
-    margin-bottom: 18px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .section-title::before {
-    content: '';
-    display: inline-block;
-    width: 16px; height: 1px;
-    background: rgba(255,255,255,0.35);
-  }
-
-  .section-title::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: linear-gradient(90deg, rgba(255,255,255,0.08), transparent);
-  }
-
-  /* GRID */
-  .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
-  .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .grid-2 { display: grid; grid-template-columns: repeat(auto-fit,minmax(320px,1fr)); gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); gap: 16px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 12px; }
   .mb-20 { margin-bottom: 20px; }
   .mb-28 { margin-bottom: 28px; }
 
-  /* INPUTS */
-  .field-label {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 2px;
-    color: var(--text-dimmer);
-    text-transform: uppercase;
-    margin-bottom: 8px;
-    display: block;
-  }
-
-  input[type="text"],
-  input[type="password"],
-  input[type="url"],
-  textarea,
-  select {
-    width: 100%;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid var(--border);
-    color: var(--text);
-    padding: 10px 14px;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    transition: all 0.2s;
-    outline: none;
-    appearance: none;
-    border-radius: 6px;
-  }
-
-  input:focus, textarea:focus, select:focus {
-    border-color: rgba(255,255,255,0.3);
-    background: rgba(255,255,255,0.06);
-    box-shadow: 0 0 0 1px rgba(255,255,255,0.08);
-  }
-
+  /* ── INPUTS ── */
+  .field-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 2px; color: var(--text-dimmer); text-transform: uppercase; margin-bottom: 8px; display: block; }
+  input[type="text"], input[type="password"], input[type="url"], input[type="number"], textarea, select { width: 100%; background: rgba(255,255,255,0.04); border: 1px solid var(--border); color: var(--text); padding: 10px 14px; font-family: var(--font-mono); font-size: 12px; transition: all 0.2s; outline: none; appearance: none; border-radius: 6px; }
+  input:focus, textarea:focus, select:focus { border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.06); }
   textarea { resize: vertical; min-height: 90px; }
-
   select option { background: var(--surface2); color: var(--text); }
 
-  /* BUTTONS */
-  .btn {
-    padding: 10px 20px;
-    font-family: var(--font-display);
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 1.5px;
-    text-transform: uppercase;
-    cursor: pointer;
-    border: 1px solid var(--border);
-    background: transparent;
-    color: var(--text-dim);
-    transition: all 0.2s;
-    border-radius: 6px;
-  }
-
+  /* ── BUTTONS ── */
+  .btn { padding: 10px 20px; font-family: var(--font-display); font-size: 12px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--text-dim); transition: all 0.2s; border-radius: 6px; }
   .btn:hover { border-color: rgba(255,255,255,0.22); background: rgba(255,255,255,0.05); color: var(--text); }
-
-  .btn-primary {
-    border-color: rgba(255,255,255,0.25);
-    color: #ffffff;
-    background: rgba(255,255,255,0.08);
-  }
-  .btn-primary:hover { background: rgba(255,255,255,0.14); border-color: rgba(255,255,255,0.4); box-shadow: none; }
-
-  .btn-success {
-    border-color: rgba(200,200,200,0.2);
-    color: #c8c8c8;
-    background: rgba(200,200,200,0.05);
-  }
-  .btn-success:hover { background: rgba(200,200,200,0.1); }
-
-  .btn-danger {
-    border-color: rgba(255,59,59,0.35);
-    color: #ff5f5f;
-    background: rgba(255,59,59,0.06);
-  }
+  .btn-primary { border-color: rgba(255,255,255,0.25); color: #fff; background: rgba(255,255,255,0.08); }
+  .btn-primary:hover { background: rgba(255,255,255,0.14); border-color: rgba(255,255,255,0.4); }
+  .btn-danger { border-color: rgba(255,59,59,0.35); color: #ff5f5f; background: rgba(255,59,59,0.06); }
   .btn-danger:hover { background: rgba(255,59,59,0.12); }
-
-  .btn-warn {
-    border-color: rgba(240,192,64,0.35);
-    color: var(--warn);
-  }
-
+  .btn-warn { border-color: rgba(240,192,64,0.35); color: var(--warn); }
   .btn-sm { padding: 6px 14px; font-size: 11px; }
   .btn-block { width: 100%; }
-
   .btn-group { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
 
-  /* TOGGLE */
-  .toggle-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
+  /* ── TOGGLE ── */
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
   .toggle-label { font-size: 14px; font-weight: 600; color: var(--text); }
   .toggle-desc { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); margin-top: 3px; }
-
-  .toggle-sw {
-    width: 44px; height: 24px;
-    background: rgba(255,255,255,0.1);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    position: relative;
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: all 0.3s;
-  }
-
-  .toggle-sw::after {
-    content: '';
-    position: absolute;
-    width: 18px; height: 18px;
-    background: var(--text-dim);
-    border-radius: 50%;
-    top: 2px; left: 2px;
-    transition: all 0.3s;
-  }
-
+  .toggle-sw { width: 44px; height: 24px; background: rgba(255,255,255,0.1); border: 1px solid var(--border); border-radius: 12px; position: relative; cursor: pointer; flex-shrink: 0; transition: all 0.3s; }
+  .toggle-sw::after { content: ''; position: absolute; width: 18px; height: 18px; background: var(--text-dim); border-radius: 50%; top: 2px; left: 2px; transition: all 0.3s; }
   .toggle-sw.on { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.3); }
-  .toggle-sw.on::after { left: 22px; background: #ffffff; box-shadow: none; }
+  .toggle-sw.on::after { left: 22px; background: #fff; }
 
-  /* SLIDER */
+  /* ── SLIDER ── */
   .slider-row { display: flex; align-items: center; gap: 14px; }
+  input[type="range"] { flex: 1; -webkit-appearance: none; height: 2px; background: rgba(255,255,255,0.1); border: none; border-radius: 2px; outline: none; padding: 0; }
+  input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #fff; cursor: pointer; }
+  .slider-val { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); min-width: 55px; text-align: right; }
 
-  input[type="range"] {
-    flex: 1;
-    -webkit-appearance: none;
-    height: 2px;
-    background: rgba(255,255,255,0.1);
-    border: none;
-    border-radius: 2px;
-    outline: none;
-    padding: 0;
-  }
-
-  input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 14px; height: 14px;
-    border-radius: 50%;
-    background: #ffffff;
-    cursor: pointer;
-    box-shadow: none;
-    transition: box-shadow 0.2s;
-  }
-
-  input[type="range"]::-webkit-slider-thumb:hover { box-shadow: 0 0 0 4px rgba(255,255,255,0.12); }
-  input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: #ffffff; cursor: pointer; border: none; }
-
-  .slider-val {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--text-dim);
-    min-width: 55px;
-    text-align: right;
-  }
-
-  /* BADGES */
-  .badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 3px 10px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 1px;
-    border-radius: 2px;
-    text-transform: uppercase;
-  }
-
+  /* ── BADGES ── */
+  .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px; border-radius: 2px; text-transform: uppercase; }
   .badge-active { background: rgba(255,255,255,0.08); color: #d0d0d0; border: 1px solid rgba(255,255,255,0.15); }
   .badge-inactive { background: rgba(255,59,59,0.1); color: #ff6b6b; border: 1px solid rgba(255,59,59,0.2); }
-  .badge-warn { background: rgba(240,192,64,0.1); color: var(--warn); border: 1px solid rgba(240,192,64,0.2); }
   .badge-info { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.1); }
-  .badge-api { background: rgba(200,180,255,0.08); color: #c4b0ff; border: 1px solid rgba(200,180,255,0.15); }
-  .badge-cookie { background: rgba(240,192,64,0.08); color: var(--warn); border: 1px solid rgba(240,192,64,0.15); }
 
-  /* ACCOUNT CARD */
-  .account-item {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 14px 16px;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    margin-bottom: 10px;
-    transition: all 0.2s;
-    cursor: pointer;
-    border-radius: 8px;
-  }
+  /* ── STAT CARDS ── */
+  .stat-card { background: var(--surface); border: 1px solid var(--border); padding: 18px 20px; border-radius: 10px; }
+  .stat-value { font-family: var(--font-display); font-size: 36px; font-weight: 800; color: #fff; line-height: 1; }
+  .stat-label { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); letter-spacing: 2px; text-transform: uppercase; margin-top: 6px; }
 
-  .account-item:hover { border-color: var(--border-bright); background: var(--surface3); }
-  .account-item.selected { border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.04); }
-
-  .avatar-box {
-    width: 42px; height: 42px;
-    border-radius: 50%;
-    overflow: hidden;
-    border: 2px solid var(--border);
-    background: var(--surface3);
-    flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center;
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 16px;
-    color: var(--accent);
-  }
-
-  .avatar-box img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
-
-  .account-meta .name { font-weight: 700; font-size: 15px; }
-  .account-meta .sub { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); margin-top: 2px; }
-
-  /* EMPTY STATE */
-  .empty-state {
-    text-align: center;
-    padding: 40px 20px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text-dimmer);
-    letter-spacing: 1px;
-  }
-
-  /* DIVIDER */
-  .divider { height: 1px; background: linear-gradient(90deg, transparent, var(--border), transparent); margin: 28px 0; }
-
-  /* ONBOARDING OVERLAY */
-  #onboarding {
-    position: fixed;
-    inset: 0;
-    background: rgba(10,10,10,0.97);
-    z-index: 1000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-  }
-
-  #onboarding.hidden { display: none; }
-
-  .onboard-box {
-    width: 100%;
-    max-width: 700px;
-    background: var(--surface);
-    border: 1px solid rgba(255,255,255,0.12);
-    padding: 40px;
-    position: relative;
-    border-radius: 16px;
-    box-shadow: 0 32px 80px rgba(0,0,0,0.6);
-  }
-
-  .onboard-step { display: none; }
-  .onboard-step.active { display: block; animation: fadeIn 0.3s ease; }
-
-  .onboard-title {
-    font-family: var(--font-display);
-    font-size: 32px;
-    font-weight: 800;
-    letter-spacing: 4px;
-    color: #ffffff;
-    text-shadow: none;
-    margin-bottom: 8px;
-  }
-
-  .onboard-sub {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text-dimmer);
-    letter-spacing: 2px;
-    margin-bottom: 32px;
-  }
-
-  .mode-choice {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-    margin-bottom: 28px;
-  }
-
-  .mode-card {
-    padding: 24px;
-    border: 1px solid var(--border);
-    cursor: pointer;
-    transition: all 0.25s;
-    border-radius: 10px;
-    background: var(--surface2);
-  }
-
-  .mode-card:hover { border-color: rgba(255,255,255,0.16); }
-  .mode-card.selected { border-color: rgba(255,255,255,0.35); background: rgba(255,255,255,0.05); box-shadow: 0 0 0 1px rgba(255,255,255,0.08); }
-
-  .mode-icon { font-size: 28px; margin-bottom: 12px; }
-  .mode-name { font-family: var(--font-display); font-size: 20px; font-weight: 900; letter-spacing: 2px; margin-bottom: 10px; }
-
-  .pro-con { font-family: var(--font-mono); font-size: 11px; line-height: 1.8; }
-  .pro-con .pro { color: rgba(255,255,255,0.7); }
-  .pro-con .con { color: rgba(255,255,255,0.3); }
-
-  .tutorial-step {
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    padding: 16px 20px;
-    margin-bottom: 10px;
-    display: flex;
-    gap: 16px;
-    align-items: flex-start;
-    border-radius: 8px;
-  }
-
-  .tut-num {
-    width: 26px; height: 26px;
-    border: 1px solid rgba(255,255,255,0.2);
-    color: rgba(255,255,255,0.6);
-    font-family: var(--font-mono);
-    font-size: 12px;
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-    border-radius: 4px;
-  }
-
-  .tut-text { font-size: 13px; line-height: 1.6; }
-  .tut-text code {
-    background: rgba(255,255,255,0.08);
-    color: rgba(255,255,255,0.85);
-    padding: 1px 6px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 3px;
-  }
-
-  /* MODERATION HISTORY */
-  .history-item {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    padding: 16px 18px;
-    margin-bottom: 8px;
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    transition: all 0.2s;
-    position: relative;
-    border-radius: 10px;
-  }
-
+  /* ── HISTORY ── */
+  .history-item { background: var(--surface); border: 1px solid var(--border); padding: 16px 18px; margin-bottom: 8px; display: flex; align-items: center; gap: 16px; border-radius: 10px; transition: all 0.2s; }
   .history-item:hover { border-color: rgba(255,255,255,0.12); background: var(--surface2); }
-
-  .history-avatar {
-    width: 44px; height: 44px;
-    border-radius: 50%;
-    overflow: hidden;
-    border: 1px solid var(--border);
-    background: var(--surface3);
-    flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center;
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 16px;
-    color: rgba(255,255,255,0.6);
-  }
-
-  .history-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
-
+  .history-avatar { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface3); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-weight: 700; font-size: 16px; color: rgba(255,255,255,0.6); }
   .history-user { flex: 1; min-width: 0; }
   .history-user .display-name { font-weight: 700; font-size: 14px; }
   .history-user .username { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); }
-
+  .history-audio { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: rgba(255,255,255,0.04); border: 1px solid var(--border); margin-top: 8px; font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); border-radius: 4px; }
   .history-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex-shrink: 0; }
   .history-time { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); }
 
-  .history-audio {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 12px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid var(--border);
-    margin-top: 8px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text-dim);
-    border-radius: 4px;
-  }
+  /* ── GROUP ITEM ── */
+  .group-item { background: var(--surface2); border: 1px solid var(--border); padding: 16px 18px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; gap: 12px; border-radius: 8px; }
 
-  .history-filter-bar {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 18px;
-    flex-wrap: wrap;
-    align-items: center;
-  }
+  /* ── ASSET TYPE FILTER ── */
+  .asset-filter-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .asset-chip { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface2); cursor: pointer; transition: all 0.2s; font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); user-select: none; }
+  .asset-chip:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
+  .asset-chip.selected { border-color: rgba(255,255,255,0.35); background: rgba(255,255,255,0.07); color: #fff; }
+  .asset-chip-dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3); flex-shrink: 0; transition: all 0.2s; }
+  .asset-chip.selected .asset-chip-dot { background: #fff; border-color: #fff; }
 
-  .history-filter-bar input[type="text"] {
-    flex: 1;
-    min-width: 200px;
-  }
+  /* ── WHITELIST TABS ── */
+  .wl-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .wl-tab { padding: 5px 12px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; background: transparent; color: var(--text-dimmer); transition: all 0.2s; }
+  .wl-tab:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
+  .wl-tab.active { border-color: rgba(255,255,255,0.3); color: #fff; background: rgba(255,255,255,0.06); }
 
-  /* GROUP ITEM */
-  .group-item {
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    padding: 16px 18px;
-    margin-bottom: 10px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-    border-radius: 8px;
-  }
-
-  /* NOTIFICATION */
-  #toast-container {
-    position: fixed;
-    bottom: 20px; right: 20px;
-    z-index: 9000;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    pointer-events: none;
-  }
-
-  .toast {
-    padding: 12px 18px;
-    background: var(--surface2);
-    border-left: 2px solid rgba(255,255,255,0.3);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.5px;
-    animation: toast-in 0.3s ease, toast-out 0.3s ease 2.7s forwards;
-    pointer-events: auto;
-    max-width: 320px;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.6);
-    border-radius: 6px;
-  }
-
+  /* ── TOAST ── */
+  #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9000; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+  .toast { padding: 12px 18px; background: var(--surface2); border-left: 2px solid rgba(255,255,255,0.3); font-family: var(--font-mono); font-size: 11px; animation: toast-in 0.3s ease, toast-out 0.3s ease 2.7s forwards; pointer-events: auto; max-width: 320px; box-shadow: 0 4px 24px rgba(0,0,0,0.6); border-radius: 6px; }
   .toast.success { border-color: rgba(200,200,200,0.4); }
   .toast.error { border-color: rgba(255,59,59,0.5); }
   .toast.warn { border-color: rgba(240,192,64,0.5); }
+  @keyframes toast-in { from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:translateX(0)} }
+  @keyframes toast-out { from{opacity:1} to{opacity:0;pointer-events:none} }
 
-  @keyframes toast-in { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
-  @keyframes toast-out { from { opacity: 1; } to { opacity: 0; pointer-events: none; } }
-
-  /* SETTINGS MODAL */
-  #settings-modal {
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.7);
-    z-index: 500;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-  }
-
-  #settings-modal.open { display: flex; }
-
-  .modal-box {
-    background: var(--surface);
-    border: 1px solid rgba(255,255,255,0.12);
-    padding: 32px;
-    width: 100%;
-    max-width: 640px;
-    max-height: 80vh;
-    overflow-y: auto;
-    position: relative;
-    border-radius: 14px;
-    box-shadow: 0 24px 80px rgba(0,0,0,0.7);
-    animation: fadeIn 0.2s ease;
-  }
-
-  .modal-close {
-    position: absolute;
-    top: 16px; right: 16px;
-    background: none;
-    border: 1px solid var(--border);
-    color: var(--text-dim);
-    width: 28px; height: 28px;
-    cursor: pointer;
-    font-size: 14px;
-    display: flex; align-items: center; justify-content: center;
-    transition: all 0.2s;
-    border-radius: 6px;
-  }
-
+  /* ── MODAL ── */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 500; display: none; align-items: center; justify-content: center; padding: 20px; }
+  .modal-overlay.open { display: flex; }
+  .modal-box { background: var(--surface); border: 1px solid rgba(255,255,255,0.12); padding: 32px; width: 100%; max-width: 520px; max-height: 85vh; overflow-y: auto; position: relative; border-radius: 14px; box-shadow: 0 24px 80px rgba(0,0,0,0.7); animation: fadeIn 0.2s ease; }
+  .modal-close { position: absolute; top: 16px; right: 16px; background: none; border: 1px solid var(--border); color: var(--text-dim); width: 28px; height: 28px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; border-radius: 6px; }
   .modal-close:hover { border-color: rgba(255,59,59,0.4); color: #ff6b6b; }
 
-  /* DANGER ZONE */
-  .danger-zone {
-    border: 1px solid rgba(255,77,109,0.3);
-    padding: 16px 20px;
-    margin-top: 12px;
+  /* ── PROFILE SELECTOR SCREEN ── */
+  #profile-screen {
+    position: fixed; inset: 0; z-index: 200;
+    background: var(--bg); display: flex; align-items: center; justify-content: center;
+    flex-direction: column; padding: 40px 20px;
   }
+  #profile-screen.hidden { display: none; }
 
-  /* INLINE INFO */
-  .info-box {
-    padding: 12px 16px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    line-height: 1.7;
-    color: var(--text-dim);
-    margin-bottom: 16px;
-    border-radius: 6px;
-  }
+  .profile-screen-logo { text-align: center; margin-bottom: 40px; }
+  .profile-screen-logo .big-logo { font-family: var(--font-display); font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #fff; }
+  .profile-screen-logo .big-sub { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); letter-spacing: 3px; margin-top: 6px; }
 
+  .profile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 16px; width: 100%; max-width: 700px; margin-bottom: 24px; }
+  .profile-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px 16px; text-align: center; cursor: pointer; transition: all 0.25s; }
+  .profile-card:hover { border-color: rgba(255,255,255,0.25); background: var(--surface2); transform: translateY(-2px); }
+  .profile-card.add-card { border-style: dashed; border-color: rgba(255,255,255,0.1); }
+  .profile-card.add-card:hover { border-color: rgba(255,255,255,0.25); }
+
+  .profile-card-avatar { width: 64px; height: 64px; border-radius: 50%; border: 2px solid var(--border); background: var(--surface3); margin: 0 auto 14px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-weight: 800; font-size: 24px; color: rgba(255,255,255,0.5); }
+  .profile-card-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+  .profile-card-name { font-family: var(--font-display); font-size: 15px; font-weight: 700; letter-spacing: 1px; color: #fff; margin-bottom: 4px; }
+  .profile-card-sub { font-family: var(--font-mono); font-size: 9px; color: var(--text-dimmer); letter-spacing: 1px; }
+
+  /* ── PIN MODAL ── */
+  .pin-display { display: flex; gap: 12px; justify-content: center; margin: 24px 0; }
+  .pin-dot { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); transition: all 0.2s; }
+  .pin-dot.filled { background: #fff; border-color: #fff; }
+  .pin-keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-width: 240px; margin: 0 auto; }
+  .pin-key { padding: 16px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; font-family: var(--font-display); font-size: 18px; font-weight: 700; color: var(--text); cursor: pointer; transition: all 0.15s; text-align: center; }
+  .pin-key:hover { background: var(--surface3); border-color: rgba(255,255,255,0.2); }
+  .pin-key:active { transform: scale(0.95); }
+  .pin-key.del { font-size: 14px; color: var(--text-dim); }
+
+  /* ── INFO BOX ── */
+  .info-box { padding: 12px 16px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); font-family: var(--font-mono); font-size: 11px; line-height: 1.7; color: var(--text-dim); margin-bottom: 16px; border-radius: 6px; }
   .info-box.warn-box { background: rgba(240,192,64,0.05); border-color: rgba(240,192,64,0.18); color: var(--warn); }
 
-  /* MODE INDICATOR */
-  .mode-indicator {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 14px;
-    border: 1px solid var(--border);
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    margin-bottom: 20px;
-  }
+  .divider { height: 1px; background: linear-gradient(90deg,transparent,var(--border),transparent); margin: 28px 0; }
 
-  /* RESTORE BTN IN HISTORY */
-  .restore-btn {
-    opacity: 0;
-    transition: opacity 0.2s;
-  }
+  .danger-zone { border: 1px solid rgba(255,77,109,0.3); padding: 16px 20px; border-radius: 8px; }
 
-  .history-item:hover .restore-btn { opacity: 1; }
+  /* ── CONNECT CODE ── */
+  .connect-code-display { font-family: var(--font-display); font-size: 64px; font-weight: 800; letter-spacing: 16px; color: #fff; background: var(--surface2); border: 1px solid var(--border-bright); padding: 24px; border-radius: 12px; text-align: center; margin-bottom: 10px; transition: border-color 0.3s; }
+  .connect-code-display.connected { border-color: rgba(255,255,255,0.5); }
 
-  .cred-saved {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 14px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.12);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: rgba(255,255,255,0.6);
-    margin-bottom: 10px;
-    border-radius: 6px;
-  }
-
-  /* SETUP PROGRESS */
-  .setup-steps {
-    display: flex;
-    align-items: center;
-    gap: 0;
-    margin-bottom: 32px;
-  }
-
-  .setup-step {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    position: relative;
-  }
-
-  .setup-step::after {
-    content: '';
-    position: absolute;
-    top: 12px; left: 50%;
-    width: 100%;
-    height: 1px;
-    background: var(--border);
-  }
-
-  .setup-step:last-child::after { display: none; }
-
-  .step-circle {
-    width: 24px; height: 24px;
-    border-radius: 50%;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    display: flex; align-items: center; justify-content: center;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text-dimmer);
-    position: relative;
-    z-index: 1;
-  }
-
-  .setup-step.done .step-circle { border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.8); }
-  .setup-step.current .step-circle { border-color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.1); color: #ffffff; box-shadow: 0 0 0 3px rgba(255,255,255,0.06); }
-
-  .step-label { font-family: var(--font-mono); font-size: 9px; color: var(--text-dimmer); letter-spacing: 1px; text-align: center; }
-  .setup-step.current .step-label { color: rgba(255,255,255,0.6); }
-
-  /* STAT CARDS */
-  .stat-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    padding: 18px 20px;
-    border-radius: 10px;
-    transition: border-color 0.2s;
-  }
-
-  .stat-card:hover { border-color: rgba(255,255,255,0.1); }
-
-  .stat-value {
-    font-family: var(--font-display);
-    font-size: 36px;
-    font-weight: 800;
-    color: #ffffff;
-    line-height: 1;
-    text-shadow: none;
-  }
-
-  .stat-label { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); letter-spacing: 2px; text-transform: uppercase; margin-top: 6px; }
-
-  /* CREDENTIAL MASKED */
-  .masked-input-row {
-    display: flex;
-    gap: 8px;
-    align-items: stretch;
-  }
-
-  .masked-input-row input { flex: 1; }
-
-  /* RESPONSIVE */
   @media (max-width: 600px) {
-    .mode-choice { grid-template-columns: 1fr; }
     #topbar { padding: 10px 14px; }
     #nav { padding: 0 10px; overflow-x: auto; }
     .tab-panel { padding: 16px; }
+    .profile-grid { grid-template-columns: repeat(2, 1fr); }
   }
 </style>
 </head>
 <body>
 
-<!-- ONBOARDING OVERLAY -->
-<div id="onboarding">
-  <div class="onboard-box">
-    <!-- STEP 1: Welcome + Connect -->
-    <div class="onboard-step active" id="step-welcome">
-      <div style="display:flex;align-items:center;gap:16px;margin-bottom:28px;">
-        <div style="width:52px;height:52px;border:1px solid rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;border-radius:10px;background:rgba(255,255,255,0.06);">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.8)" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        </div>
-        <div>
-          <div class="onboard-title" style="font-size:28px;margin-bottom:0;">SENTINEL</div>
-          <div class="onboard-sub" style="margin-bottom:0;">ROBLOX AUDIO MODERATION SYSTEM — FIRST RUN SETUP</div>
-        </div>
-      </div>
+<!-- ── PROFILE SELECTOR SCREEN ── -->
+<div id="profile-screen">
+  <div id="grid-bg"></div>
+  <div class="corner-decor tl"></div><div class="corner-decor tr"></div>
+  <div class="corner-decor bl"></div><div class="corner-decor br"></div>
 
-      <div class="section-title">Connect Your Roblox Account</div>
+  <div class="profile-screen-logo">
+    <div class="big-logo">SENTINEL</div>
+    <div class="big-sub">ROBLOX ASSET MODERATION — SELECT PROFILE</div>
+  </div>
 
-      <div class="info-box" style="margin-bottom:16px;">
-        SENTINEL uses the Chrome extension to securely connect your Roblox bot account.
-        Download the extension, then enter the connect code it gives you below.
-      </div>
+  <div class="profile-grid" id="profile-grid">
+    <!-- filled by JS -->
+  </div>
 
-      <a href="/static/sentinel-extension.zip" download style="text-decoration:none;display:block;margin-bottom:10px;">
-        <button class="btn btn-primary btn-block" style="font-size:14px;padding:14px;">
-          ⬇ Download Chrome Extension
-        </button>
-      </a>
+  <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);letter-spacing:1px;">
+    Click any profile to sign in with your PIN
+  </div>
+</div>
 
-      <button class="btn btn-block" style="margin-bottom:20px;" onclick="showConnectCode()">
-        I already have the extension →
-      </button>
-
-      <div id="connect-code-box" style="display:none;">
-        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);letter-spacing:2px;text-align:center;margin-bottom:10px;">
-          ENTER THIS CODE IN THE EXTENSION
-        </div>
-        <div id="connect-code-display"
-          style="font-family:var(--font-display);font-size:56px;font-weight:800;
-                 letter-spacing:14px;color:#fff;background:var(--surface2);
-                 border:1px solid var(--border-bright);padding:20px;border-radius:12px;
-                 text-align:center;margin-bottom:8px;">
-          ----
-        </div>
-        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);text-align:center;margin-bottom:20px;"
-          id="code-expiry-text">
-          Expires in 5:00
-        </div>
-      </div>
-
-      <button class="btn btn-primary btn-block" id="complete-setup-btn"
-        onclick="completeOnboarding()"
-        style="opacity:0.4;cursor:not-allowed;" disabled>
-        I've Connected → Complete Setup
-      </button>
+<!-- ── PIN MODAL ── -->
+<div class="modal-overlay" id="pin-modal">
+  <div class="modal-box" style="max-width:360px;text-align:center;">
+    <button class="modal-close" onclick="closePinModal()">✕</button>
+    <div id="pin-modal-avatar" style="width:64px;height:64px;border-radius:50%;border:2px solid var(--border);background:var(--surface3);margin:0 auto 12px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:800;font-size:24px;color:rgba(255,255,255,0.5);"></div>
+    <div id="pin-modal-name" style="font-family:var(--font-display);font-size:20px;font-weight:800;letter-spacing:2px;color:#fff;margin-bottom:4px;"></div>
+    <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);margin-bottom:4px;">ENTER YOUR PIN</div>
+    <div id="pin-error" style="font-family:var(--font-mono);font-size:10px;color:#ff6b6b;min-height:16px;margin-bottom:4px;"></div>
+    <div class="pin-display" id="pin-display">
+      <div class="pin-dot"></div><div class="pin-dot"></div>
+      <div class="pin-dot"></div><div class="pin-dot"></div>
     </div>
-
-    <!-- STEP 2A: Cookie setup -->
-    <div class="onboard-step" id="step-cookie-setup">
-      <div class="onboard-title" style="font-size:24px;">Cookie Setup</div>
-      <div class="onboard-sub">HOW TO GET YOUR .ROBLOSECURITY COOKIE</div>
-
-      <div class="setup-steps">
-        <div class="setup-step done" id="sp1b"><div class="step-circle">✓</div><div class="step-label">Mode</div></div>
-        <div class="setup-step current" id="sp2b"><div class="step-circle">2</div><div class="step-label">Setup</div></div>
-        <div class="setup-step" id="sp3b"><div class="step-circle">3</div><div class="step-label">Verify</div></div>
-      </div>
-
-      <div class="info-box warn-box" style="margin-bottom:20px;">
-        ⚠ Use a dedicated bot/mod account. Never use your main account's cookie. Keep it secret.
-      </div>
-
-      <div class="tutorial-step"><div class="tut-num">1</div><div class="tut-text">Log in to <strong>roblox.com</strong> on the account you want to use as your bot/moderator account.</div></div>
-      <div class="tutorial-step"><div class="tut-num">2</div><div class="tut-text">Press <code>F12</code> to open DevTools, or right-click → <code>Inspect Element</code>.</div></div>
-      <div class="tutorial-step"><div class="tut-num">3</div><div class="tut-text">Go to the <code>Application</code> tab (Chrome) or <code>Storage</code> tab (Firefox).</div></div>
-      <div class="tutorial-step"><div class="tut-num">4</div><div class="tut-text">Expand <code>Cookies</code> → click <code>https://www.roblox.com</code>. Find the cookie named <code>.ROBLOSECURITY</code> and copy its entire value.</div></div>
-      <div class="tutorial-step"><div class="tut-num">5</div><div class="tut-text">Paste the cookie below. It will be encrypted before storage and cannot be viewed again.</div></div>
-
-      <div style="margin-top:20px;">
-        <label class="field-label">Paste .ROBLOSECURITY Cookie</label>
-        <div class="masked-input-row">
-          <input type="password" id="ob-cookie-input" placeholder="_|WARNING:-DO-NOT-SHARE-THIS..." autocomplete="off">
-          <button class="btn btn-primary" onclick="saveOnboardCookie()" style="white-space:nowrap;">Save Encrypted</button>
-        </div>
-      </div>
-
-      <div id="cookie-saved-indicator" style="display:none;" class="cred-saved" style="margin-top:12px;">
-        <span>✓ Cookie saved (encrypted)</span>
-        <span style="color:var(--text-dimmer);">••••••••••••••••••••</span>
-      </div>
-
-      <div class="btn-group" style="margin-top:20px;">
-        <button class="btn" onclick="backToMode()">← Back</button>
-        <button class="btn btn-primary" id="cookie-continue-btn" onclick="goToVerify()" disabled style="opacity:0.4;cursor:not-allowed;flex:1;">Continue →</button>
-      </div>
-    </div>
-
-    <!-- STEP 2B: API setup -->
-    <div class="onboard-step" id="step-api-setup">
-      <div class="onboard-title" style="font-size:24px;">Open Cloud Setup</div>
-      <div class="onboard-sub">CONFIGURE YOUR ROBLOX OPEN CLOUD API KEY</div>
-
-      <div class="setup-steps">
-        <div class="setup-step done"><div class="step-circle">✓</div><div class="step-label">Mode</div></div>
-        <div class="setup-step current"><div class="step-circle">2</div><div class="step-label">Setup</div></div>
-        <div class="setup-step"><div class="step-circle">3</div><div class="step-label">Verify</div></div>
-      </div>
-
-      <div class="info-box" style="margin-bottom:18px;">
-        ℹ Open Cloud API does <strong>not</strong> support sending DMs to users. The auto-notify feature will be disabled when using this mode.
-      </div>
-
-      <div class="tutorial-step"><div class="tut-num">1</div><div class="tut-text">Go to <code>create.roblox.com</code> and sign in with your moderator account.</div></div>
-      <div class="tutorial-step"><div class="tut-num">2</div><div class="tut-text">In the left sidebar click <code>Credentials</code>, then click <code>Create API Key</code>.</div></div>
-      <div class="tutorial-step"><div class="tut-num">3</div><div class="tut-text">Give it a name like <code>SENTINEL-MOD</code>. Under <code>Access Permissions</code> add <code>assets:read</code>, <code>assets:write</code>. Under <code>Security</code> you can restrict by IP if desired.</div></div>
-      <div class="tutorial-step"><div class="tut-num">4</div><div class="tut-text">Click <code>Save & Generate Key</code>. Copy the key — <strong>it won't be shown again</strong>.</div></div>
-      <div class="tutorial-step"><div class="tut-num">5</div><div class="tut-text">Enter your Creator ID: go to your Roblox profile, the number in the URL is your User ID.</div></div>
-      <div class="tutorial-step"><div class="tut-num">6</div><div class="tut-text">If SENTINEL cannot auto-fetch your groups, you can paste a group URL manually on the Groups tab.</div></div>
-
-      <div style="margin-top:20px;display:grid;gap:14px;">
-        <div>
-          <label class="field-label">Open Cloud API Key</label>
-          <div class="masked-input-row">
-            <input type="password" id="ob-api-key-input" placeholder="Paste your API key..." autocomplete="off">
-            <button class="btn btn-primary" onclick="saveOnboardApiKey()">Save Encrypted</button>
-          </div>
-        </div>
-        <div>
-          <label class="field-label">Your Roblox User ID</label>
-          <input type="text" id="ob-user-id" placeholder="e.g. 12345678">
-        </div>
-      </div>
-
-      <div id="api-saved-indicator" style="display:none;" class="cred-saved" style="margin-top:12px;">
-        <span>✓ API Key saved (encrypted)</span>
-        <span style="color:var(--text-dimmer);">••••••••••••••••••••</span>
-      </div>
-
-      <div class="btn-group" style="margin-top:20px;">
-        <button class="btn" onclick="backToMode()">← Back</button>
-        <button class="btn btn-primary" id="api-continue-btn" onclick="goToVerify()" disabled style="opacity:0.4;cursor:not-allowed;flex:1;">Continue →</button>
-      </div>
-    </div>
-
-    <!-- STEP 3: Verify -->
-    <div class="onboard-step" id="step-verify">
-      <div class="onboard-title" style="font-size:24px;">Verify Connection</div>
-      <div class="onboard-sub">TESTING YOUR CREDENTIALS</div>
-
-      <div class="setup-steps">
-        <div class="setup-step done"><div class="step-circle">✓</div><div class="step-label">Mode</div></div>
-        <div class="setup-step done"><div class="step-circle">✓</div><div class="step-label">Setup</div></div>
-        <div class="setup-step current"><div class="step-circle">3</div><div class="step-label">Verify</div></div>
-      </div>
-
-      <div id="verify-result" style="padding:20px 0;font-family:var(--font-mono);font-size:12px;color:var(--text-dim);text-align:center;">
-        Click "Test Connection" to verify your setup.
-      </div>
-
-      <div class="btn-group">
-        <button class="btn btn-primary" onclick="testOnboardConnection()" style="flex:1;">Test Connection</button>
-        <button class="btn btn-success" id="complete-btn" onclick="completeOnboarding()" disabled style="opacity:0.4;cursor:not-allowed;flex:1;">Complete Setup →</button>
-      </div>
-      <button class="btn" onclick="backToSetup()" style="width:100%;margin-top:10px;">← Back</button>
+    <div class="pin-keypad">
+      <div class="pin-key" onclick="pinKey('1')">1</div>
+      <div class="pin-key" onclick="pinKey('2')">2</div>
+      <div class="pin-key" onclick="pinKey('3')">3</div>
+      <div class="pin-key" onclick="pinKey('4')">4</div>
+      <div class="pin-key" onclick="pinKey('5')">5</div>
+      <div class="pin-key" onclick="pinKey('6')">6</div>
+      <div class="pin-key" onclick="pinKey('7')">7</div>
+      <div class="pin-key" onclick="pinKey('8')">8</div>
+      <div class="pin-key" onclick="pinKey('9')">9</div>
+      <div class="pin-key" onclick="pinKey('0')" style="grid-column:2;">0</div>
+      <div class="pin-key del" onclick="pinBackspace()">⌫</div>
     </div>
   </div>
 </div>
 
-<!-- SETTINGS MODAL -->
-<div id="settings-modal">
+<!-- ── CREATE PROFILE MODAL ── -->
+<div class="modal-overlay" id="create-profile-modal">
+  <div class="modal-box" style="max-width:440px;">
+    <button class="modal-close" onclick="closeCreateProfile()">✕</button>
+    <div style="font-family:var(--font-display);font-size:22px;font-weight:800;letter-spacing:3px;margin-bottom:6px;">NEW PROFILE</div>
+    <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);letter-spacing:2px;margin-bottom:24px;">SET UP YOUR SENTINEL PROFILE</div>
+
+    <div style="margin-bottom:14px;">
+      <label class="field-label">Profile Name</label>
+      <input type="text" id="new-profile-name" placeholder="e.g. ModerationBot">
+    </div>
+    <div style="margin-bottom:14px;">
+      <label class="field-label">PIN (4+ digits)</label>
+      <input type="password" id="new-profile-pin" placeholder="••••" maxlength="8" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+    </div>
+    <div style="margin-bottom:20px;">
+      <label class="field-label">Avatar URL (optional)</label>
+      <input type="url" id="new-profile-avatar" placeholder="https://...">
+    </div>
+
+    <button class="btn btn-primary btn-block" onclick="createProfile()">Create Profile →</button>
+  </div>
+</div>
+
+<!-- ── SETTINGS MODAL ── -->
+<div class="modal-overlay" id="settings-modal">
   <div class="modal-box">
     <button class="modal-close" onclick="closeSettings()">✕</button>
     <div class="section-title" style="margin-bottom:20px;">Settings</div>
 
-    <!-- Mode section -->
+    <!-- Profile section -->
     <div style="margin-bottom:24px;">
-      <div class="section-title">Maintenance Mode</div>
-      <div id="settings-current-mode" class="mode-indicator"></div>
-      <div class="info-box warn-box">⚠ Changing maintenance mode will require you to re-enter credentials.</div>
+      <div class="section-title">Profile</div>
+      <div id="settings-profile-info" style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-bottom:14px;"></div>
       <div class="btn-group">
-        <button class="btn btn-warn btn-sm" onclick="changeModeFromSettings('cookie')">Switch to Cookie</button>
-        <button class="btn btn-sm" onclick="changeModeFromSettings('api')">Switch to Open Cloud API</button>
+        <button class="btn btn-sm" onclick="openChangePinModal()">Change PIN</button>
+        <button class="btn btn-sm" onclick="openChangeNameModal()">Change Name</button>
+        <button class="btn btn-sm btn-warn" onclick="signOutProfile()">Sign Out</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteProfilePrompt()">Delete Profile</button>
       </div>
-    </div>
-
-    <div class="divider"></div>
-
-    <!-- API keys / credentials section -->
-    <div style="margin-bottom:24px;" id="settings-credentials-section">
-      <div class="section-title">Credentials</div>
-      <div id="settings-cred-list"></div>
-      <div id="settings-add-cred"></div>
     </div>
 
     <div class="divider"></div>
@@ -1133,33 +356,66 @@
     <!-- Groups -->
     <div style="margin-bottom:24px;">
       <div class="section-title">Group Management</div>
-      <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px;">Add additional groups to monitor. If auto-fetch fails, paste the group URL below.</p>
       <label class="field-label">Group URL or ID</label>
-      <div class="masked-input-row">
-        <input type="text" id="settings-group-url" placeholder="https://www.roblox.com/groups/12345/ or just 12345">
-        <button class="btn btn-primary btn-sm" onclick="addGroupFromUrl()">Add</button>
+      <div style="display:flex;gap:8px;">
+        <input type="text" id="settings-group-url" placeholder="https://www.roblox.com/groups/12345/ or just 12345" style="flex:1;">
+        <button class="btn btn-primary btn-sm" onclick="addGroupFromSettings()">Add</button>
       </div>
     </div>
 
     <div class="divider"></div>
 
+    <!-- Danger zone -->
     <div class="danger-zone">
       <div class="section-title" style="color:var(--accent3);">Danger Zone</div>
       <div class="btn-group">
-        <button class="btn btn-danger btn-sm" onclick="clearAllData()">Clear All Data</button>
-        <button class="btn btn-danger btn-sm" onclick="resetOnboarding()">Reset & Re-run Setup</button>
+        <button class="btn btn-danger btn-sm" onclick="clearAllHistory()">Clear History</button>
+        <button class="btn btn-danger btn-sm" onclick="clearCredentials()">Disconnect Roblox</button>
+      </div>
+
+      <div style="margin-top:16px;">
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label" style="font-size:13px;">Save Credentials to Database</div>
+            <div class="toggle-desc">Cookie will be stored in Postgres — stays connected after server restart</div>
+          </div>
+          <div class="toggle-sw" id="save-cookies-toggle" onclick="toggleSaveCookies(this)"></div>
+        </div>
+        <div class="info-box warn-box" style="margin-top:8px;margin-bottom:0;">
+          ⚠ Only enable if you trust this server. Cookie grants full Roblox account access.
+        </div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- MAIN APP -->
+<!-- ── CHANGE PIN MODAL ── -->
+<div class="modal-overlay" id="change-pin-modal">
+  <div class="modal-box" style="max-width:400px;">
+    <button class="modal-close" onclick="document.getElementById('change-pin-modal').classList.remove('open')">✕</button>
+    <div style="font-family:var(--font-display);font-size:20px;font-weight:800;letter-spacing:3px;margin-bottom:20px;">CHANGE PIN</div>
+    <div style="margin-bottom:12px;"><label class="field-label">Current PIN</label><input type="password" id="cp-current" placeholder="••••" maxlength="8" oninput="this.value=this.value.replace(/[^0-9]/g,'')"></div>
+    <div style="margin-bottom:20px;"><label class="field-label">New PIN</label><input type="password" id="cp-new" placeholder="••••" maxlength="8" oninput="this.value=this.value.replace(/[^0-9]/g,'')"></div>
+    <button class="btn btn-primary btn-block" onclick="changePin()">Update PIN</button>
+  </div>
+</div>
+
+<!-- ── CHANGE NAME MODAL ── -->
+<div class="modal-overlay" id="change-name-modal">
+  <div class="modal-box" style="max-width:400px;">
+    <button class="modal-close" onclick="document.getElementById('change-name-modal').classList.remove('open')">✕</button>
+    <div style="font-family:var(--font-display);font-size:20px;font-weight:800;letter-spacing:3px;margin-bottom:20px;">CHANGE NAME</div>
+    <div style="margin-bottom:12px;"><label class="field-label">Current PIN (to verify)</label><input type="password" id="cn-pin" placeholder="••••" maxlength="8" oninput="this.value=this.value.replace(/[^0-9]/g,'')"></div>
+    <div style="margin-bottom:20px;"><label class="field-label">New Name</label><input type="text" id="cn-name" placeholder="New profile name"></div>
+    <button class="btn btn-primary btn-block" onclick="changeName()">Update Name</button>
+  </div>
+</div>
+
+<!-- ── MAIN APP ── -->
 <div id="app">
   <div id="grid-bg"></div>
-  <div class="corner-decor tl"></div>
-  <div class="corner-decor tr"></div>
-  <div class="corner-decor bl"></div>
-  <div class="corner-decor br"></div>
+  <div class="corner-decor tl"></div><div class="corner-decor tr"></div>
+  <div class="corner-decor bl"></div><div class="corner-decor br"></div>
 
   <div id="topbar">
     <div class="logo-lockup">
@@ -1167,8 +423,8 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
       </div>
       <div>
-        <div style="font-family:var(--font-display);font-size:22px;font-weight:800;letter-spacing:5px;color:#ffffff;text-shadow:none;line-height:1;">SENTINEL</div>
-        <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-dimmer);letter-spacing:2px;">ROBLOX AUDIO MODERATION</div>
+        <div class="logo-text">SENTINEL</div>
+        <div class="logo-sub">ROBLOX ASSET MODERATION</div>
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
@@ -1176,7 +432,10 @@
         <div class="status-dot" id="main-status-dot"></div>
         <span id="main-status-text">OFFLINE</span>
       </div>
-      <div id="mode-pill" class="status-pill"></div>
+      <div class="profile-pill" onclick="openSettings()">
+        <div class="profile-pill-avatar" id="topbar-avatar"></div>
+        <span class="profile-pill-name" id="topbar-profile-name">—</span>
+      </div>
       <button class="btn btn-sm" onclick="openSettings()">⚙ Settings</button>
     </div>
   </div>
@@ -1185,80 +444,69 @@
     <button class="nav-tab active" onclick="showTab('dashboard')">Dashboard</button>
     <button class="nav-tab" onclick="showTab('groups')">Groups</button>
     <button class="nav-tab" onclick="showTab('config')">Config</button>
-    <button class="nav-tab" onclick="showTab('history')">
-      History
-      <span class="tab-badge" id="history-badge"></span>
-    </button>
+    <button class="nav-tab" onclick="showTab('history')">History<span class="tab-badge" id="history-badge"></span></button>
     <button class="nav-tab" onclick="showTab('notifications')">Notifications</button>
   </div>
 
   <div id="content">
 
-    <!-- DASHBOARD TAB -->
+    <!-- ── DASHBOARD ── -->
     <div class="tab-panel active" id="tab-dashboard">
       <div style="max-width:1200px;margin:0 auto;">
         <div class="grid-3 mb-20">
-          <div class="stat-card">
-            <div class="stat-value" id="stat-archived">0</div>
-            <div class="stat-label">Assets Archived</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value" id="stat-dms">0</div>
-            <div class="stat-label">DMs Sent</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value" id="stat-groups">0</div>
-            <div class="stat-label">Groups Monitored</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value" id="stat-whitelisted">0</div>
-            <div class="stat-label">Whitelisted Users</div>
-          </div>
+          <div class="stat-card"><div class="stat-value" id="stat-archived">0</div><div class="stat-label">Assets Archived</div></div>
+          <div class="stat-card"><div class="stat-value" id="stat-dms">0</div><div class="stat-label">DMs Sent</div></div>
+          <div class="stat-card"><div class="stat-value" id="stat-groups">0</div><div class="stat-label">Groups Monitored</div></div>
+          <div class="stat-card"><div class="stat-value" id="stat-whitelisted">0</div><div class="stat-label">Whitelisted</div></div>
         </div>
 
         <div class="grid-2 mb-20">
           <div class="card">
             <div class="section-title">Monitoring Control</div>
-            <div class="toggle-row" style="margin-bottom:16px;">
-              <div>
-                <div class="toggle-label">Active Monitoring</div>
-                <div class="toggle-desc">Polls groups for new uploads</div>
-              </div>
+            <div class="toggle-row">
+              <div><div class="toggle-label">Active Monitoring</div><div class="toggle-desc">Polls groups for new uploads</div></div>
               <div class="toggle-sw" id="monitor-toggle" onclick="toggleMonitor(this)"></div>
             </div>
             <div class="toggle-row">
-              <div>
-                <div class="toggle-label">Auto-Archive on Detect</div>
-                <div class="toggle-desc">Archive assets immediately when found</div>
-              </div>
-              <div class="toggle-sw on" id="auto-archive-toggle" onclick="this.classList.toggle('on')"></div>
+              <div><div class="toggle-label">Archive Existing Assets</div><div class="toggle-desc">Also archive assets already in group on start</div></div>
+              <div class="toggle-sw" id="archive-existing-toggle" onclick="toggleArchiveExisting(this)"></div>
             </div>
           </div>
 
           <div class="card">
             <div class="section-title">Connection</div>
-            <div style="margin-bottom:14px;">
-              <div id="conn-mode-display" class="field-label" style="margin-bottom:6px;"></div>
-              <div id="conn-account-display" style="font-size:13px;color:var(--text-dim);">No account connected</div>
+            <div id="conn-account-display" style="font-size:13px;color:var(--text-dim);margin-bottom:14px;">No account connected</div>
+
+            <!-- Connect code section -->
+            <div id="connect-code-section">
+              <div id="connect-code-box" style="display:none;margin-bottom:14px;">
+                <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-dimmer);letter-spacing:2px;text-align:center;margin-bottom:10px;">ENTER IN EXTENSION</div>
+                <div class="connect-code-display" id="connect-code-display">----</div>
+                <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);text-align:center;" id="code-expiry-text">—</div>
+              </div>
+
+              <a href="/static/sentinel-extension.zip" download style="text-decoration:none;display:block;margin-bottom:8px;">
+                <button class="btn btn-primary btn-block" onclick="showConnectCode()">⬇ Download Extension + Get Code</button>
+              </a>
+              <button class="btn btn-block" onclick="showConnectCode()">I have the extension — Get Code</button>
             </div>
-            <button class="btn btn-primary btn-block" onclick="testConnection()">Test Connection</button>
+
+            <div id="connected-account-section" style="display:none;">
+              <button class="btn btn-block" onclick="testConnection()" style="margin-top:8px;">Test Connection</button>
+            </div>
           </div>
         </div>
 
         <div class="card mb-20">
           <div class="section-title">Recent Activity</div>
-          <div id="recent-activity">
-            <div class="empty-state">No activity yet — start monitoring to see events here.</div>
-          </div>
+          <div id="recent-activity"><div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);padding:20px 0;text-align:center;">No activity yet — start monitoring to see events here.</div></div>
         </div>
       </div>
     </div>
 
-    <!-- GROUPS TAB -->
+    <!-- ── GROUPS ── -->
     <div class="tab-panel" id="tab-groups">
       <div style="max-width:1000px;margin:0 auto;">
-        <div id="groups-mode-notice" class="info-box" style="display:none;"></div>
-
         <div class="card mb-28">
           <div class="section-title">Add Group</div>
           <div class="grid-2" style="gap:12px;margin-bottom:0;">
@@ -1270,29 +518,41 @@
               <button class="btn btn-primary btn-block" onclick="addGroup()">Add Group</button>
             </div>
           </div>
-          <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);margin-top:10px;">If auto-fetch of your groups fails, enter the URL or group ID manually above.</div>
         </div>
-
         <div class="section-title">Active Groups</div>
-        <div id="groups-list">
-          <div class="empty-state">No groups added yet. Add a group above to start monitoring.</div>
-        </div>
+        <div id="groups-list"><div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);padding:20px 0;text-align:center;">No groups added yet.</div></div>
       </div>
     </div>
 
-    <!-- CONFIG TAB -->
+    <!-- ── CONFIG ── -->
     <div class="tab-panel" id="tab-config">
       <div style="max-width:1000px;margin:0 auto;">
+
+        <div class="section-title">Asset Type Filters</div>
+        <div class="card mb-28">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);">Select which asset types to monitor and archive</div>
+            <button class="btn btn-sm" onclick="selectAllAssetTypes()">Select All</button>
+          </div>
+          <div class="asset-filter-grid" id="asset-filter-grid"></div>
+        </div>
 
         <div class="section-title">Archive Settings</div>
         <div class="grid-2 mb-28">
           <div class="card">
             <label class="field-label">Polling Interval</label>
             <div class="slider-row">
-              <input type="range" id="polling-slider" min="30" max="300" value="60" oninput="updateSlider('polling-val',this.value,'s')">
+              <input type="range" id="polling-slider" min="5" max="300" value="60" oninput="updateSlider('polling-val',this.value,'s');checkFastPollWarning(this.value)">
               <div class="slider-val" id="polling-val">60s</div>
             </div>
+            <div id="fast-poll-warning" style="display:none;" class="info-box warn-box" style="margin-top:10px;">
+              ⚠ Polling below 30s may cause Roblox rate limiting. Not guaranteed but possible.
+            </div>
             <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);margin-top:8px;">How often to check for new uploads</div>
+            <div class="toggle-row" style="margin-top:12px;">
+              <div><div class="toggle-label" style="font-size:13px;">Allow Fast Polling (&lt;30s)</div><div class="toggle-desc">Unlock intervals below 30 seconds</div></div>
+              <div class="toggle-sw" id="fast-poll-toggle" onclick="toggleFastPoll(this)"></div>
+            </div>
           </div>
 
           <div class="card">
@@ -1307,23 +567,19 @@
 
         <div class="section-title">Notifications</div>
         <div class="card mb-28">
-          <div id="notify-mode-warning" class="info-box warn-box" style="display:none;">
-            ⚠ DMs require Cookie Mode. Switch to Cookie Mode in Settings to enable this feature.
-          </div>
-          <div class="toggle-row mb-20" style="margin-bottom:16px;" id="notify-toggle-row">
-            <div>
-              <div class="toggle-label">Auto-Notify Uploader</div>
-              <div class="toggle-desc">Send a DM to the user when their asset is archived</div>
-            </div>
-            <div class="toggle-sw on" id="notify-toggle" onclick="toggleNotify(this)"></div>
+          <div class="toggle-row">
+            <div><div class="toggle-label">Auto-Notify Uploader</div><div class="toggle-desc">Send a DM to the user when their asset is archived</div></div>
+            <div class="toggle-sw on" id="notify-toggle" onclick="this.classList.toggle('on')"></div>
           </div>
         </div>
 
         <div class="section-title">Whitelist</div>
         <div class="card mb-28">
-          <label class="field-label">Whitelisted User IDs (one per line)</label>
-          <textarea id="whitelist-input" placeholder="Enter Roblox user IDs, one per line:&#10;12345678&#10;87654321" oninput="updateWhitelistCount()"></textarea>
-          <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);margin-top:8px;" id="whitelist-count">0 users whitelisted</div>
+          <div class="info-box" style="margin-bottom:14px;">Each asset type has its own whitelist. "All Types" applies globally across everything.</div>
+          <div class="wl-tabs" id="wl-tabs"></div>
+          <label class="field-label" id="wl-current-label">Whitelisted Users — All Types</label>
+          <textarea id="whitelist-input" placeholder="Enter Roblox user IDs or usernames, one per line" oninput="updateWhitelistCount()"></textarea>
+          <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);margin-top:8px;" id="whitelist-count">0 users</div>
         </div>
 
         <div class="btn-group">
@@ -1334,11 +590,17 @@
       </div>
     </div>
 
-    <!-- HISTORY TAB -->
+    <!-- ── HISTORY ── -->
     <div class="tab-panel" id="tab-history">
       <div style="max-width:1100px;margin:0 auto;">
-        <div class="history-filter-bar">
+        <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;align-items:center;">
           <input type="text" id="history-search" placeholder="Search by username, asset name..." oninput="filterHistory()" style="flex:1;min-width:180px;">
+          <select id="history-filter-type" onchange="filterHistory()" style="width:auto;">
+            <option value="">All Types</option>
+            <option>Audio</option><option>Image</option><option>Decal</option>
+            <option>Video</option><option>Mesh</option><option>Plugin</option>
+            <option>Animation</option><option>Model</option><option>Package</option>
+          </select>
           <select id="history-filter-dm" onchange="filterHistory()" style="width:auto;">
             <option value="">All DM Statuses</option>
             <option value="sent">DM Sent</option>
@@ -1347,410 +609,431 @@
           </select>
           <button class="btn btn-sm" onclick="clearHistory()">Clear History</button>
         </div>
-
-        <div id="history-list">
-          <div class="empty-state">No moderation history yet. Archive events will appear here.</div>
-        </div>
+        <div id="history-list"><div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);padding:20px 0;text-align:center;">No moderation history yet.</div></div>
       </div>
     </div>
 
-    <!-- NOTIFICATIONS TAB -->
+    <!-- ── NOTIFICATIONS ── -->
     <div class="tab-panel" id="tab-notifications">
       <div style="max-width:800px;margin:0 auto;">
-        <div id="notif-api-warning" class="info-box warn-box" style="display:none;">
-          ⚠ DMs require Cookie Mode. This section is only configurable in Cookie Mode. Switch in Settings to enable.
-        </div>
-
         <div class="section-title">DM Template</div>
         <div class="card mb-28">
           <label class="field-label">Message Sent to Uploader</label>
-          <textarea id="dm-template" style="min-height:140px;">Your audio "[AUDIO_NAME]" has been archived from [GROUP_NAME] as our group only permits uploads via approved channels.
-
-To share your audio: upload it to your own account, then add [ALT_ACCOUNT] as a collaborator under Asset Permissions on the Creator Hub.
-
-If you believe this was a mistake, please contact [GROUP_NAME] staff.</textarea>
+          <textarea id="dm-template" style="min-height:140px;"></textarea>
           <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);margin-top:10px;line-height:1.8;">
-            Placeholders: <code style="color:rgba(255,255,255,0.75);background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px;border:1px solid rgba(255,255,255,0.1);">[USER_NAME]</code>
-            <code style="color:rgba(255,255,255,0.75);background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px;border:1px solid rgba(255,255,255,0.1);">[AUDIO_NAME]</code>
-            <code style="color:rgba(255,255,255,0.75);background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px;border:1px solid rgba(255,255,255,0.1);">[GROUP_NAME]</code>
-            <code style="color:rgba(255,255,255,0.75);background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px;border:1px solid rgba(255,255,255,0.1);">[ALT_ACCOUNT]</code>
+            Placeholders:
+            <code style="color:rgba(255,255,255,0.75);background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px;">[USER_NAME]</code>
+            <code style="color:rgba(255,255,255,0.75);background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px;">[AUDIO_NAME]</code>
+            <code style="color:rgba(255,255,255,0.75);background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px;">[GROUP_NAME]</code>
+            <code style="color:rgba(255,255,255,0.75);background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px;">[ALT_ACCOUNT]</code>
           </div>
         </div>
-
-        <div class="section-title">Alt Account Reference</div>
+        <div class="section-title">Alt Account</div>
         <div class="card mb-28">
           <label class="field-label">Alt Account Username (for [ALT_ACCOUNT] placeholder)</label>
           <input type="text" id="alt-account" placeholder="e.g. YourBotAccountName">
         </div>
-
         <button class="btn btn-primary" onclick="saveNotifSettings()">Save Notification Settings</button>
       </div>
     </div>
 
-  </div><!-- end #content -->
-</div><!-- end #app -->
+  </div>
+</div>
 
-<!-- TOAST CONTAINER -->
 <div id="toast-container"></div>
 
-<!-- JS START -->
 <script>
-// ─── API CLIENT ────────────────────────────────────────────────────────────────
+// ── STATE ─────────────────────────────────────────────────────────────────────
+const ALL_ASSET_TYPES = ['Audio','Image','Decal','Video','Mesh','Plugin','Animation','Model','Package'];
+const WL_KEYS = ['all', ...ALL_ASSET_TYPES];
+
+let STATE = {
+  profileId:   null,
+  profileName: null,
+  profileAvatar: null,
+  monitoring:  false,
+  hasCredential: false,
+  activeWlTab: 'all',
+};
+
+// ── API ───────────────────────────────────────────────────────────────────────
 async function api(method, path, body) {
   const opts = { method, headers: {} };
-  if (body !== undefined) {
-    opts.headers['Content-Type'] = 'application/json';
-    opts.body = JSON.stringify(body);
-  }
+  if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
   const r = await fetch(path, opts);
   const data = await r.json().catch(() => ({ detail: r.statusText }));
   if (!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
   return data;
 }
 
-// ─── STATE ─────────────────────────────────────────────────────────────────────
-let STATE = {
-  mode:          localStorage.getItem('sentinel_mode') || null,
-  setupComplete: localStorage.getItem('sentinel_setup') === '1',
-  monitoring:    false,
-};
+function pid() { return STATE.profileId; }
 
-// ─── ONBOARDING ────────────────────────────────────────────────────────────────
-let selectedModeInOnboard = null;
-
-function selectMode(mode) {
-  selectedModeInOnboard = mode;
-  document.getElementById('mode-cookie').classList.toggle('selected', mode === 'cookie');
-  document.getElementById('mode-api').classList.toggle('selected', mode === 'api');
-  const btn = document.getElementById('mode-next-btn');
-  btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor = 'pointer';
+// ── TOAST ─────────────────────────────────────────────────────────────────────
+function toast(msg, type='') {
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 3200);
 }
 
-function goToSetup() {
-  if (!selectedModeInOnboard) return;
-  hideAllOnboardSteps();
-  document.getElementById(
-    selectedModeInOnboard === 'cookie' ? 'step-cookie-setup' : 'step-api-setup'
-  ).classList.add('active');
+// ── TABS ──────────────────────────────────────────────────────────────────────
+function showTab(name) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  document.querySelectorAll('.nav-tab').forEach(t => {
+    if (t.textContent.trim().toLowerCase().startsWith(name.slice(0,4))) t.classList.add('active');
+  });
+  if (name === 'history') { document.getElementById('history-badge').classList.remove('show'); refreshHistory(); }
+  if (name === 'config') { buildAssetFilterGrid(); buildWlTabs(); }
 }
 
-function backToMode() {
-  hideAllOnboardSteps();
-  document.getElementById('step-welcome').classList.add('active');
-}
-
-function backToSetup() {
-  hideAllOnboardSteps();
-  document.getElementById(
-    selectedModeInOnboard === 'cookie' ? 'step-cookie-setup' : 'step-api-setup'
-  ).classList.add('active');
-}
-
-function hideAllOnboardSteps() {
-  document.querySelectorAll('.onboard-step').forEach(s => s.classList.remove('active'));
-}
-
-async function saveOnboardCookie() {
-  const val = document.getElementById('ob-cookie-input').value.trim();
-  if (!val) { toast('Paste a cookie first', 'error'); return; }
-  const saveBtn = document.querySelector('#step-cookie-setup .btn-primary');
-  if (saveBtn) { saveBtn.textContent = 'Validating...'; saveBtn.disabled = true; }
+// ── PROFILE SCREEN ────────────────────────────────────────────────────────────
+async function loadProfileScreen() {
+  const grid = document.getElementById('profile-grid');
+  grid.innerHTML = '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);">Loading...</div>';
   try {
-    const info = await api('POST', '/api/validate-cookie', { cookie: val });
-    document.getElementById('ob-cookie-input').value = '';
-    const indicator = document.getElementById('cookie-saved-indicator');
-    indicator.style.display = 'flex';
-    indicator.innerHTML = `
-      <div style="display:flex;align-items:center;gap:12px;width:100%;">
-        ${info.avatarUrl
-          ? `<img src="${escHtml(info.avatarUrl)}" style="width:38px;height:38px;border-radius:50%;border:2px solid rgba(255,255,255,0.2);">`
-          : `<div style="width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;">${escHtml((info.displayName||'?').charAt(0))}</div>`}
-        <div style="flex:1;">
-          <div style="font-weight:700;font-size:14px;">${escHtml(info.displayName)}</div>
-          <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);">@${escHtml(info.username)} · UID ${escHtml(info.userId)}</div>
+    const profiles = await api('GET', '/api/profiles');
+    grid.innerHTML = '';
+    profiles.forEach(p => {
+      const card = document.createElement('div');
+      card.className = 'profile-card';
+      const initials = p.name.slice(0,2).toUpperCase();
+      card.innerHTML = `
+        <div class="profile-card-avatar">
+          ${p.avatar_url ? `<img src="${esc(p.avatar_url)}" onerror="this.style.display='none'">` : initials}
         </div>
-        <span style="color:rgba(100,255,100,0.7);font-family:var(--font-mono);font-size:10px;letter-spacing:1px;">✓ VERIFIED</span>
-      </div>`;
-    const btn = document.getElementById('cookie-continue-btn');
-    btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor = 'pointer';
-    toast('✓ Account verified: ' + info.displayName, 'success');
+        <div class="profile-card-name">${esc(p.name)}</div>
+        <div class="profile-card-sub">Click to sign in</div>`;
+      card.onclick = () => openPinModal(p);
+      grid.appendChild(card);
+    });
+    // Add new profile card
+    const addCard = document.createElement('div');
+    addCard.className = 'profile-card add-card';
+    addCard.innerHTML = `
+      <div class="profile-card-avatar" style="font-size:28px;color:rgba(255,255,255,0.3);">+</div>
+      <div class="profile-card-name" style="color:var(--text-dim);">New Profile</div>
+      <div class="profile-card-sub">Create a new profile</div>`;
+    addCard.onclick = () => document.getElementById('create-profile-modal').classList.add('open');
+    grid.appendChild(addCard);
   } catch(e) {
-    toast('Validation failed: ' + e.message, 'error');
-  } finally {
-    if (saveBtn) { saveBtn.textContent = 'Save & Verify'; saveBtn.disabled = false; }
+    grid.innerHTML = `<div style="font-family:var(--font-mono);font-size:11px;color:#ff6b6b;padding:20px;">Error loading profiles: ${esc(e.message)}</div>`;
   }
 }
 
-async function saveOnboardApiKey() {
-  const val = document.getElementById('ob-api-key-input').value.trim();
-  const uid = document.getElementById('ob-user-id').value.trim();
-  if (!val) { toast('Paste an API key first', 'error'); return; }
-  if (!uid) { toast('Enter your Roblox User ID', 'error'); return; }
+// ── PIN MODAL ─────────────────────────────────────────────────────────────────
+let _pinTarget = null;
+let _pinValue  = '';
+
+function openPinModal(profile) {
+  _pinTarget = profile;
+  _pinValue  = '';
+  document.getElementById('pin-modal-name').textContent = profile.name;
+  document.getElementById('pin-error').textContent = '';
+  const avatarEl = document.getElementById('pin-modal-avatar');
+  avatarEl.innerHTML = profile.avatar_url
+    ? `<img src="${esc(profile.avatar_url)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.style.display='none'">`
+    : profile.name.slice(0,2).toUpperCase();
+  updatePinDots();
+  document.getElementById('pin-modal').classList.add('open');
+}
+
+function closePinModal() {
+  document.getElementById('pin-modal').classList.remove('open');
+  _pinValue = ''; _pinTarget = null;
+  updatePinDots();
+}
+
+function updatePinDots() {
+  document.querySelectorAll('#pin-display .pin-dot').forEach((d, i) => {
+    d.classList.toggle('filled', i < _pinValue.length);
+  });
+}
+
+function pinKey(digit) {
+  if (_pinValue.length >= 8) return;
+  _pinValue += digit;
+  updatePinDots();
+  if (_pinValue.length >= 4) submitPin();
+}
+
+function pinBackspace() {
+  _pinValue = _pinValue.slice(0,-1);
+  updatePinDots();
+  document.getElementById('pin-error').textContent = '';
+}
+
+async function submitPin() {
+  if (!_pinTarget) return;
   try {
-    await api('POST', '/api/validate-apikey', { apiKey: val });
-    document.getElementById('ob-api-key-input').value = '';
-    document.getElementById('api-saved-indicator').style.display = 'flex';
-    document.getElementById('api-saved-indicator').innerHTML =
-      '<span>✓ API Key validated</span><span style="color:var(--text-dimmer);">••••••••••••••••••••</span>';
-    const btn = document.getElementById('api-continue-btn');
-    btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor = 'pointer';
-    toast('✓ API key validated', 'success');
+    const res = await api('POST', '/api/profiles/login', { profile_id: _pinTarget.id, pin: _pinValue });
+    document.getElementById('pin-modal').classList.remove('open');
+    await loginToProfile(res);
   } catch(e) {
-    toast('Validation failed: ' + e.message, 'error');
+    document.getElementById('pin-error').textContent = 'Wrong PIN — try again';
+    _pinValue = '';
+    updatePinDots();
   }
 }
 
-function goToVerify() {
-  hideAllOnboardSteps();
-  document.getElementById('step-verify').classList.add('active');
-}
+// ── CREATE PROFILE ────────────────────────────────────────────────────────────
+function closeCreateProfile() { document.getElementById('create-profile-modal').classList.remove('open'); }
 
-async function testOnboardConnection() {
-  const el = document.getElementById('verify-result');
-  el.innerHTML = '<span style="color:var(--warn)">⟳ Testing connection with Roblox...</span>';
+async function createProfile() {
+  const name   = document.getElementById('new-profile-name').value.trim();
+  const pin    = document.getElementById('new-profile-pin').value.trim();
+  const avatar = document.getElementById('new-profile-avatar').value.trim();
+  if (!name) { toast('Enter a profile name', 'error'); return; }
+  if (pin.length < 4) { toast('PIN must be at least 4 digits', 'error'); return; }
   try {
-    const status = await api('GET', '/api/status');
-    if (status.hasCredential && status.account) {
-      const acc = status.account;
-      el.innerHTML = `
-        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;justify-content:center;">
-          ${acc.avatarUrl
-            ? `<img src="${escHtml(acc.avatarUrl)}" style="width:52px;height:52px;border-radius:50%;border:2px solid rgba(255,255,255,0.25);">`
-            : `<div style="width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-size:22px;">🔑</div>`}
-          <div style="text-align:left;">
-            <div style="font-weight:700;font-size:16px;color:#fff;margin-bottom:3px;">✓ ${escHtml(acc.displayName)}</div>
-            <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);">@${escHtml(acc.username||'api-mode')} · ${escHtml(status.mode)} mode</div>
-          </div>
-        </div>
-        ${status.mode === 'api' ? '<div style="font-size:11px;color:var(--warn);margin-top:8px;font-family:var(--font-mono);">⚠ DMs not available in API mode</div>' : ''}
-      `;
-      const btn = document.getElementById('complete-btn');
-      btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor = 'pointer';
-    } else {
-      el.innerHTML = '<span style="color:#ff6b6b;">✗ No credentials found. Go back and verify credentials first.</span>';
-    }
-  } catch(e) {
-    el.innerHTML = `<span style="color:#ff6b6b;">✗ Backend connection failed: ${escHtml(e.message)}</span>`;
-  }
+    await api('POST', '/api/profiles', { name, pin, avatar_url: avatar });
+    closeCreateProfile();
+    document.getElementById('new-profile-name').value = '';
+    document.getElementById('new-profile-pin').value  = '';
+    document.getElementById('new-profile-avatar').value = '';
+    await loadProfileScreen();
+    toast('Profile created!', 'success');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
-async function completeOnboarding() {
-  const status = await api('GET', '/api/status');
-  STATE.mode = status.mode;
-  STATE.setupComplete = true;
-  localStorage.setItem('sentinel_mode', status.mode);
-  localStorage.setItem('sentinel_setup', '1');
-  document.getElementById('onboarding').classList.add('hidden');
+// ── LOGIN TO PROFILE ──────────────────────────────────────────────────────────
+async function loginToProfile(profileData) {
+  STATE.profileId     = profileData.id;
+  STATE.profileName   = profileData.name;
+  STATE.profileAvatar = profileData.avatar_url;
+  STATE.hasCredential = profileData.hasCredential || false;
+
+  // Update topbar
+  const avatarEl = document.getElementById('topbar-avatar');
+  if (profileData.avatar_url) {
+    avatarEl.innerHTML = `<img src="${esc(profileData.avatar_url)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.style.display='none'">`;
+  } else {
+    avatarEl.textContent = profileData.name.slice(0,2).toUpperCase();
+  }
+  document.getElementById('topbar-profile-name').textContent = profileData.name;
+
+  // Hide profile screen, show app
+  document.getElementById('profile-screen').classList.add('hidden');
+
+  // If saved credentials exist, restore them
+  if (profileData.hasCredential && profileData.account) {
+    updateAccountDisplay(profileData.account);
+  }
+
   await initApp();
-  toast('Setup complete! Welcome to SENTINEL.', 'success');
+  toast(`Welcome, ${profileData.name}!`, 'success');
 }
 
-// ─── APP INIT ──────────────────────────────────────────────────────────────────
+// ── APP INIT ──────────────────────────────────────────────────────────────────
 async function initApp() {
-  try {
-    const status = await api('GET', '/api/status');
-    STATE.mode = status.mode;
-    STATE.monitoring = status.monitoring;
-    updateTopbarMode();
-    updateNotifyModeWarning();
-
-    // Account card
-    if (status.account) {
-      const acc = status.account;
-      const connEl = document.getElementById('conn-account-display');
-      if (connEl) {
-        connEl.innerHTML = `
-          <div style="display:flex;align-items:center;gap:10px;margin-top:6px;">
-            ${acc.avatarUrl
-              ? `<img src="${escHtml(acc.avatarUrl)}" style="width:34px;height:34px;border-radius:50%;border:1px solid rgba(255,255,255,0.18);">`
-              : ''}
-            <div>
-              <div style="font-weight:600;font-size:13px;">${escHtml(acc.displayName)}</div>
-              <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);">@${escHtml(acc.username||'api-mode')} · ${escHtml(acc.userId ? 'UID '+acc.userId : 'Open Cloud')}</div>
-            </div>
-          </div>`;
-      }
-    }
-
-    _applyMonitoringUI(STATE.monitoring);
-  } catch(e) {
-    console.error('initApp error:', e);
-    toast('Backend connection failed — is the server running?', 'error');
-    return;
-  }
-
   await Promise.all([
+    refreshStatus(),
+    refreshStats(),
     refreshGroups(),
     refreshHistory(),
-    refreshStats(),
     loadConfigFromApi(),
     loadNotifFromApi(),
   ]);
-
   startLiveUpdates();
 }
 
-function _applyMonitoringUI(on) {
-  const dot    = document.getElementById('main-status-dot');
-  const txt    = document.getElementById('main-status-text');
-  const toggle = document.getElementById('monitor-toggle');
-  if (on) {
-    dot.className = 'status-dot online';
-    txt.textContent = 'MONITORING';
-    if (toggle) toggle.classList.add('on');
-  } else {
-    dot.className = 'status-dot error';
-    txt.textContent = 'OFFLINE';
-    if (toggle) toggle.classList.remove('on');
-  }
-}
-
-// ─── LIVE UPDATES ──────────────────────────────────────────────────────────────
-let liveInterval    = null;
-let _prevHistCount  = 0;
+let _liveInterval = null;
+let _prevHistCount = 0;
 
 function startLiveUpdates() {
-  if (liveInterval) return;
-  liveInterval = setInterval(async () => {
+  if (_liveInterval) clearInterval(_liveInterval);
+  _liveInterval = setInterval(async () => {
     try {
-      const status = await api('GET', '/api/status');
-      STATE.monitoring = status.monitoring;
-      _applyMonitoringUI(STATE.monitoring);
+      await refreshStatus();
       await refreshStats();
       if (STATE.monitoring) await refreshHistory();
     } catch {}
   }, 4000);
 }
 
-// ─── TABS ──────────────────────────────────────────────────────────────────────
-function showTab(name) {
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-  document.getElementById('tab-' + name).classList.add('active');
-  // Match tab button
-  document.querySelectorAll('.nav-tab').forEach(t => {
-    const txt = t.textContent.trim().toLowerCase();
-    if (name === 'notifications' && txt === 'notifications') t.classList.add('active');
-    else if (name !== 'notifications' && txt.startsWith(name.charAt(0)) && txt.includes(name.slice(1,4))) t.classList.add('active');
-  });
-  if (name === 'history') {
-    document.getElementById('history-badge').classList.remove('show');
-    refreshHistory();
+// ── STATUS ────────────────────────────────────────────────────────────────────
+async function refreshStatus() {
+  const status = await api('GET', `/api/status?profile_id=${pid()}`);
+  STATE.monitoring    = status.monitoring;
+  STATE.hasCredential = status.hasCredential;
+  applyMonitoringUI(status.monitoring);
+  if (status.account) updateAccountDisplay(status.account);
+
+  // Show/hide connect vs connected sections
+  const connectSection   = document.getElementById('connect-code-section');
+  const connectedSection = document.getElementById('connected-account-section');
+  if (status.hasCredential) {
+    connectSection.style.display   = 'none';
+    connectedSection.style.display = 'block';
+  } else {
+    connectSection.style.display   = 'block';
+    connectedSection.style.display = 'none';
   }
 }
 
-// ─── MONITORING ────────────────────────────────────────────────────────────────
+function applyMonitoringUI(on) {
+  const dot    = document.getElementById('main-status-dot');
+  const txt    = document.getElementById('main-status-text');
+  const toggle = document.getElementById('monitor-toggle');
+  dot.className = 'status-dot ' + (on ? 'online' : 'error');
+  txt.textContent = on ? 'MONITORING' : 'OFFLINE';
+  if (toggle) toggle.classList.toggle('on', on);
+}
+
+function updateAccountDisplay(acc) {
+  if (!acc) return;
+  const el = document.getElementById('conn-account-display');
+  if (el) el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;">
+      ${acc.avatarUrl ? `<img src="${esc(acc.avatarUrl)}" style="width:34px;height:34px;border-radius:50%;border:1px solid rgba(255,255,255,0.18);">` : ''}
+      <div>
+        <div style="font-weight:600;font-size:13px;">${esc(acc.displayName)}</div>
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);">@${esc(acc.username)} · UID ${esc(acc.userId)}</div>
+      </div>
+    </div>`;
+}
+
+// ── MONITORING ────────────────────────────────────────────────────────────────
 async function toggleMonitor(el) {
   const turningOn = !el.classList.contains('on');
-  el.classList.toggle('on', turningOn);
-  const dot = document.getElementById('main-status-dot');
-  const txt = document.getElementById('main-status-text');
   try {
     if (turningOn) {
-      dot.className = 'status-dot warn';
-      txt.textContent = 'STARTING...';
-      await api('POST', '/api/monitoring/start');
+      await api('POST', '/api/monitoring/start', { profile_id: pid() });
       STATE.monitoring = true;
-      dot.className = 'status-dot online';
-      txt.textContent = 'MONITORING';
       toast('Monitoring started', 'success');
     } else {
-      await api('POST', '/api/monitoring/stop');
+      await api('POST', '/api/monitoring/stop', { profile_id: pid() });
       STATE.monitoring = false;
-      dot.className = 'status-dot error';
-      txt.textContent = 'PAUSED';
       toast('Monitoring paused', 'warn');
     }
-  } catch(e) {
-    el.classList.toggle('on', !turningOn);  // revert
-    dot.className = 'status-dot error';
-    txt.textContent = 'ERROR';
-    toast('Error: ' + e.message, 'error');
-  }
+    applyMonitoringUI(STATE.monitoring);
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
-function toggleNotify(el) {
-  if (STATE.mode === 'api') { toast('DMs require Cookie Mode', 'warn'); return; }
+async function toggleArchiveExisting(el) {
   el.classList.toggle('on');
+  const on = el.classList.contains('on');
+  try {
+    await api('POST', '/api/config', { profile_id: pid(), archiveExisting: on });
+  } catch(e) { toast('Error saving: ' + e.message, 'error'); }
 }
 
-// ─── GROUPS ────────────────────────────────────────────────────────────────────
+// ── CONNECT CODE ──────────────────────────────────────────────────────────────
+let _codeTimer = null;
+let _pollTimer = null;
+
+async function showConnectCode() {
+  const box = document.getElementById('connect-code-box');
+  box.style.display = 'block';
+  if (_codeTimer) clearInterval(_codeTimer);
+  if (_pollTimer) clearInterval(_pollTimer);
+
+  try {
+    const res = await api('POST', '/api/connect-code/generate', { profile_id: pid() });
+    document.getElementById('connect-code-display').textContent = res.code;
+
+    let secs = 300;
+    _codeTimer = setInterval(() => {
+      secs--;
+      const m = Math.floor(secs / 60);
+      const s = String(secs % 60).padStart(2, '0');
+      document.getElementById('code-expiry-text').textContent = `Expires in ${m}:${s}`;
+      if (secs <= 0) { clearInterval(_codeTimer); showConnectCode(); }
+    }, 1000);
+
+    _pollTimer = setInterval(async () => {
+      try {
+        const status = await api('GET', `/api/status?profile_id=${pid()}`);
+        if (status.hasCredential) {
+          clearInterval(_pollTimer);
+          clearInterval(_codeTimer);
+          STATE.hasCredential = true;
+          document.getElementById('code-expiry-text').textContent = '✓ Extension connected!';
+          document.getElementById('connect-code-display').classList.add('connected');
+          document.getElementById('connect-code-section').style.display   = 'none';
+          document.getElementById('connected-account-section').style.display = 'block';
+          if (status.account) updateAccountDisplay(status.account);
+          toast('✓ Extension connected!', 'success');
+        }
+      } catch {}
+    }, 3000);
+  } catch(e) { toast('Could not generate code: ' + e.message, 'error'); }
+}
+
+async function testConnection() {
+  try {
+    const status = await api('GET', `/api/status?profile_id=${pid()}`);
+    toast(status.hasCredential ? `✓ Connected — ${status.account?.displayName}` : 'No credential found', status.hasCredential ? 'success' : 'error');
+  } catch(e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+// ── GROUPS ────────────────────────────────────────────────────────────────────
 async function addGroup() {
-  const input = document.getElementById('group-url-input');
-  let val = input.value.trim();
-  if (!val) { toast('Enter a group URL or ID', 'error'); return; }
+  let val = document.getElementById('group-url-input').value.trim();
   let gid = val;
   const match = val.match(/groups\/(\d+)/);
   if (match) gid = match[1];
   else if (!/^\d+$/.test(val)) { toast('Invalid group URL or ID', 'error'); return; }
-
-  toast('Fetching group info…', '');
   try {
-    const g = await api('POST', '/api/groups', { id: gid });
-    input.value = '';
+    const g = await api('POST', '/api/groups', { id: gid, profile_id: pid() });
+    document.getElementById('group-url-input').value = '';
     await refreshGroups();
     await refreshStats();
     toast(`Group "${g.name}" added`, 'success');
-  } catch(e) {
-    toast('Error: ' + e.message, 'error');
-  }
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
-function addGroupFromUrl() {
-  document.getElementById('group-url-input').value =
-    document.getElementById('settings-group-url').value;
+function addGroupFromSettings() {
+  document.getElementById('group-url-input').value = document.getElementById('settings-group-url').value;
   addGroup();
   document.getElementById('settings-group-url').value = '';
 }
 
 async function removeGroup(id) {
-  if (!confirm('Remove this group from monitoring?')) return;
+  if (!confirm('Remove this group?')) return;
   try {
-    await api('DELETE', `/api/groups/${id}`);
+    await api('DELETE', `/api/groups/${id}?profile_id=${pid()}`);
     await refreshGroups();
     await refreshStats();
     toast('Group removed', 'warn');
-  } catch(e) {
-    toast('Error: ' + e.message, 'error');
-  }
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
 async function refreshGroups() {
-  const groups = await api('GET', '/api/groups').catch(() => []);
+  const groups = await api('GET', `/api/groups?profile_id=${pid()}`).catch(() => []);
   const list = document.getElementById('groups-list');
   if (!list) return;
   if (!groups.length) {
-    list.innerHTML = '<div class="empty-state">No groups added yet. Enter a group URL or ID above.</div>';
+    list.innerHTML = '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);padding:20px 0;text-align:center;">No groups added yet.</div>';
     return;
   }
   list.innerHTML = groups.map(g => `
     <div class="group-item">
       <div style="display:flex;align-items:center;gap:12px;">
-        <div style="width:36px;height:36px;border:1px solid var(--border);border-radius:6px;
-             display:flex;align-items:center;justify-content:center;
-             color:rgba(255,255,255,0.4);font-family:var(--font-mono);font-size:11px;flex-shrink:0;">GRP</div>
+        <div style="width:36px;height:36px;border:1px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.4);font-family:var(--font-mono);font-size:11px;flex-shrink:0;">GRP</div>
         <div>
-          <div style="font-weight:700;font-size:15px;">${escHtml(g.name)}</div>
-          <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);">ID: ${escHtml(g.id)}</div>
+          <div style="font-weight:700;font-size:15px;">${esc(g.name)}</div>
+          <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);">ID: ${esc(g.id)}</div>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:10px;">
         <span class="badge badge-active">● Monitoring</span>
-        <button class="btn btn-danger btn-sm" onclick="removeGroup('${escHtml(g.id)}')">Remove</button>
+        <button class="btn btn-danger btn-sm" onclick="removeGroup('${esc(g.id)}')">Remove</button>
       </div>
     </div>`).join('');
 }
 
-// ─── HISTORY ───────────────────────────────────────────────────────────────────
+// ── HISTORY ───────────────────────────────────────────────────────────────────
 let _cachedHistory = [];
 
 async function refreshHistory() {
   const search = document.getElementById('history-search')?.value || '';
-  const params = new URLSearchParams({ limit: 200 });
+  const params = new URLSearchParams({ limit: 200, profile_id: pid() });
   if (search) params.append('search', search);
   const items = await api('GET', `/api/history?${params}`).catch(() => []);
 
-  // Detect new items and badge/toast
   if (items.length > _prevHistCount && _prevHistCount > 0) {
     document.getElementById('history-badge').classList.add('show');
     const newest = items[0];
@@ -1759,63 +1042,57 @@ async function refreshHistory() {
   _prevHistCount = items.length;
   _cachedHistory = items;
 
-  // Update Recent Activity on Dashboard
+  // Recent activity on dashboard
   const ra = document.getElementById('recent-activity');
   if (ra) {
-    const recent = items.slice(0, 10);
+    const recent = items.slice(0,10);
     if (!recent.length) {
-      ra.innerHTML = '<div class="empty-state">No activity yet — start monitoring to see events here.</div>';
+      ra.innerHTML = '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);padding:20px 0;text-align:center;">No activity yet.</div>';
     } else {
-      ra.innerHTML = recent.map(entry => `
-        <div style="padding:8px 0;border-bottom:1px solid var(--border);font-family:var(--font-mono);
-             font-size:11px;color:var(--text-dim);animation:fadeIn 0.3s ease;">
+      ra.innerHTML = recent.map(e => `
+        <div style="padding:8px 0;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;color:var(--text-dim);">
           <span style="color:rgba(255,255,255,0.4);">▶</span>
-          [${escHtml(entry.time)}]
-          Archived "<span style="color:var(--text);">${escHtml(entry.audio_name)}</span>"
-          — <span style="color:rgba(255,255,255,0.7);">${escHtml(entry.display_name||entry.username)}</span>
-          · DM: ${dmStatusBadge(entry.dm_status)}
-          ${entry.group_name ? `<span style="color:rgba(255,255,255,0.35);margin-left:6px;">📂 ${escHtml(entry.group_name)}</span>` : ''}
+          [${esc(e.time)}]
+          <span style="color:rgba(200,180,255,0.8);">${esc(e.asset_type || 'Asset')}</span>
+          "${esc(e.audio_name)}" — <span style="color:rgba(255,255,255,0.7);">${esc(e.display_name||e.username)}</span>
+          · DM: ${dmStatusBadge(e.dm_status)}
+          ${e.group_name ? `<span style="color:rgba(255,255,255,0.35);margin-left:6px;">📂 ${esc(e.group_name)}</span>` : ''}
         </div>`).join('');
     }
   }
 
-  // Render list if history tab is active
-  const histTab = document.getElementById('tab-history');
-  if (histTab?.classList.contains('active')) renderHistoryList(items);
+  if (document.getElementById('tab-history')?.classList.contains('active')) renderHistoryList(items);
 }
 
-function renderHistory()    { refreshHistory(); }
-function filterHistory()    { refreshHistory(); }
+function filterHistory() { refreshHistory(); }
 
 function renderHistoryList(items) {
   const list = document.getElementById('history-list');
   if (!list) return;
-  const dmq = document.getElementById('history-filter-dm')?.value || '';
-  let filtered = items || _cachedHistory;
-  if (dmq) filtered = filtered.filter(i => i.dm_status === dmq);
-
+  const dmq   = document.getElementById('history-filter-dm')?.value || '';
+  const typeq = document.getElementById('history-filter-type')?.value || '';
+  let filtered = items;
+  if (dmq)   filtered = filtered.filter(i => i.dm_status === dmq);
+  if (typeq) filtered = filtered.filter(i => i.asset_type === typeq);
   if (!filtered.length) {
-    list.innerHTML = '<div class="empty-state">No moderation history. Archive events will appear here.</div>';
+    list.innerHTML = '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);padding:20px 0;text-align:center;">No history.</div>';
     return;
   }
   list.innerHTML = filtered.map(item => `
     <div class="history-item">
-      <div class="history-avatar" style="font-size:14px;">
-        ${escHtml(((item.display_name||item.username||'?').slice(0,2)).toUpperCase())}
-      </div>
+      <div class="history-avatar">${esc(((item.display_name||item.username||'?').slice(0,2)).toUpperCase())}</div>
       <div class="history-user" style="flex:1;min-width:0;">
-        <div class="display-name">${escHtml(item.display_name||item.username)}</div>
-        <div class="username">@${escHtml(item.username)} · UID: ${escHtml(item.user_id||'—')}</div>
+        <div class="display-name">${esc(item.display_name||item.username)}</div>
+        <div class="username">@${esc(item.username)} · UID: ${esc(item.user_id||'—')}</div>
         <div class="history-audio">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
-          </svg>
-          ${escHtml(item.audio_name)} · ID: ${escHtml(item.audio_id)}
-          ${item.group_name ? `<span style="color:rgba(255,255,255,0.4);margin-left:8px;">📂 ${escHtml(item.group_name)}</span>` : ''}
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          ${esc(item.audio_name)} · ID: ${esc(item.audio_id)}
+          <span class="badge badge-info" style="margin-left:6px;">${esc(item.asset_type||'Audio')}</span>
+          ${item.group_name ? `<span style="color:rgba(255,255,255,0.4);margin-left:8px;">📂 ${esc(item.group_name)}</span>` : ''}
         </div>
       </div>
       <div class="history-meta">
-        <div class="history-time">${escHtml(item.time)}</div>
+        <div class="history-time">${esc(item.time)}</div>
         ${dmStatusBadge(item.dm_status)}
       </div>
     </div>`).join('');
@@ -1828,60 +1105,170 @@ function dmStatusBadge(status) {
 }
 
 async function clearHistory() {
-  if (!confirm('Clear all moderation history? This cannot be undone.')) return;
-  await api('DELETE', '/api/history');
-  _cachedHistory = [];
-  _prevHistCount = 0;
-  await refreshHistory();
-  await refreshStats();
+  if (!confirm('Clear all history for this profile?')) return;
+  await api('DELETE', `/api/history?profile_id=${pid()}`);
+  _cachedHistory = []; _prevHistCount = 0;
+  await refreshHistory(); await refreshStats();
   toast('History cleared', 'warn');
 }
 
-// ─── STATS ─────────────────────────────────────────────────────────────────────
+// ── STATS ─────────────────────────────────────────────────────────────────────
 async function refreshStats() {
-  const s = await api('GET', '/api/stats').catch(() => ({}));
+  const s = await api('GET', `/api/stats?profile_id=${pid()}`).catch(() => ({}));
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v ?? '0'; };
   set('stat-archived', s.archived);
-  set('stat-dms',      s.dms);
-  set('stat-groups',   s.groups);
+  set('stat-dms', s.dms);
+  set('stat-groups', s.groups);
   set('stat-whitelisted', s.whitelisted);
 }
 
-function updateStats() { return refreshStats(); }
+// ── CONFIG ────────────────────────────────────────────────────────────────────
+let _cfg = {};
 
-// ─── CONFIG ─────────────────────────────────────────────────────────────────────
 async function loadConfigFromApi() {
-  const cfg = await api('GET', '/api/config').catch(() => ({}));
+  _cfg = await api('GET', `/api/config?profile_id=${pid()}`).catch(() => ({}));
+
   const poll  = document.getElementById('polling-slider');
   const delay = document.getElementById('delay-slider');
-  if (poll)  { poll.value  = cfg.pollingInterval ?? 60; document.getElementById('polling-val').textContent  = (cfg.pollingInterval ?? 60) + 's'; }
-  if (delay) { delay.value = cfg.archiveDelay    ?? 0;  document.getElementById('delay-val').textContent    = (cfg.archiveDelay    ?? 0)  + 's'; }
+  if (poll)  { poll.value  = _cfg.pollingInterval ?? 60; document.getElementById('polling-val').textContent  = (_cfg.pollingInterval ?? 60) + 's'; }
+  if (delay) { delay.value = _cfg.archiveDelay    ?? 0;  document.getElementById('delay-val').textContent    = (_cfg.archiveDelay    ?? 0)  + 's'; }
+
   const nt = document.getElementById('notify-toggle');
-  if (nt) nt.className = 'toggle-sw' + (cfg.notifyEnabled !== false ? ' on' : '');
-  const wl = document.getElementById('whitelist-input');
-  if (wl && cfg.whitelist) wl.value = cfg.whitelist.join('\n');
+  if (nt) nt.className = 'toggle-sw' + (_cfg.notifyEnabled !== false ? ' on' : '');
+
+  const ae = document.getElementById('archive-existing-toggle');
+  if (ae) ae.className = 'toggle-sw' + (_cfg.archiveExisting ? ' on' : '');
+
+  const fp = document.getElementById('fast-poll-toggle');
+  if (fp) fp.className = 'toggle-sw' + (_cfg.allowFastPolling ? ' on' : '');
+
+  const sc = document.getElementById('save-cookies-toggle');
+  if (sc) sc.className = 'toggle-sw' + (_cfg.saveCookies ? ' on' : '');
+
+  // Update polling slider min based on fast poll setting
+  if (poll) poll.min = _cfg.allowFastPolling ? '5' : '30';
+
+  buildAssetFilterGrid();
+  buildWlTabs();
+}
+
+async function loadNotifFromApi() {
+  const cfg = await api('GET', `/api/config?profile_id=${pid()}`).catch(() => ({}));
+  const tmpl = document.getElementById('dm-template');
+  const alt  = document.getElementById('alt-account');
+  if (tmpl) tmpl.value = cfg.dmTemplate || '';
+  if (alt)  alt.value  = cfg.altAccount || '';
+}
+
+function buildAssetFilterGrid() {
+  const grid = document.getElementById('asset-filter-grid');
+  if (!grid) return;
+  const selected = _cfg.assetTypeFilters || ALL_ASSET_TYPES;
+  grid.innerHTML = ALL_ASSET_TYPES.map(t => `
+    <div class="asset-chip ${selected.includes(t) ? 'selected' : ''}" onclick="toggleAssetChip(this,'${t}')">
+      <div class="asset-chip-dot"></div>
+      ${t}
+    </div>`).join('');
+}
+
+function toggleAssetChip(el, type) {
+  el.classList.toggle('selected');
+}
+
+function selectAllAssetTypes() {
+  document.querySelectorAll('.asset-chip').forEach(c => c.classList.add('selected'));
+}
+
+function buildWlTabs() {
+  const tabs = document.getElementById('wl-tabs');
+  if (!tabs) return;
+  tabs.innerHTML = ['all', ...ALL_ASSET_TYPES].map(t => `
+    <button class="wl-tab ${STATE.activeWlTab === t ? 'active' : ''}" onclick="switchWlTab('${t}')">
+      ${t === 'all' ? 'All Types' : t}
+    </button>`).join('');
+  loadWlForTab(STATE.activeWlTab);
+}
+
+function switchWlTab(tab) {
+  // Save current tab's value first
+  saveWlTab(STATE.activeWlTab);
+  STATE.activeWlTab = tab;
+  buildWlTabs();
+  loadWlForTab(tab);
+}
+
+function saveWlTab(tab) {
+  const key   = tab === 'all' ? 'whitelist_all' : `whitelist_${tab}`;
+  const value = document.getElementById('whitelist-input')?.value.split('\n').filter(l => l.trim()) || [];
+  _cfg[key] = value;
+}
+
+function loadWlForTab(tab) {
+  const key   = tab === 'all' ? 'whitelist_all' : `whitelist_${tab}`;
+  const label = document.getElementById('wl-current-label');
+  const input = document.getElementById('whitelist-input');
+  if (label) label.textContent = `Whitelisted Users — ${tab === 'all' ? 'All Types' : tab}`;
+  if (input) input.value = (_cfg[key] || []).join('\n');
   updateWhitelistCount();
 }
 
-function loadConfigUI()  { return loadConfigFromApi(); }
-
-async function loadNotifFromApi() {
-  const cfg = await api('GET', '/api/config').catch(() => ({}));
-  const tmpl = document.getElementById('dm-template');
-  const alt  = document.getElementById('alt-account');
-  if (tmpl && cfg.dmTemplate) tmpl.value = cfg.dmTemplate;
-  if (alt  && cfg.altAccount) alt.value  = cfg.altAccount;
+function updateWhitelistCount() {
+  const val   = document.getElementById('whitelist-input')?.value || '';
+  const count = val.split('\n').filter(l => l.trim()).length;
+  const el    = document.getElementById('whitelist-count');
+  if (el) el.textContent = count + ' user' + (count !== 1 ? 's' : '');
 }
 
-function loadNotifUI()   { return loadNotifFromApi(); }
+function checkFastPollWarning(val) {
+  const warn = document.getElementById('fast-poll-warning');
+  const fp   = document.getElementById('fast-poll-toggle');
+  if (!warn) return;
+  const fastEnabled = fp?.classList.contains('on');
+  warn.style.display = (val < 30 && fastEnabled) ? 'block' : 'none';
+}
+
+function toggleFastPoll(el) {
+  el.classList.toggle('on');
+  const on   = el.classList.contains('on');
+  const poll = document.getElementById('polling-slider');
+  if (poll) {
+    poll.min = on ? '5' : '30';
+    if (!on && parseInt(poll.value) < 30) { poll.value = '30'; document.getElementById('polling-val').textContent = '30s'; }
+  }
+  if (!on) document.getElementById('fast-poll-warning').style.display = 'none';
+}
+
+async function toggleSaveCookies(el) {
+  el.classList.toggle('on');
+  const on = el.classList.contains('on');
+  try {
+    await api('POST', '/api/config', { profile_id: pid(), saveCookies: on });
+    toast(on ? 'Credentials will now be saved' : 'Credentials cleared from database', on ? 'success' : 'warn');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
 
 async function saveConfig() {
+  // Save current whitelist tab first
+  saveWlTab(STATE.activeWlTab);
+
+  const selectedTypes = [...document.querySelectorAll('.asset-chip.selected')].map(c => c.textContent.trim());
+
   const body = {
+    profile_id:      pid(),
     pollingInterval: parseInt(document.getElementById('polling-slider').value),
     archiveDelay:    parseInt(document.getElementById('delay-slider').value),
     notifyEnabled:   document.getElementById('notify-toggle').classList.contains('on'),
-    whitelist:       document.getElementById('whitelist-input').value.split('\n').filter(l => l.trim()),
+    archiveExisting: document.getElementById('archive-existing-toggle').classList.contains('on'),
+    allowFastPolling: document.getElementById('fast-poll-toggle').classList.contains('on'),
+    assetTypeFilters: selectedTypes,
   };
+
+  // Add all whitelists
+  ['all', ...ALL_ASSET_TYPES].forEach(t => {
+    const key = t === 'all' ? 'whitelist_all' : `whitelist_${t}`;
+    body[key === 'whitelist_all' ? 'whitelist_all' : key] = _cfg[key] || [];
+  });
+
   try {
     await api('POST', '/api/config', body);
     await refreshStats();
@@ -1892,6 +1279,7 @@ async function saveConfig() {
 async function saveNotifSettings() {
   try {
     await api('POST', '/api/config', {
+      profile_id: pid(),
       dmTemplate: document.getElementById('dm-template').value,
       altAccount: document.getElementById('alt-account').value,
     });
@@ -1900,19 +1288,21 @@ async function saveNotifSettings() {
 }
 
 async function exportConfig() {
-  const [cfg, groups] = await Promise.all([api('GET','/api/config'), api('GET','/api/groups')]);
-  const blob = new Blob([JSON.stringify({ config: cfg, groups }, null, 2)], { type:'application/json' });
+  const [cfg, groups] = await Promise.all([
+    api('GET', `/api/config?profile_id=${pid()}`),
+    api('GET', `/api/groups?profile_id=${pid()}`),
+  ]);
+  const blob = new Blob([JSON.stringify({ config: cfg, groups }, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = 'sentinel_config.json'; a.click();
+  a.href = URL.createObjectURL(blob);
+  a.download = `sentinel_config_${STATE.profileName || 'profile'}.json`;
+  a.click();
   toast('Config exported', 'success');
 }
 
 async function clearConfig() {
   if (!confirm('Reset config to defaults?')) return;
-  await api('POST', '/api/config', {
-    pollingInterval: 60, archiveDelay: 0, notifyEnabled: true,
-    whitelist: [], dmTemplate: '', altAccount: '',
-  });
+  await api('POST', '/api/config', { profile_id: pid(), pollingInterval: 60, archiveDelay: 0, notifyEnabled: true, whitelist_all: [], dmTemplate: '', altAccount: '' });
   await loadConfigFromApi();
   await loadNotifFromApi();
   toast('Config reset', 'warn');
@@ -1922,182 +1312,101 @@ function updateSlider(id, val, suffix) {
   document.getElementById(id).textContent = val + (suffix || '');
 }
 
-function updateWhitelistCount() {
-  const val   = document.getElementById('whitelist-input')?.value || '';
-  const count = val.split('\n').filter(l => l.trim()).length;
-  const el    = document.getElementById('whitelist-count');
-  if (el) el.textContent = count + ' user' + (count !== 1 ? 's' : '') + ' whitelisted';
-  const stat  = document.getElementById('stat-whitelisted');
-  if (stat) stat.textContent = count;
-}
-
-// ─── SETTINGS MODAL ────────────────────────────────────────────────────────────
+// ── SETTINGS MODAL ────────────────────────────────────────────────────────────
 function openSettings() {
   document.getElementById('settings-modal').classList.add('open');
-  const modeEl = document.getElementById('settings-current-mode');
-  if (modeEl) modeEl.innerHTML = STATE.mode === 'cookie'
-    ? '<span style="color:rgba(255,255,255,0.7);">🍪 Cookie Mode — Active</span>'
-    : '<span style="color:rgba(255,255,255,0.7);">🔑 Open Cloud API — Active</span>';
-  renderSettingsCreds();
+  const info = document.getElementById('settings-profile-info');
+  if (info) info.textContent = `Signed in as: ${STATE.profileName || '—'} (ID: ${STATE.profileId || '—'})`;
+  const sc = document.getElementById('save-cookies-toggle');
+  if (_cfg && sc) sc.className = 'toggle-sw' + (_cfg.saveCookies ? ' on' : '');
 }
 
-function closeSettings() {
-  document.getElementById('settings-modal').classList.remove('open');
-}
+function closeSettings() { document.getElementById('settings-modal').classList.remove('open'); }
 
-function renderSettingsCreds() {
-  const list = document.getElementById('settings-cred-list');
-  if (!list) return;
-  const acc = STATE.monitoring || localStorage.getItem('sentinel_setup') === '1';
-  list.innerHTML = acc
-    ? `<div class="cred-saved">
-         <span>${STATE.mode === 'cookie' ? '🍪 Cookie credential active (server session)' : '🔑 API Key active (server session)'}</span>
-         <button class="btn btn-danger btn-sm" onclick="revokeAndReset()">Revoke</button>
-       </div>`
-    : '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);margin-bottom:12px;">No credentials stored.</div>';
-}
-
-async function revokeAndReset() {
-  if (!confirm('Revoke credentials and reset to setup wizard?')) return;
-  try { await api('POST', '/api/monitoring/stop'); } catch {}
-  localStorage.clear();
-  location.reload();
-}
-
-async function changeModeFromSettings(newMode) {
-  if (!confirm(`Switch to ${newMode === 'cookie' ? 'Cookie' : 'Open Cloud API'} mode? You will need to re-enter credentials.`)) return;
-  try { await api('POST', '/api/monitoring/stop'); } catch {}
-  STATE.mode = newMode;
-  localStorage.setItem('sentinel_mode', newMode);
-  localStorage.removeItem('sentinel_setup');
+function openChangePinModal() {
   closeSettings();
-  updateTopbarMode();
-  updateNotifyModeWarning();
-  document.getElementById('onboarding').classList.remove('hidden');
-  toast('Mode changed — re-enter credentials to continue', 'warn');
+  document.getElementById('change-pin-modal').classList.add('open');
 }
 
-async function testConnection() {
-  toast('Testing connection…', '');
+function openChangeNameModal() {
+  closeSettings();
+  document.getElementById('change-name-modal').classList.add('open');
+}
+
+async function changePin() {
+  const current = document.getElementById('cp-current').value.trim();
+  const newPin  = document.getElementById('cp-new').value.trim();
+  if (!current || !newPin) { toast('Fill in both fields', 'error'); return; }
   try {
-    const status = await api('GET', '/api/status');
-    if (status.hasCredential) {
-      toast(`✓ Connection OK · ${status.account?.displayName || 'Connected'}`, 'success');
-    } else {
-      toast('No credentials — complete setup first', 'error');
-    }
-  } catch(e) { toast('Connection failed: ' + e.message, 'error'); }
+    await api('PUT', '/api/profiles', { profile_id: pid(), pin: current, new_pin: newPin });
+    document.getElementById('change-pin-modal').classList.remove('open');
+    document.getElementById('cp-current').value = '';
+    document.getElementById('cp-new').value = '';
+    toast('PIN updated', 'success');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
-function clearAllData() {
-  if (!confirm('Clear all local SENTINEL data?')) return;
-  localStorage.clear();
-  location.reload();
-}
-
-function resetOnboarding() {
-  if (!confirm('Reset and re-run the setup wizard?')) return;
-  localStorage.clear();
-  location.reload();
-}
-
-// ─── UI HELPERS ────────────────────────────────────────────────────────────────
-function updateTopbarMode() {
-  const pill = document.getElementById('mode-pill');
-  if (!STATE.mode) { if (pill) pill.textContent = ''; return; }
-  if (pill) pill.innerHTML = STATE.mode === 'cookie'
-    ? '<span style="color:rgba(255,255,255,0.55);">🍪 COOKIE</span>'
-    : '<span style="color:rgba(255,255,255,0.55);">🔑 OPEN CLOUD</span>';
-  const conn = document.getElementById('conn-mode-display');
-  if (conn) conn.textContent = STATE.mode === 'cookie' ? 'Cookie Mode' : 'Open Cloud API Mode';
-}
-
-function updateNotifyModeWarning() {
-  const isApi = STATE.mode === 'api';
-  ['notify-mode-warning','notif-api-warning'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = isApi ? 'block' : 'none';
-  });
-  const row = document.getElementById('notify-toggle-row');
-  if (row) { row.style.opacity = isApi ? '0.4' : '1'; row.style.pointerEvents = isApi ? 'none' : 'auto'; }
-}
-
-function toast(msg, type) {
-  const el = document.createElement('div');
-  el.className = 'toast ' + (type || '');
-  el.textContent = msg;
-  document.getElementById('toast-container').appendChild(el);
-  setTimeout(() => el.remove(), 3200);
-}
-
-function escHtml(str) {
-  if (str == null) return '';
-  return String(str)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-// ─── CONNECT CODE ──────────────────────────────────────────────────────────────
-let _codeTimer = null;
-let _pollTimer = null;
-
-async function showConnectCode() {
-  const box = document.getElementById('connect-code-box');
-  box.style.display = 'block';
-
-  // Clear any existing timers
-  if (_codeTimer) clearInterval(_codeTimer);
-  if (_pollTimer) clearInterval(_pollTimer);
-
+async function changeName() {
+  const pin  = document.getElementById('cn-pin').value.trim();
+  const name = document.getElementById('cn-name').value.trim();
+  if (!pin || !name) { toast('Fill in both fields', 'error'); return; }
   try {
-    const res = await api('POST', '/api/connect-code/generate', {});
-    document.getElementById('connect-code-display').textContent = res.code;
-
-    // Countdown timer
-    let secs = 300;
-    _codeTimer = setInterval(() => {
-      secs--;
-      const m = Math.floor(secs / 60);
-      const s = String(secs % 60).padStart(2, '0');
-      document.getElementById('code-expiry-text').textContent = `Expires in ${m}:${s}`;
-      if (secs <= 0) {
-        clearInterval(_codeTimer);
-        // Auto-regenerate when expired
-        showConnectCode();
-      }
-    }, 1000);
-
-    // Poll every 3s to detect when extension connects
-    _pollTimer = setInterval(async () => {
-      try {
-        const status = await api('GET', '/api/status');
-        if (status.hasCredential) {
-          clearInterval(_pollTimer);
-          clearInterval(_codeTimer);
-          document.getElementById('code-expiry-text').textContent = '✓ Extension connected!';
-          document.getElementById('connect-code-display').style.borderColor = 'rgba(255,255,255,0.5)';
-          const btn = document.getElementById('complete-setup-btn');
-          btn.disabled = false;
-          btn.style.opacity = '1';
-          btn.style.cursor = 'pointer';
-          toast('✓ Extension connected successfully!', 'success');
-        }
-      } catch {}
-    }, 3000);
-
-  } catch(e) {
-    toast('Could not generate code: ' + e.message, 'error');
-  }
+    await api('PUT', '/api/profiles', { profile_id: pid(), pin, name });
+    STATE.profileName = name;
+    document.getElementById('topbar-profile-name').textContent = name;
+    document.getElementById('change-name-modal').classList.remove('open');
+    document.getElementById('cn-pin').value  = '';
+    document.getElementById('cn-name').value = '';
+    toast('Name updated', 'success');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
-// ─── BOOT ──────────────────────────────────────────────────────────────────────
-if (STATE.setupComplete) {
-  document.getElementById('onboarding').classList.add('hidden');
-  initApp();
-} else {
-  document.getElementById('main-status-dot').className = 'status-dot error';
-  document.getElementById('main-status-text').textContent = 'SETUP REQUIRED';
+function signOutProfile() {
+  if (_liveInterval) clearInterval(_liveInterval);
+  STATE.profileId = null; STATE.profileName = null; STATE.hasCredential = false;
+  closeSettings();
+  document.getElementById('profile-screen').classList.remove('hidden');
+  loadProfileScreen();
+  toast('Signed out', 'warn');
 }
+
+async function deleteProfilePrompt() {
+  const pin = prompt('Enter your PIN to delete this profile. THIS CANNOT BE UNDONE.');
+  if (!pin) return;
+  try {
+    await api('DELETE', `/api/profiles/${pid()}?pin=${encodeURIComponent(pin)}`);
+    signOutProfile();
+    toast('Profile deleted', 'warn');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function clearAllHistory() {
+  if (!confirm('Clear all history for this profile?')) return;
+  await api('DELETE', `/api/history?profile_id=${pid()}`);
+  _cachedHistory = []; _prevHistCount = 0;
+  await refreshHistory(); await refreshStats();
+  closeSettings();
+  toast('History cleared', 'warn');
+}
+
+async function clearCredentials() {
+  if (!confirm('Disconnect Roblox account? You will need to reconnect the extension.')) return;
+  await api('POST', '/api/credentials/clear', { profile_id: pid() });
+  STATE.hasCredential = false;
+  document.getElementById('connect-code-section').style.display   = 'block';
+  document.getElementById('connected-account-section').style.display = 'none';
+  document.getElementById('conn-account-display').innerHTML = 'No account connected';
+  closeSettings();
+  toast('Roblox account disconnected', 'warn');
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── BOOT ──────────────────────────────────────────────────────────────────────
+loadProfileScreen();
 </script>
 </body>
 </html>
