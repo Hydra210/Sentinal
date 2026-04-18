@@ -938,7 +938,7 @@
 <!-- ONBOARDING OVERLAY -->
 <div id="onboarding">
   <div class="onboard-box">
-    <!-- STEP 1: Welcome + Mode selection -->
+    <!-- STEP 1: Welcome + Connect -->
     <div class="onboard-step active" id="step-welcome">
       <div style="display:flex;align-items:center;gap:16px;margin-bottom:28px;">
         <div style="width:52px;height:52px;border:1px solid rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;border-radius:10px;background:rgba(255,255,255,0.06);">
@@ -950,36 +950,30 @@
         </div>
       </div>
 
-      <div class="setup-steps">
-        <div class="setup-step current" id="sp1"><div class="step-circle">1</div><div class="step-label">Mode</div></div>
-        <div class="setup-step" id="sp2"><div class="step-circle">2</div><div class="step-label">Setup</div></div>
-        <div class="setup-step" id="sp3"><div class="step-circle">3</div><div class="step-label">Verify</div></div>
+      <div class="section-title">Connect Your Roblox Account</div>
+
+      <div class="info-box" style="margin-bottom:20px;">
+        SENTINEL connects to Roblox via the official browser extension.
+        Install it below — setup takes under a minute.
       </div>
 
-      <div class="section-title">Select Maintenance Mode</div>
-      <p style="font-size:13px;color:var(--text-dim);margin-bottom:20px;line-height:1.6;">Choose how SENTINEL will connect to Roblox. This determines which features are available. <strong style="color:var(--text);">You can change this later in Settings.</strong></p>
-
-<div class="info-box" style="margin-bottom:24px;">
-          SENTINEL connects to Roblox via the official browser extension.
-          Install it below — setup takes under a minute.
-        </div>
-
-        <a href="/static/sentinel-extension.zip" download style="text-decoration:none;display:block;margin-bottom:12px;">
-          <button class="btn btn-primary btn-block" style="font-size:14px;padding:14px;">
-            ⬇ Download Chrome Extension
-          </button>
-        </a>
-
-        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);text-align:center;line-height:1.8;margin-bottom:20px;">
-          1. Download &amp; install the extension<br>
-          2. Log into roblox.com on your bot account<br>
-          3. Click "Connect Roblox to SENTINEL" in the extension<br>
-          4. Come back here and click Complete Setup
-        </div>
-
-        <button class="btn btn-primary btn-block" onclick="completeOnboarding()">
-          I've Connected → Complete Setup
+      <a href="/static/sentinel-extension.zip" download style="text-decoration:none;display:block;margin-bottom:12px;">
+        <button class="btn btn-primary btn-block" style="font-size:14px;padding:14px;">
+          ⬇ Download Chrome Extension
         </button>
+      </a>
+
+      <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);text-align:center;line-height:1.8;margin-bottom:20px;">
+        1. Download &amp; install the extension<br>
+        2. Log into roblox.com on your bot account<br>
+        3. Click "Connect Roblox to SENTINEL" in the extension<br>
+        4. Come back here and click Complete Setup
+      </div>
+
+      <button class="btn btn-primary btn-block" onclick="completeOnboarding()">
+        I've Connected → Complete Setup
+button>
+    </div>
 
     <!-- STEP 2A: Cookie setup -->
     <div class="onboard-step" id="step-cookie-setup">
