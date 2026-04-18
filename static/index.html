@@ -952,27 +952,43 @@
 
       <div class="section-title">Connect Your Roblox Account</div>
 
-      <div class="info-box" style="margin-bottom:20px;">
-        SENTINEL connects to Roblox via the official browser extension.
-        Install it below — setup takes under a minute.
+      <div class="info-box" style="margin-bottom:16px;">
+        SENTINEL uses the Chrome extension to securely connect your Roblox bot account.
+        Download the extension, then enter the connect code it gives you below.
       </div>
 
-      <a href="/static/sentinel-extension.zip" download style="text-decoration:none;display:block;margin-bottom:12px;">
+      <a href="/static/sentinel-extension.zip" download style="text-decoration:none;display:block;margin-bottom:10px;">
         <button class="btn btn-primary btn-block" style="font-size:14px;padding:14px;">
           ⬇ Download Chrome Extension
         </button>
       </a>
 
-      <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);text-align:center;line-height:1.8;margin-bottom:20px;">
-        1. Download &amp; install the extension<br>
-        2. Log into roblox.com on your bot account<br>
-        3. Click "Connect Roblox to SENTINEL" in the extension<br>
-        4. Come back here and click Complete Setup
+      <button class="btn btn-block" style="margin-bottom:20px;" onclick="showConnectCode()">
+        I already have the extension →
+      </button>
+
+      <div id="connect-code-box" style="display:none;">
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);letter-spacing:2px;text-align:center;margin-bottom:10px;">
+          ENTER THIS CODE IN THE EXTENSION
+        </div>
+        <div id="connect-code-display"
+          style="font-family:var(--font-display);font-size:56px;font-weight:800;
+                 letter-spacing:14px;color:#fff;background:var(--surface2);
+                 border:1px solid var(--border-bright);padding:20px;border-radius:12px;
+                 text-align:center;margin-bottom:8px;">
+          ----
+        </div>
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);text-align:center;margin-bottom:20px;"
+          id="code-expiry-text">
+          Expires in 5:00
+        </div>
       </div>
 
-      <button class="btn btn-primary btn-block" onclick="completeOnboarding()">
+      <button class="btn btn-primary btn-block" id="complete-setup-btn"
+        onclick="completeOnboarding()"
+        style="opacity:0.4;cursor:not-allowed;" disabled>
         I've Connected → Complete Setup
-button>
+      </button>
     </div>
 
     <!-- STEP 2A: Cookie setup -->
@@ -2019,6 +2035,59 @@ function escHtml(str) {
   return String(str)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;')
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── CONNECT CODE ──────────────────────────────────────────────────────────────
+let _codeTimer = null;
+let _pollTimer = null;
+
+async function showConnectCode() {
+  const box = document.getElementById('connect-code-box');
+  box.style.display = 'block';
+
+  // Clear any existing timers
+  if (_codeTimer) clearInterval(_codeTimer);
+  if (_pollTimer) clearInterval(_pollTimer);
+
+  try {
+    const res = await api('POST', '/api/connect-code/generate', {});
+    document.getElementById('connect-code-display').textContent = res.code;
+
+    // Countdown timer
+    let secs = 300;
+    _codeTimer = setInterval(() => {
+      secs--;
+      const m = Math.floor(secs / 60);
+      const s = String(secs % 60).padStart(2, '0');
+      document.getElementById('code-expiry-text').textContent = `Expires in ${m}:${s}`;
+      if (secs <= 0) {
+        clearInterval(_codeTimer);
+        // Auto-regenerate when expired
+        showConnectCode();
+      }
+    }, 1000);
+
+    // Poll every 3s to detect when extension connects
+    _pollTimer = setInterval(async () => {
+      try {
+        const status = await api('GET', '/api/status');
+        if (status.hasCredential) {
+          clearInterval(_pollTimer);
+          clearInterval(_codeTimer);
+          document.getElementById('code-expiry-text').textContent = '✓ Extension connected!';
+          document.getElementById('connect-code-display').style.borderColor = 'rgba(255,255,255,0.5)';
+          const btn = document.getElementById('complete-setup-btn');
+          btn.disabled = false;
+          btn.style.opacity = '1';
+          btn.style.cursor = 'pointer';
+          toast('✓ Extension connected successfully!', 'success');
+        }
+      } catch {}
+    }, 3000);
+
+  } catch(e) {
+    toast('Could not generate code: ' + e.message, 'error');
+  }
 }
 
 // ─── BOOT ──────────────────────────────────────────────────────────────────────
