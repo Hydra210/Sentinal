@@ -696,6 +696,15 @@ async function loadProfileScreen() {
   try {
     const profiles = await api('GET', '/api/profiles');
     grid.innerHTML = '';
+
+    if (!profiles.length) {
+      // No profiles yet — show a friendly message
+      const msg = document.createElement('div');
+      msg.style.cssText = 'grid-column:1/-1;text-align:center;font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);letter-spacing:1px;padding:20px 0;';
+      msg.textContent = 'No profiles yet — create one to get started';
+      grid.appendChild(msg);
+    }
+
     profiles.forEach(p => {
       const card = document.createElement('div');
       card.className = 'profile-card';
@@ -709,7 +718,8 @@ async function loadProfileScreen() {
       card.onclick = () => openPinModal(p);
       grid.appendChild(card);
     });
-    // Add new profile card
+
+    // Always show + card
     const addCard = document.createElement('div');
     addCard.className = 'profile-card add-card';
     addCard.innerHTML = `
@@ -718,8 +728,21 @@ async function loadProfileScreen() {
       <div class="profile-card-sub">Create a new profile</div>`;
     addCard.onclick = () => document.getElementById('create-profile-modal').classList.add('open');
     grid.appendChild(addCard);
+
   } catch(e) {
-    grid.innerHTML = `<div style="font-family:var(--font-mono);font-size:11px;color:#ff6b6b;padding:20px;">Error loading profiles: ${esc(e.message)}</div>`;
+    // On error still show the + card so users aren't stuck
+    grid.innerHTML = `
+      <div style="grid-column:1/-1;font-family:var(--font-mono);font-size:11px;color:#ff6b6b;padding:10px 0;text-align:center;">
+        Could not load profiles: ${esc(e.message)}
+      </div>`;
+    const addCard = document.createElement('div');
+    addCard.className = 'profile-card add-card';
+    addCard.innerHTML = `
+      <div class="profile-card-avatar" style="font-size:28px;color:rgba(255,255,255,0.3);">+</div>
+      <div class="profile-card-name" style="color:var(--text-dim);">New Profile</div>
+      <div class="profile-card-sub">Create a new profile</div>`;
+    addCard.onclick = () => document.getElementById('create-profile-modal').classList.add('open');
+    grid.appendChild(addCard);
   }
 }
 
