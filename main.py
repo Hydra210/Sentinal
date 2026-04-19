@@ -2,7 +2,7 @@
 # Start command: uvicorn main:app --host 0.0.0.0 --port $PORT
 
 from __future__ import annotations
-import asyncio, json, os, sqlite3, time, secrets, string, hashlib
+import asyncio, json, os, sqlite3, time, secrets, string, hashlib, uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Dict
@@ -105,6 +105,9 @@ def init_pg():
         conn = get_pg()
         cur = conn.cursor()
         cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT '';")
+        conn.commit()
+        # Ensure id column is TEXT not integer
+        cur.execute("ALTER TABLE profiles ALTER COLUMN id TYPE TEXT;")
         conn.commit()
         cur.close()
         conn.close()
@@ -525,7 +528,7 @@ def api_create_profile(body: ProfileCreate):
     if len(body.pin) < 4:
         raise HTTPException(400, "PIN must be at least 4 digits")
     try:
-        profile_id = secrets.token_hex(8)
+        profile_id = str(uuid.uuid4())
         conn = get_pg()
         cur  = conn.cursor()
         cur.execute(
