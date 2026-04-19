@@ -11,6 +11,7 @@ import httpx
 import psutil
 import psycopg2
 import psycopg2.extras
+from psycopg2 import pool as pg_pool
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
@@ -96,8 +97,28 @@ init_db()
 
 PG_URL = os.environ.get("DATABASE_URL", "")
 
+_pg_pool = None
+
+def init_pg_pool():
+    global _pg_pool
+    if not PG_URL:
+        return
+    _pg_pool = pg_pool.ThreadedConnectionPool(
+        minconn=1,
+        maxconn=5,
+        dsn=PG_URL,
+        cursor_factory=psycopg2.extras.RealDictCursor,
+    )
+    print("[SENTINEL] Postgres connection pool initialized (min=1, max=5)")
+
 def get_pg():
-    return psycopg2.connect(PG_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    if _pg_pool is None:
+        raise RuntimeError("Postgres pool not initialized")
+    return _pg_pool.getconn()
+
+def release_pg(conn):
+    if _pg_pool:
+        _pg_pool.putconn(conn)
 
 def init_pg():
     if not PG_URL:
@@ -211,6 +232,7 @@ def init_pg():
         print(f"[SENTINEL] Postgres migration error: {e}")
 
 init_pg()
+init_pg_pool()
 
 def hash_pin(pin: str) -> str:
     return hashlib.sha256(pin.encode()).hexdigest()
@@ -295,7 +317,7 @@ def db_exec(sql: str, params: tuple = (), *, fetch: str = None):
             conn.rollback()
             raise
         finally:
-            cur.close(); conn.close()
+            cur.close(); release_pg(conn)
     else:
         conn = get_db()
         try:
@@ -334,7 +356,7 @@ def db_upsert(table: str, pk_cols: list, data: dict):
         except Exception:
             conn.rollback(); raise
         finally:
-            cur.close(); conn.close()
+            cur.close(); release_pg(conn)
     else:
         col_str = ", ".join(cols)
         ph_str  = ", ".join(["?"] * len(cols))
@@ -362,7 +384,7 @@ def db_insert_ignore(table: str, data: dict):
         except Exception:
             conn.rollback(); raise
         finally:
-            cur.close(); conn.close()
+            cur.close(); release_pg(conn)
     else:
         col_str = ", ".join(cols)
         ph_str  = ", ".join(["?"] * len(cols))
@@ -793,7 +815,7 @@ def api_list_profiles():
         cur  = conn.cursor()
         cur.execute("SELECT id, name, avatar_url, created_at FROM profiles ORDER BY created_at")
         rows = cur.fetchall()
-        cur.close(); conn.close()
+        cur.close(); release_pg(conn)
         return [dict(r) for r in rows]
     except Exception as e:
         raise HTTPException(500, str(e))
@@ -815,7 +837,7 @@ def api_create_profile(body: ProfileCreate):
             (profile_id, body.name.strip(), hash_pin(body.pin), body.avatar_url)
         )
         conn.commit()
-        cur.close(); conn.close()
+        cur.close(); release_pg(conn)
         return {"id": profile_id, "name": body.name.strip(), "avatar_url": body.avatar_url}
     except Exception as e:
         raise HTTPException(500, str(e))
@@ -833,7 +855,7 @@ def api_login_profile(body: ProfileLogin):
         )
         row = cur.fetchone()
         if not row:
-            cur.close(); conn.close()
+            cur.close(); release_pg(conn)
             raise HTTPException(401, "Invalid PIN")
 
         saved_cookie  = None
@@ -847,7 +869,7 @@ def api_login_profile(body: ProfileLogin):
             saved_cookie  = cred["cookie_encrypted"]
             saved_account = cred["account_info"]
 
-        cur.close(); conn.close()
+        cur.close(); release_pg(conn)
 
         if saved_cookie and saved_account:
             session = get_session(body.profile_id)
@@ -878,7 +900,7 @@ def api_update_profile(body: ProfileUpdate):
             (body.profile_id, hash_pin(body.pin))
         )
         if not cur.fetchone():
-            cur.close(); conn.close()
+            cur.close(); release_pg(conn)
             raise HTTPException(401, "Invalid PIN")
 
         updates, params = [], []
@@ -894,7 +916,7 @@ def api_update_profile(body: ProfileUpdate):
             cur.execute(f"UPDATE profiles SET {', '.join(updates)} WHERE id=%s", params)
             conn.commit()
 
-        cur.close(); conn.close()
+        cur.close(); release_pg(conn)
         return {"updated": True}
     except HTTPException:
         raise
@@ -913,11 +935,11 @@ def api_delete_profile(profile_id: str, pin: str):
             (profile_id, hash_pin(pin))
         )
         if not cur.fetchone():
-            cur.close(); conn.close()
+            cur.close(); release_pg(conn)
             raise HTTPException(401, "Invalid PIN")
         cur.execute("DELETE FROM profiles WHERE id=%s", (profile_id,))
         conn.commit()
-        cur.close(); conn.close()
+        cur.close(); release_pg(conn)
         if profile_id in _sessions:
             del _sessions[profile_id]
         return {"deleted": True}
@@ -974,7 +996,7 @@ async def api_redeem_code(body: ConnectCodeBody):
                 (profile_id, body.cookie, json.dumps(info), body.cookie, json.dumps(info))
             )
             conn.commit()
-            cur.close(); conn.close()
+            cur.close(); release_pg(conn)
         except Exception as e:
             print(f"[SENTINEL] Failed to save credentials: {e}")
 
@@ -1001,9 +1023,7 @@ def api_clear_credentials(body: MonitorBody):
             cur  = conn.cursor()
             cur.execute("DELETE FROM saved_credentials WHERE profile_id=%s", (body.profile_id,))
             conn.commit()
-            cur.close(); conn.close()
-        except Exception as e:
-            print(f"[SENTINEL] Failed to clear credentials: {e}")
+            cur.close(); release_pg(conn)
     session = get_session(body.profile_id)
     session.cookie       = None
     session.account_info = None
@@ -1119,7 +1139,7 @@ def api_update_config(body: ConfigBody):
             cur  = conn.cursor()
             cur.execute("DELETE FROM saved_credentials WHERE profile_id=%s", (pid,))
             conn.commit()
-            cur.close(); conn.close()
+            cur.close(); release_pg(conn)
         except Exception as e:
             print(f"[SENTINEL] Error clearing credentials on toggle off: {e}")
     return get_config(pid)
