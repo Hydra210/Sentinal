@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 import asyncio, json, os, sqlite3, time, secrets, string, hashlib, uuid, gc, collections, ctypes
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Dict
@@ -184,11 +187,52 @@ def init_pg():
         conn.commit()
 
         # Add avatar_url column if missing
-        cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT '';")
-        conn.commit()
+        try:
+            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT '';")
+            conn.commit()
+        except Exception as _e:
+            conn.rollback(); print(f"[SENTINEL] avatar_url migration skipped: {_e}")
 
         # Add pin_length column if missing
-        cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pin_length INTEGER DEFAULT 4;")
+        try:
+            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pin_length INTEGER DEFAULT 4;")
+            conn.commit()
+        except Exception as _e:
+            conn.rollback(); print(f"[SENTINEL] pin_length migration skipped: {_e}")
+
+        # Add is_admin column if missing
+        try:
+            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;")
+            conn.commit()
+        except Exception as _e:
+            conn.rollback(); print(f"[SENTINEL] is_admin migration skipped: {_e}")
+
+        # Access requests + invite codes + review tokens
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS access_requests (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                email TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                invite_code TEXT DEFAULT '',
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS invite_codes (
+                code TEXT PRIMARY KEY,
+                created_by TEXT NOT NULL,
+                used BOOLEAN DEFAULT FALSE,
+                used_by TEXT DEFAULT '',
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS review_tokens (
+                token TEXT PRIMARY KEY,
+                request_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                expires_at TIMESTAMPTZ NOT NULL,
+                used BOOLEAN DEFAULT FALSE
+            );
+        """)
         conn.commit()
 
         # ── App data tables (groups, history, config, connect_codes) ──────────
@@ -240,6 +284,29 @@ init_pg_pool()
 
 def hash_pin(pin: str) -> str:
     return hashlib.sha256(pin.encode()).hexdigest()
+
+# ── EMAIL ─────────────────────────────────────────────────────────────────────
+
+GMAIL_USER  = os.environ.get("GMAIL_USER", "")
+GMAIL_PASS  = os.environ.get("GMAIL_PASS", "")
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "")
+
+def send_email(to: str, subject: str, html: str):
+    if not GMAIL_USER or not GMAIL_PASS:
+        print("[SENTINEL] Email not configured — skipping send")
+        return
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"]    = f"Sentinel <{GMAIL_USER}>"
+    msg["To"]      = to
+    msg.attach(MIMEText(html, "html"))
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+            s.login(GMAIL_USER, GMAIL_PASS)
+            s.sendmail(GMAIL_USER, to, msg.as_string())
+        print(f"[SENTINEL] Email sent to {to}")
+    except Exception as e:
+        print(f"[SENTINEL] Email error: {e}")
 
 # ── DEBUG / MEMORY / LOG SYSTEM ───────────────────────────────────────────────
 
@@ -840,6 +907,7 @@ class MonitorBody(BaseModel):
 class AccessRequestBody(BaseModel):
     name:   str
     reason: str
+    email:  str
 
 class AccessRequestAction(BaseModel):
     request_id: str
@@ -854,8 +922,7 @@ def api_list_profiles():
     if not PG_URL:
         raise HTTPException(503, "Postgres not configured")
     try:
-        conn = get_pg()
-        cur  = conn.cursor()
+        conn = get_pg(); cur = conn.cursor()
         try:
             cur.execute("SELECT id, name, avatar_url, created_at, pin_length, is_admin FROM profiles ORDER BY created_at")
         except Exception:
@@ -864,9 +931,7 @@ def api_list_profiles():
         rows = cur.fetchall()
         result = []
         for r in rows:
-            d = dict(r)
-            d.setdefault("pin_length", 4)
-            d.setdefault("is_admin", False)
+            d = dict(r); d.setdefault("pin_length", 4); d.setdefault("is_admin", False)
             result.append(d)
         cur.close(); release_pg(conn)
         return result
@@ -883,10 +948,8 @@ def api_create_profile(body: ProfileCreate):
         raise HTTPException(400, "PIN must be at least 4 digits")
     if len(body.pin) > 8:
         raise HTTPException(400, "PIN must be at most 8 digits")
-    conn = get_pg()
-    cur  = conn.cursor()
+    conn = get_pg(); cur = conn.cursor()
     try:
-        # Require a valid unused invite code — no exceptions
         code = (body.invite_code or "").strip().upper()
         if not code:
             cur.close(); release_pg(conn)
@@ -900,14 +963,13 @@ def api_create_profile(body: ProfileCreate):
             cur.close(); release_pg(conn)
             raise HTTPException(403, "Invite code already used")
         profile_id = str(uuid.uuid4())
-        pin_len    = len(body.pin)
+        pin_len = len(body.pin)
         cur.execute(
             "INSERT INTO profiles (id, name, pin_hash, avatar_url, pin_length, is_admin) VALUES (%s,%s,%s,%s,%s,%s)",
             (profile_id, body.name.strip(), hash_pin(body.pin), body.avatar_url, pin_len, False)
         )
         cur.execute("UPDATE invite_codes SET used=TRUE, used_by=%s WHERE code=%s", (profile_id, code))
-        conn.commit()
-        cur.close(); release_pg(conn)
+        conn.commit(); cur.close(); release_pg(conn)
         return {"id": profile_id, "name": body.name.strip(), "avatar_url": body.avatar_url,
                 "pin_length": pin_len, "is_admin": False}
     except HTTPException:
@@ -1231,83 +1293,183 @@ def api_update_config(body: ConfigBody):
 
 # ── ACCESS CONTROL ───────────────────────────────────────────────────────────
 
+BASE_URL = os.environ.get("BASE_URL", "")
+
 @app.post("/api/access/request")
 def api_submit_access_request(body: AccessRequestBody):
     if not PG_URL: raise HTTPException(503, "Postgres not configured")
-    if not body.name.strip() or not body.reason.strip():
-        raise HTTPException(400, "Name and reason are required")
+    if not body.name.strip() or not body.reason.strip() or not body.email.strip():
+        raise HTTPException(400, "Name, email and reason are required")
     req_id = str(uuid.uuid4())
     try:
         conn = get_pg(); cur = conn.cursor()
-        cur.execute("INSERT INTO access_requests (id, name, reason) VALUES (%s,%s,%s)",
-                    (req_id, body.name.strip(), body.reason.strip()))
+        cur.execute(
+            "INSERT INTO access_requests (id, name, reason, email) VALUES (%s,%s,%s,%s)",
+            (req_id, body.name.strip(), body.reason.strip(), body.email.strip())
+        )
+        # Generate approve + deny tokens (24hr expiry)
+        approve_token = secrets.token_urlsafe(32)
+        deny_token    = secrets.token_urlsafe(32)
+        expires       = datetime.utcnow() + timedelta(hours=24)
+        cur.execute("INSERT INTO review_tokens (token, request_id, action, expires_at) VALUES (%s,%s,%s,%s)",
+                    (approve_token, req_id, "approve", expires))
+        cur.execute("INSERT INTO review_tokens (token, request_id, action, expires_at) VALUES (%s,%s,%s,%s)",
+                    (deny_token, req_id, "deny", expires))
         conn.commit(); cur.close(); release_pg(conn)
+
+        # Email admin
+        base = BASE_URL.rstrip("/")
+        approve_url = f"{base}/review.html?token={approve_token}"
+        deny_url    = f"{base}/review.html?token={deny_token}"
+        if ADMIN_EMAIL:
+            send_email(ADMIN_EMAIL, f"[Sentinel] Access Request from {body.name.strip()}", f"""
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
+  <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">⚔ SENTINEL</h2>
+  <h3 style="color:#aaa;font-weight:400;margin-top:0;">New Access Request</h3>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
+    <tr><td style="color:#888;padding:6px 0;width:80px;">Name</td><td style="color:#fff;">{body.name.strip()}</td></tr>
+    <tr><td style="color:#888;padding:6px 0;">Email</td><td style="color:#fff;">{body.email.strip()}</td></tr>
+    <tr><td style="color:#888;padding:6px 0;vertical-align:top;">Reason</td><td style="color:#fff;">{body.reason.strip()}</td></tr>
+  </table>
+  <p style="color:#888;font-size:12px;margin-bottom:20px;">These links expire in 24 hours.</p>
+  <a href="{approve_url}" style="display:inline-block;background:#4ade80;color:#000;font-weight:700;padding:12px 28px;border-radius:6px;text-decoration:none;margin-right:12px;">✓ Approve</a>
+  <a href="{deny_url}" style="display:inline-block;background:#ef4444;color:#fff;font-weight:700;padding:12px 28px;border-radius:6px;text-decoration:none;">✕ Deny</a>
+</div>""")
         return {"id": req_id, "status": "pending"}
+    except HTTPException: raise
     except Exception as e: raise HTTPException(500, str(e))
 
-@app.get("/api/access/requests")
-def api_list_access_requests(profile_id: str, pin: str):
+@app.get("/api/review")
+def api_review_token(token: str):
+    """Called by review.html to get request details + perform action."""
     if not PG_URL: raise HTTPException(503, "Postgres not configured")
     conn = get_pg(); cur = conn.cursor()
-    cur.execute("SELECT is_admin FROM profiles WHERE id=%s AND pin_hash=%s", (profile_id, hash_pin(pin)))
-    row = cur.fetchone()
-    if not row or not row["is_admin"]:
-        cur.close(); release_pg(conn); raise HTTPException(403, "Admin access required")
-    cur.execute("SELECT * FROM access_requests ORDER BY created_at DESC")
-    rows = cur.fetchall(); cur.close(); release_pg(conn)
-    return [dict(r) for r in rows]
+    cur.execute("SELECT * FROM review_tokens WHERE token=%s", (token,))
+    tok = cur.fetchone()
+    if not tok:
+        cur.close(); release_pg(conn)
+        raise HTTPException(404, "Invalid or unknown token")
+    if tok["used"]:
+        cur.close(); release_pg(conn)
+        return {"status": "already_used", "action": tok["action"]}
+    if datetime.utcnow() > tok["expires_at"].replace(tzinfo=None):
+        cur.close(); release_pg(conn)
+        return {"status": "expired", "action": tok["action"]}
+    # Get request details
+    cur.execute("SELECT * FROM access_requests WHERE id=%s", (tok["request_id"],))
+    req = cur.fetchone()
+    if not req:
+        cur.close(); release_pg(conn)
+        raise HTTPException(404, "Request not found")
+    if req["status"] != "pending":
+        cur.close(); release_pg(conn)
+        return {"status": "already_actioned", "action": req["status"], "name": req["name"]}
 
-@app.post("/api/access/action")
-def api_access_action(body: AccessRequestAction):
-    if not PG_URL: raise HTTPException(503, "Postgres not configured")
-    if body.action not in ("approve", "deny"): raise HTTPException(400, "Invalid action")
-    conn = get_pg(); cur = conn.cursor()
-    cur.execute("SELECT is_admin FROM profiles WHERE id=%s AND pin_hash=%s",
-                (body.admin_id, hash_pin(body.admin_pin)))
-    row = cur.fetchone()
-    if not row or not row["is_admin"]:
-        cur.close(); release_pg(conn); raise HTTPException(403, "Admin access required")
-    if body.action == "approve":
+    # Perform action
+    action = tok["action"]
+    if action == "approve":
         code = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))
-        cur.execute("INSERT INTO invite_codes (code, created_by) VALUES (%s,%s)", (code, body.admin_id))
+        cur.execute("INSERT INTO invite_codes (code, created_by) VALUES (%s,%s)", (code, "admin-email"))
         cur.execute("UPDATE access_requests SET status='approved', invite_code=%s WHERE id=%s",
-                    (code, body.request_id))
+                    (code, tok["request_id"]))
+        cur.execute("UPDATE review_tokens SET used=TRUE WHERE request_id=%s", (tok["request_id"],))
         conn.commit(); cur.close(); release_pg(conn)
-        return {"action": "approved", "invite_code": code}
+        # Email user their invite code
+        send_email(req["email"], "[Sentinel] You've been approved!", f"""
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
+  <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">⚔ SENTINEL</h2>
+  <h3 style="color:#aaa;font-weight:400;margin-top:0;">Your access has been approved</h3>
+  <p style="color:#ccc;">Hey {req["name"]}, your request to access Sentinel has been approved.</p>
+  <p style="color:#888;margin-bottom:8px;font-size:13px;">Your invite code:</p>
+  <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;text-align:center;font-family:monospace;font-size:28px;letter-spacing:6px;color:#4ade80;margin-bottom:24px;">{code}</div>
+  <p style="color:#888;font-size:12px;">Enter this code when creating your profile on Sentinel. It can only be used once.</p>
+</div>""")
+        return {"status": "approved", "name": req["name"], "email": req["email"]}
     else:
-        cur.execute("UPDATE access_requests SET status='denied' WHERE id=%s", (body.request_id,))
+        cur.execute("UPDATE access_requests SET status='denied' WHERE id=%s", (tok["request_id"],))
+        cur.execute("UPDATE review_tokens SET used=TRUE WHERE request_id=%s", (tok["request_id"],))
         conn.commit(); cur.close(); release_pg(conn)
-        return {"action": "denied"}
+        # Email user rejection
+        send_email(req["email"], "[Sentinel] Access request update", f"""
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
+  <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">⚔ SENTINEL</h2>
+  <h3 style="color:#aaa;font-weight:400;margin-top:0;">Access request update</h3>
+  <p style="color:#ccc;">Hey {req["name"]}, unfortunately your request to access Sentinel has been denied.</p>
+  <p style="color:#888;font-size:12px;">If you think this is a mistake, contact the administrator directly.</p>
+</div>""")
+        return {"status": "denied", "name": req["name"]}
 
-@app.delete("/api/access/requests/{request_id}")
-def api_delete_access_request(request_id: str, profile_id: str, pin: str):
+@app.post("/api/review")
+def api_review_token_action(token: str):
+    """POST version — actually performs the approve/deny action."""
     if not PG_URL: raise HTTPException(503, "Postgres not configured")
     conn = get_pg(); cur = conn.cursor()
-    cur.execute("SELECT is_admin FROM profiles WHERE id=%s AND pin_hash=%s", (profile_id, hash_pin(pin)))
-    row = cur.fetchone()
-    if not row or not row["is_admin"]:
-        cur.close(); release_pg(conn); raise HTTPException(403, "Admin access required")
-    cur.execute("DELETE FROM access_requests WHERE id=%s", (request_id,))
-    conn.commit(); cur.close(); release_pg(conn)
-    return {"deleted": True}
+    cur.execute("SELECT * FROM review_tokens WHERE token=%s", (token,))
+    tok = cur.fetchone()
+    if not tok: cur.close(); release_pg(conn); raise HTTPException(404, "Invalid token")
+    if tok["used"]:
+        cur.close(); release_pg(conn)
+        return {"status": "already_used", "action": tok["action"]}
+    if datetime.utcnow() > tok["expires_at"].replace(tzinfo=None):
+        cur.close(); release_pg(conn)
+        return {"status": "expired"}
+    cur.execute("SELECT * FROM access_requests WHERE id=%s", (tok["request_id"],))
+    req = cur.fetchone()
+    if not req: cur.close(); release_pg(conn); raise HTTPException(404, "Request not found")
+    if req["status"] != "pending":
+        cur.close(); release_pg(conn)
+        return {"status": "already_actioned", "action": req["status"]}
+
+    action = tok["action"]
+    if action == "approve":
+        code = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))
+        cur.execute("INSERT INTO invite_codes (code, created_by) VALUES (%s,%s)", (code, "admin-email"))
+        cur.execute("UPDATE access_requests SET status='approved', invite_code=%s WHERE id=%s",
+                    (code, tok["request_id"]))
+        cur.execute("UPDATE review_tokens SET used=TRUE WHERE request_id=%s", (tok["request_id"],))
+        conn.commit(); cur.close(); release_pg(conn)
+        send_email(req["email"], "[Sentinel] You've been approved!", f"""
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
+  <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">⚔ SENTINEL</h2>
+  <h3 style="color:#aaa;font-weight:400;margin-top:0;">Your access has been approved</h3>
+  <p style="color:#ccc;">Hey {req["name"]}, your request to access Sentinel has been approved.</p>
+  <p style="color:#888;margin-bottom:8px;font-size:13px;">Your invite code:</p>
+  <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;text-align:center;font-family:monospace;font-size:28px;letter-spacing:6px;color:#4ade80;margin-bottom:24px;">{code}</div>
+  <p style="color:#888;font-size:12px;">Enter this code when creating your profile on Sentinel. It can only be used once.</p>
+</div>""")
+        return {"status": "approved", "name": req["name"], "email": req["email"], "invite_code": code}
+    else:
+        cur.execute("UPDATE access_requests SET status='denied' WHERE id=%s", (tok["request_id"],))
+        cur.execute("UPDATE review_tokens SET used=TRUE WHERE request_id=%s", (tok["request_id"],))
+        conn.commit(); cur.close(); release_pg(conn)
+        send_email(req["email"], "[Sentinel] Access request update", f"""
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
+  <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">⚔ SENTINEL</h2>
+  <h3 style="color:#aaa;font-weight:400;margin-top:0;">Access request update</h3>
+  <p style="color:#ccc;">Hey {req["name"]}, unfortunately your request to access Sentinel has been denied.</p>
+  <p style="color:#888;font-size:12px;">If you think this is a mistake, contact the administrator directly.</p>
+</div>""")
+        return {"status": "denied", "name": req["name"]}
+
+@app.get("/review.html", response_class=HTMLResponse)
+def serve_review():
+    p = BASE_DIR / "static" / "review.html"
+    if p.exists():
+        return HTMLResponse(p.read_text(), 200)
+    raise HTTPException(404, "review.html not found — make sure it is in the static/ folder")
 
 @app.get("/api/admin/make-me-admin")
 def make_me_admin():
-    """Promotes profile f5087f66-a860-49dd-8d38-46e6b68ac99d to admin. One-time use — hardcoded to your ID."""
-    if not PG_URL: raise HTTPException(503, "Postgres not configured")
     target_id = "f5087f66-a860-49dd-8d38-46e6b68ac99d"
+    if not PG_URL: raise HTTPException(503, "Postgres not configured")
     try:
         conn = get_pg(); cur = conn.cursor()
         cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;")
         conn.commit()
         cur.execute("SELECT name, is_admin FROM profiles WHERE id=%s", (target_id,))
         row = cur.fetchone()
-        if not row:
-            cur.close(); release_pg(conn)
-            raise HTTPException(404, "Profile not found")
-        if row["is_admin"]:
-            cur.close(); release_pg(conn)
-            return {"ok": True, "message": f"Already admin!"}
+        if not row: cur.close(); release_pg(conn); raise HTTPException(404, "Profile not found")
+        if row["is_admin"]: cur.close(); release_pg(conn); return {"ok": True, "message": "Already admin!"}
         cur.execute("UPDATE profiles SET is_admin=TRUE WHERE id=%s", (target_id,))
         conn.commit(); cur.close(); release_pg(conn)
         return {"ok": True, "message": f"✓ '{row['name']}' is now admin!"}
@@ -1326,12 +1488,17 @@ async def startup_event():
             cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;")
             cur.execute("""CREATE TABLE IF NOT EXISTS access_requests (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, reason TEXT NOT NULL,
+                email TEXT NOT NULL DEFAULT '',
                 status TEXT DEFAULT 'pending', invite_code TEXT DEFAULT '',
                 created_at TIMESTAMPTZ DEFAULT NOW());""")
             cur.execute("""CREATE TABLE IF NOT EXISTS invite_codes (
                 code TEXT PRIMARY KEY, created_by TEXT NOT NULL,
                 used BOOLEAN DEFAULT FALSE, used_by TEXT DEFAULT '',
                 created_at TIMESTAMPTZ DEFAULT NOW());""")
+            cur.execute("""CREATE TABLE IF NOT EXISTS review_tokens (
+                token TEXT PRIMARY KEY, request_id TEXT NOT NULL,
+                action TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL,
+                used BOOLEAN DEFAULT FALSE);""")
             conn.commit(); cur.close(); release_pg(conn)
             sentinel_log("Startup migrations OK", "INFO", "SYSTEM")
         except Exception as _e:
