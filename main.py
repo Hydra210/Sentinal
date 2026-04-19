@@ -77,6 +77,7 @@ def init_pg():
         print("[SENTINEL] No DATABASE_URL set — Postgres features disabled")
         return
     try:
+        # Step 1 — create tables
         conn = get_pg()
         cur = conn.cursor()
         cur.execute("""
@@ -84,7 +85,6 @@ def init_pg():
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 pin_hash TEXT NOT NULL,
-                avatar_url TEXT DEFAULT '',
                 created_at TIMESTAMPTZ DEFAULT NOW()
             );
             CREATE TABLE IF NOT EXISTS saved_credentials (
@@ -93,14 +93,24 @@ def init_pg():
                 account_info JSONB,
                 saved_at TIMESTAMPTZ DEFAULT NOW()
             );
-            ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT '';
         """)
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"[SENTINEL] Postgres table creation error: {e}")
+
+    try:
+        # Step 2 — migrations in a fresh connection so schema cache is fresh
+        conn = get_pg()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT '';")
         conn.commit()
         cur.close()
         conn.close()
         print("[SENTINEL] Postgres initialized")
     except Exception as e:
-        print(f"[SENTINEL] Postgres init error: {e}")
+        print(f"[SENTINEL] Postgres migration error: {e}")
 
 init_pg()
 
