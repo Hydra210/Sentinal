@@ -59,6 +59,10 @@ def init_db():
         CREATE TABLE IF NOT EXISTS config (
             profile_id TEXT, key TEXT, value TEXT,
             PRIMARY KEY (profile_id, key));
+        CREATE TABLE IF NOT EXISTS connect_codes (
+            code TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            expiry REAL NOT NULL);
     """)
     conn.commit()
     conn.close()
@@ -169,28 +173,39 @@ def get_session(profile_id: str) -> ProfileSession:
         _sessions[profile_id].profile_id = profile_id
     return _sessions[profile_id]
 
-# ── CONNECT CODES ─────────────────────────────────────────────────────────────
-
-_connect_codes: dict = {}  # code -> {expiry, profile_id}
+# ── CONNECT CODES (SQLite-backed so they survive Render restarts) ─────────────
 
 def generate_connect_code(profile_id: str) -> str:
-    now = datetime.now()
-    expired = [c for c, v in _connect_codes.items() if now > v["expiry"]]
-    for c in expired:
-        del _connect_codes[c]
+    now = time.time()
     code = ''.join(secrets.choice(string.digits) for _ in range(4))
-    _connect_codes[code] = {"expiry": now + timedelta(minutes=5), "profile_id": profile_id}
+    conn = get_db()
+    conn.execute("DELETE FROM connect_codes WHERE expiry < ?", (now,))
+    conn.execute(
+        "INSERT OR REPLACE INTO connect_codes (code, profile_id, expiry) VALUES (?,?,?)",
+        (code, profile_id, now + 300)
+    )
+    conn.commit()
+    conn.close()
     return code
 
 def validate_connect_code(code: str) -> Optional[str]:
-    entry = _connect_codes.get(code)
-    if not entry:
+    now = time.time()
+    conn = get_db()
+    row = conn.execute(
+        "SELECT profile_id, expiry FROM connect_codes WHERE code=?", (code,)
+    ).fetchone()
+    if not row:
+        conn.close()
         return None
-    if datetime.now() > entry["expiry"]:
-        del _connect_codes[code]
+    if now > row["expiry"]:
+        conn.execute("DELETE FROM connect_codes WHERE code=?", (code,))
+        conn.commit()
+        conn.close()
         return None
-    profile_id = entry["profile_id"]
-    del _connect_codes[code]
+    profile_id = row["profile_id"]
+    conn.execute("DELETE FROM connect_codes WHERE code=?", (code,))
+    conn.commit()
+    conn.close()
     return profile_id
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
@@ -686,13 +701,23 @@ def api_generate_code(body: GenerateCodeBody):
 
 @app.post("/api/connect-code/redeem")
 async def api_redeem_code(body: ConnectCodeBody):
-    profile_id = validate_connect_code(body.code)
-    if not profile_id:
-        raise HTTPException(400, "Invalid or expired code")
-    info = await validate_cookie(body.cookie)
-    session = get_session(profile_id)
-    session.cookie       = body.cookie
-    session.account_info = info
+    try:
+        profile_id = validate_connect_code(body.code)
+        if not profile_id:
+            raise HTTPException(400, "Invalid or expired code — generate a fresh one from the dashboard")
+        try:
+            info = await validate_cookie(body.cookie)
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"Could not verify Roblox session: {e}")
+        session = get_session(profile_id)
+        session.cookie       = body.cookie
+        session.account_info = info
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
     cfg = get_config(profile_id)
     if cfg.get("saveCookies") and PG_URL:
