@@ -342,23 +342,31 @@ async def fetch_group_assets(group_id: str, asset_type: str, *, cookie=None) -> 
     if not cookie:
         return assets
     cursor = None
-    for _ in range(5):
-        params = {"assetType": asset_type, "sortOrder": "Desc", "limit": 100}
+    for _ in range(10):
+        params = {
+            "assetType":  asset_type,
+            "isArchived": "false",
+            "groupId":    group_id,
+            "pageSize":   100,
+        }
         if cursor:
             params["cursor"] = cursor
         r = await rblx_get(
-            f"https://develop.roblox.com/v1/groups/{group_id}/assets",
+            "https://itemconfiguration.roblox.com/v1/creations/get-assets",
             cookie=cookie, params=params,
         )
         if r.status_code != 200:
+            print(f"[SENTINEL] fetch_group_assets {asset_type} group {group_id}: HTTP {r.status_code} — {r.text[:200]}")
             break
         d = r.json()
         for item in d.get("data", []):
+            creator_id   = str(item.get("creatorTargetId", ""))
+            creator_name = item.get("creatorName", "") or ""
             assets.append({
-                "id":          str(item["id"]),
+                "id":          str(item.get("assetId", item.get("id", ""))),
                 "name":        item.get("name", "Unknown"),
-                "creatorId":   str(item.get("creatorId", "")),
-                "creatorName": item.get("creatorName", ""),
+                "creatorId":   creator_id,
+                "creatorName": creator_name,
                 "assetType":   asset_type,
             })
         cursor = d.get("nextPageCursor")
@@ -372,19 +380,13 @@ async def archive_asset(asset_id: str, *, cookie=None) -> bool:
     csrf = await get_csrf(cookie)
     async with httpx.AsyncClient(timeout=15) as c:
         r = await c.post(
-            f"https://develop.roblox.com/v1/assets/{asset_id}/archive",
-            headers={"X-CSRF-TOKEN": csrf},
-            cookies={".ROBLOSECURITY": cookie},
-        )
-        if r.status_code in (200, 204):
-            return True
-        r2 = await c.post(
-            f"https://www.roblox.com/item-configuration/v1/items/{asset_id}/archive",
+            f"https://itemconfiguration.roblox.com/v1/assets/{asset_id}/archive",
             headers={"X-CSRF-TOKEN": csrf, "Content-Type": "application/json"},
             cookies={".ROBLOSECURITY": cookie},
             json={},
         )
-        return r2.status_code in (200, 204)
+        print(f"[SENTINEL] archive_asset {asset_id}: HTTP {r.status_code}")
+        return r.status_code in (200, 204)
 
 async def send_dm(user_id: str, subject: str, body: str, cookie: str) -> bool:
     csrf = await get_csrf(cookie)
@@ -736,6 +738,14 @@ async def api_redeem_code(body: ConnectCodeBody):
         session = get_session(profile_id)
         session.cookie       = body.cookie
         session.account_info = info
+
+        # Auto-restart monitoring if it was active before the server restarted
+        cfg_check = get_config(profile_id)
+        if cfg_check.get("_monitoringActive") and not session.monitoring:
+            session.monitoring   = True
+            session.monitor_task = asyncio.create_task(monitor_loop(profile_id))
+            print(f"[SENTINEL] Auto-restarted monitoring for profile {profile_id}")
+
     except HTTPException:
         raise
     except Exception as e:
@@ -800,12 +810,14 @@ async def api_start(body: MonitorBody):
         return {"status": "already_running"}
     session.monitoring   = True
     session.monitor_task = asyncio.create_task(monitor_loop(body.profile_id))
+    set_cfg(body.profile_id, "_monitoringActive", True)   # persist so it survives restarts
     return {"status": "started"}
 
 @app.post("/api/monitoring/stop")
 async def api_stop(body: MonitorBody):
     session = get_session(body.profile_id)
     session.monitoring = False
+    set_cfg(body.profile_id, "_monitoringActive", False)  # persist
     if session.monitor_task:
         session.monitor_task.cancel()
         try:
