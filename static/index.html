@@ -1619,6 +1619,13 @@ function openSettings() {
   if (info) info.textContent = `Signed in as: ${STATE.profileName || '—'} (ID: ${STATE.profileId || '—'})`;
   const sc = document.getElementById('save-cookies-toggle');
   if (_cfg && sc) sc.className = 'toggle-sw' + (_cfg.saveCookies ? ' on' : '');
+
+  // sync debug toggle + panel state
+  const toggle = document.getElementById('debug-mode-toggle');
+  if (toggle) toggle.className = 'toggle-sw' + (_debugMode ? ' on' : '');
+  const panel = document.getElementById('debug-panel-content');
+  if (panel) panel.style.display = _debugMode ? 'block' : 'none';
+  if (_debugMode) { refreshDebugStats(); renderSettingsLogs(); }
 }
 
 function closeSettings() { document.getElementById('settings-modal').classList.remove('open'); }
@@ -1893,17 +1900,6 @@ async function forceGC() {
   } catch(e) {
     toast('GC failed: ' + e.message, 'error');
   }
-}
-
-// patch openSettings to also sync debug toggle state and refresh debug data
-const _origOpenSettings = openSettings;
-function openSettings() {
-  _origOpenSettings();
-  const toggle = document.getElementById('debug-mode-toggle');
-  if (toggle) toggle.className = 'toggle-sw' + (_debugMode ? ' on' : '');
-  const panel = document.getElementById('debug-panel-content');
-  if (panel) panel.style.display = _debugMode ? 'block' : 'none';
-  if (_debugMode) { refreshDebugStats(); renderSettingsLogs(); }
 }
 
 // ── BOOT ──────────────────────────────────────────────────────────────────────
