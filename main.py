@@ -165,6 +165,44 @@ def init_pg():
         cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT '';")
         conn.commit()
 
+        # ── App data tables (groups, history, config, connect_codes) ──────────
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS groups (
+                id TEXT,
+                profile_id TEXT DEFAULT '',
+                name TEXT DEFAULT '',
+                added_at FLOAT,
+                PRIMARY KEY (id, profile_id)
+            );
+            CREATE TABLE IF NOT EXISTS history (
+                id TEXT PRIMARY KEY,
+                profile_id TEXT DEFAULT '',
+                username TEXT DEFAULT '',
+                display_name TEXT DEFAULT '',
+                user_id TEXT DEFAULT '',
+                audio_name TEXT DEFAULT '',
+                audio_id TEXT DEFAULT '',
+                asset_type TEXT DEFAULT 'Audio',
+                group_id TEXT DEFAULT '',
+                group_name TEXT DEFAULT '',
+                time TEXT,
+                dm_status TEXT DEFAULT 'n/a',
+                archived INTEGER DEFAULT 1
+            );
+            CREATE TABLE IF NOT EXISTS config (
+                profile_id TEXT,
+                key TEXT,
+                value TEXT,
+                PRIMARY KEY (profile_id, key)
+            );
+            CREATE TABLE IF NOT EXISTS connect_codes (
+                code TEXT PRIMARY KEY,
+                profile_id TEXT NOT NULL,
+                expiry FLOAT NOT NULL
+            );
+        """)
+        conn.commit()
+
         cur.close()
         conn.close()
         print("[SENTINEL] Postgres initialized")
@@ -175,6 +213,114 @@ init_pg()
 
 def hash_pin(pin: str) -> str:
     return hashlib.sha256(pin.encode()).hexdigest()
+
+# ── UNIFIED DB HELPER ─────────────────────────────────────────────────────────
+# Routes all app-data queries to Postgres when DATABASE_URL is set,
+# falls back to SQLite for local development.
+
+def db_exec(sql: str, params: tuple = (), *, fetch: str = None):
+    """
+    Execute SQL and optionally return results.
+    fetch='all' → list[dict], 'one' → dict|None, 'val' → scalar, None → None
+    Handles ? vs %s placeholder conversion automatically.
+    """
+    if PG_URL:
+        pg_sql = sql.replace("?", "%s")
+        conn = get_pg()
+        cur = conn.cursor()
+        try:
+            cur.execute(pg_sql, params)
+            conn.commit()
+            if fetch == "all":
+                return [dict(r) for r in cur.fetchall()]
+            if fetch == "one":
+                row = cur.fetchone()
+                return dict(row) if row else None
+            if fetch == "val":
+                row = cur.fetchone()
+                return (list(row.values())[0] if row else None)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close(); conn.close()
+    else:
+        conn = get_db()
+        try:
+            cur = conn.execute(sql, params)
+            conn.commit()
+            if fetch == "all":
+                return [dict(r) for r in cur.fetchall()]
+            if fetch == "one":
+                row = cur.fetchone()
+                return dict(row) if row else None
+            if fetch == "val":
+                row = cur.fetchone()
+                return row[0] if row else None
+        finally:
+            conn.close()
+
+def db_upsert(table: str, pk_cols: list, data: dict):
+    """
+    INSERT … ON CONFLICT (pk_cols) DO UPDATE for Postgres,
+    INSERT OR REPLACE for SQLite.
+    """
+    cols   = list(data.keys())
+    vals   = list(data.values())
+    if PG_URL:
+        col_str    = ", ".join(cols)
+        ph_str     = ", ".join(["%s"] * len(cols))
+        conflict   = ", ".join(pk_cols)
+        update_str = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols if c not in pk_cols)
+        sql = (f"INSERT INTO {table} ({col_str}) VALUES ({ph_str}) "
+               f"ON CONFLICT ({conflict}) DO UPDATE SET {update_str}")
+        conn = get_pg()
+        cur = conn.cursor()
+        try:
+            cur.execute(sql, vals)
+            conn.commit()
+        except Exception:
+            conn.rollback(); raise
+        finally:
+            cur.close(); conn.close()
+    else:
+        col_str = ", ".join(cols)
+        ph_str  = ", ".join(["?"] * len(cols))
+        sql = f"INSERT OR REPLACE INTO {table} ({col_str}) VALUES ({ph_str})"
+        conn = get_db()
+        try:
+            conn.execute(sql, vals)
+            conn.commit()
+        finally:
+            conn.close()
+
+def db_insert_ignore(table: str, data: dict):
+    """INSERT OR IGNORE (SQLite) / INSERT … ON CONFLICT DO NOTHING (Postgres)."""
+    cols  = list(data.keys())
+    vals  = list(data.values())
+    if PG_URL:
+        col_str = ", ".join(cols)
+        ph_str  = ", ".join(["%s"] * len(cols))
+        sql = f"INSERT INTO {table} ({col_str}) VALUES ({ph_str}) ON CONFLICT DO NOTHING"
+        conn = get_pg()
+        cur = conn.cursor()
+        try:
+            cur.execute(sql, vals)
+            conn.commit()
+        except Exception:
+            conn.rollback(); raise
+        finally:
+            cur.close(); conn.close()
+    else:
+        col_str = ", ".join(cols)
+        ph_str  = ", ".join(["?"] * len(cols))
+        sql = f"INSERT OR IGNORE INTO {table} ({col_str}) VALUES ({ph_str})"
+        conn = get_db()
+        try:
+            conn.execute(sql, vals)
+            conn.commit()
+        finally:
+            conn.close()
 
 # ── APP STATE ─────────────────────────────────────────────────────────────────
 
@@ -200,34 +346,21 @@ def get_session(profile_id: str) -> ProfileSession:
 def generate_connect_code(profile_id: str) -> str:
     now = time.time()
     code = ''.join(secrets.choice(string.digits) for _ in range(4))
-    conn = get_db()
-    conn.execute("DELETE FROM connect_codes WHERE expiry < ?", (now,))
-    conn.execute(
-        "INSERT OR REPLACE INTO connect_codes (code, profile_id, expiry) VALUES (?,?,?)",
-        (code, profile_id, now + 300)
-    )
-    conn.commit()
-    conn.close()
+    db_exec("DELETE FROM connect_codes WHERE expiry < ?", (now,))
+    db_upsert("connect_codes", ["code"],
+              {"code": code, "profile_id": profile_id, "expiry": now + 300})
     return code
 
 def validate_connect_code(code: str) -> Optional[str]:
     now = time.time()
-    conn = get_db()
-    row = conn.execute(
-        "SELECT profile_id, expiry FROM connect_codes WHERE code=?", (code,)
-    ).fetchone()
+    row = db_exec("SELECT profile_id, expiry FROM connect_codes WHERE code=?", (code,), fetch="one")
     if not row:
-        conn.close()
         return None
     if now > row["expiry"]:
-        conn.execute("DELETE FROM connect_codes WHERE code=?", (code,))
-        conn.commit()
-        conn.close()
+        db_exec("DELETE FROM connect_codes WHERE code=?", (code,))
         return None
     profile_id = row["profile_id"]
-    conn.execute("DELETE FROM connect_codes WHERE code=?", (code,))
-    conn.commit()
-    conn.close()
+    db_exec("DELETE FROM connect_codes WHERE code=?", (code,))
     return profile_id
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
@@ -259,13 +392,9 @@ DEFAULT_CFG = {
 }
 
 def get_config(profile_id: str) -> dict:
-    conn = get_db()
-    rows = conn.execute(
-        "SELECT key, value FROM config WHERE profile_id=?", (profile_id,)
-    ).fetchall()
-    conn.close()
+    rows = db_exec("SELECT key, value FROM config WHERE profile_id=?", (profile_id,), fetch="all")
     cfg = dict(DEFAULT_CFG)
-    for row in rows:
+    for row in (rows or []):
         try:
             cfg[row["key"]] = json.loads(row["value"])
         except Exception:
@@ -273,13 +402,8 @@ def get_config(profile_id: str) -> dict:
     return cfg
 
 def set_cfg(profile_id: str, key: str, value):
-    conn = get_db()
-    conn.execute(
-        "INSERT OR REPLACE INTO config (profile_id, key, value) VALUES (?,?,?)",
-        (profile_id, key, json.dumps(value))
-    )
-    conn.commit()
-    conn.close()
+    db_upsert("config", ["profile_id", "key"],
+              {"profile_id": profile_id, "key": key, "value": json.dumps(value)})
 
 # ── ROBLOX API HELPERS ────────────────────────────────────────────────────────
 
@@ -425,11 +549,9 @@ async def monitor_loop(profile_id: str):
         dm_tmpl          = str(cfg.get("dmTemplate", DEFAULT_CFG["dmTemplate"]))
         alt              = str(cfg.get("altAccount", ""))
 
-        conn   = get_db()
-        groups = conn.execute(
-            "SELECT id, name FROM groups WHERE profile_id=?", (profile_id,)
-        ).fetchall()
-        conn.close()
+        groups = db_exec(
+            "SELECT id, name FROM groups WHERE profile_id=?", (profile_id,), fetch="all"
+        ) or []
 
         for grp in groups:
             gid, gname = grp["id"], grp["name"]
@@ -498,25 +620,21 @@ async def monitor_loop(profile_id: str):
                             print(f"[SENTINEL] DM error: {e}")
                             dm_status = "failed"
 
-                    conn = get_db()
-                    conn.execute(
-                        "INSERT OR IGNORE INTO history"
-                        " (id, profile_id, username, display_name, user_id,"
-                        "  audio_name, audio_id, asset_type, group_id, group_name,"
-                        "  time, dm_status, archived)"
-                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1)",
-                        (
-                            f"{aid}_{int(time.time())}",
-                            profile_id,
-                            creator_name, creator_name, creator_id,
-                            a.get("name", "Unknown"), aid, asset_type,
-                            gid, gname,
-                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            dm_status,
-                        ),
-                    )
-                    conn.commit()
-                    conn.close()
+                    db_insert_ignore("history", {
+                        "id":           f"{aid}_{int(time.time())}",
+                        "profile_id":   profile_id,
+                        "username":     creator_name,
+                        "display_name": creator_name,
+                        "user_id":      creator_id,
+                        "audio_name":   a.get("name", "Unknown"),
+                        "audio_id":     aid,
+                        "asset_type":   asset_type,
+                        "group_id":     gid,
+                        "group_name":   gname,
+                        "time":         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "dm_status":    dm_status,
+                        "archived":     1,
+                    })
                     print(f"[SENTINEL] archived={ok} dm={dm_status}")
 
             except asyncio.CancelledError:
@@ -842,13 +960,10 @@ async def api_stop(body: MonitorBody):
 
 @app.get("/api/groups")
 def api_list_groups(profile_id: str = ""):
-    conn = get_db()
-    rows = conn.execute(
+    return db_exec(
         "SELECT id, name, added_at FROM groups WHERE profile_id=? ORDER BY added_at DESC",
-        (profile_id,)
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+        (profile_id,), fetch="all"
+    ) or []
 
 @app.post("/api/groups")
 async def api_add_group(body: GroupBody):
@@ -857,21 +972,14 @@ async def api_add_group(body: GroupBody):
         raise HTTPException(400, "Group ID must be numeric")
     session = get_session(body.profile_id)
     name = body.name.strip() or await get_group_name(gid, cookie=session.cookie)
-    conn = get_db()
-    conn.execute(
-        "INSERT OR REPLACE INTO groups (id, profile_id, name, added_at) VALUES (?,?,?,?)",
-        (gid, body.profile_id, name, time.time())
-    )
-    conn.commit()
-    conn.close()
-    return {"id": gid, "name": name, "added_at": time.time()}
+    t = time.time()
+    db_upsert("groups", ["id", "profile_id"],
+              {"id": gid, "profile_id": body.profile_id, "name": name, "added_at": t})
+    return {"id": gid, "name": name, "added_at": t}
 
 @app.delete("/api/groups/{group_id}")
 def api_remove_group(group_id: str, profile_id: str = ""):
-    conn = get_db()
-    conn.execute("DELETE FROM groups WHERE id=? AND profile_id=?", (group_id, profile_id))
-    conn.commit()
-    conn.close()
+    db_exec("DELETE FROM groups WHERE id=? AND profile_id=?", (group_id, profile_id))
     session = get_session(profile_id)
     session.known_assets.pop(f"{profile_id}:{group_id}", None)
     return {"deleted": True}
@@ -880,46 +988,34 @@ def api_remove_group(group_id: str, profile_id: str = ""):
 
 @app.get("/api/history")
 def api_history(profile_id: str = "", limit: int = 200, search: str = ""):
-    conn = get_db()
     if search:
         s = f"%{search}%"
-        rows = conn.execute(
+        return db_exec(
             "SELECT * FROM history WHERE profile_id=?"
             " AND (username LIKE ? OR audio_name LIKE ? OR audio_id LIKE ?)"
             " ORDER BY time DESC LIMIT ?",
-            (profile_id, s, s, s, limit),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM history WHERE profile_id=? ORDER BY time DESC LIMIT ?",
-            (profile_id, limit)
-        ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+            (profile_id, s, s, s, limit), fetch="all"
+        ) or []
+    return db_exec(
+        "SELECT * FROM history WHERE profile_id=? ORDER BY time DESC LIMIT ?",
+        (profile_id, limit), fetch="all"
+    ) or []
 
 @app.delete("/api/history")
 def api_clear_history(profile_id: str = ""):
-    conn = get_db()
-    conn.execute("DELETE FROM history WHERE profile_id=?", (profile_id,))
-    conn.commit()
-    conn.close()
+    db_exec("DELETE FROM history WHERE profile_id=?", (profile_id,))
     return {"cleared": True}
 
 # ── STATS ─────────────────────────────────────────────────────────────────────
 
 @app.get("/api/stats")
 def api_stats(profile_id: str = ""):
-    conn = get_db()
-    archived = conn.execute(
-        "SELECT COUNT(*) FROM history WHERE profile_id=? AND archived=1", (profile_id,)
-    ).fetchone()[0]
-    dms = conn.execute(
-        "SELECT COUNT(*) FROM history WHERE profile_id=? AND dm_status='sent'", (profile_id,)
-    ).fetchone()[0]
-    groups = conn.execute(
-        "SELECT COUNT(*) FROM groups WHERE profile_id=?", (profile_id,)
-    ).fetchone()[0]
-    conn.close()
+    archived = db_exec("SELECT COUNT(*) AS c FROM history WHERE profile_id=? AND archived=1",
+                       (profile_id,), fetch="val") or 0
+    dms      = db_exec("SELECT COUNT(*) AS c FROM history WHERE profile_id=? AND dm_status='sent'",
+                       (profile_id,), fetch="val") or 0
+    groups   = db_exec("SELECT COUNT(*) AS c FROM groups WHERE profile_id=?",
+                       (profile_id,), fetch="val") or 0
     wl = len(get_config(profile_id).get("whitelist_all", []))
     return {"archived": archived, "dms": dms, "groups": groups, "whitelisted": wl}
 
