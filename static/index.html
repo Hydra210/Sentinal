@@ -462,6 +462,19 @@
     <div style="margin-bottom:24px;">
       <div class="section-title">Profile</div>
       <div id="settings-profile-info" style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-bottom:14px;"></div>
+
+      <!-- Avatar change -->
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;">
+        <div id="settings-avatar-preview" style="width:56px;height:56px;border-radius:50%;border:1px solid var(--border);background:var(--surface3);display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:800;font-size:20px;color:rgba(255,255,255,0.5);flex-shrink:0;overflow:hidden;"></div>
+        <div style="flex:1;">
+          <input type="file" id="settings-avatar-file" accept="image/*" style="display:none;" onchange="previewSettingsAvatar(this)">
+          <button class="btn btn-sm" onclick="document.getElementById('settings-avatar-file').click()">Change Avatar</button>
+          <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-dimmer);margin-top:4px;">JPG, PNG, GIF — max 1MB</div>
+          <input type="hidden" id="settings-avatar-data">
+          <button class="btn btn-sm btn-primary" id="settings-avatar-save-btn" style="margin-top:6px;display:none;" onclick="saveSettingsAvatar()">Save Avatar</button>
+        </div>
+      </div>
+
       <div class="btn-group">
         <button class="btn btn-sm" onclick="openChangePinModal()">Change PIN</button>
         <button class="btn btn-sm" onclick="openChangeNameModal()">Change Name</button>
@@ -982,13 +995,15 @@ async function loadProfileScreen() {
 }
 
 // ── PIN MODAL ─────────────────────────────────────────────────────────────────
-let _pinTarget = null;
-let _pinValue  = '';
+let _pinTarget    = null;
+let _pinValue     = '';
+let _pinLength    = 4;  // actual PIN length for this profile
 let _pinSubmitTimer = null;
 
 function openPinModal(profile) {
   _pinTarget = profile;
   _pinValue  = '';
+  _pinLength = profile.pin_length || 4;  // backend sends pin_length, default 4
   document.getElementById('pin-modal-name').textContent = profile.name;
   document.getElementById('pin-error').textContent = '';
   const avatarEl = document.getElementById('pin-modal-avatar');
@@ -997,23 +1012,30 @@ function openPinModal(profile) {
     : profile.name.slice(0,2).toUpperCase();
   updatePinDots();
   document.getElementById('pin-modal').classList.add('open');
+  // Enable keyboard input
+  document.addEventListener('keydown', _pinKeyHandler);
 }
 
 function closePinModal() {
   document.getElementById('pin-modal').classList.remove('open');
   _pinValue = ''; _pinTarget = null;
   clearTimeout(_pinSubmitTimer);
-  // Reset to 4 empty dots
+  document.removeEventListener('keydown', _pinKeyHandler);
   document.getElementById('pin-display').innerHTML =
     Array.from({length: 4}, () => '<div class="pin-dot"></div>').join('');
+}
+
+function _pinKeyHandler(e) {
+  if (e.key >= '0' && e.key <= '9') { pinKey(e.key); }
+  else if (e.key === 'Backspace') { pinBackspace(); }
+  else if (e.key === 'Escape') { closePinModal(); }
 }
 
 function updatePinDots() {
   const display = document.getElementById('pin-display');
   const entered = _pinValue.length;
-  // Show slots snapped to nearest of 4/6/8, always at least 4
-  // This grows as user types so a 6-digit PIN shows 6 slots after 5th digit
-  const total = entered <= 4 ? 4 : entered <= 6 ? 6 : 8;
+  // Show exact PIN length slots — grows as user types beyond known length
+  const total = Math.max(_pinLength, entered);
   display.innerHTML = Array.from({length: total}, (_, i) =>
     `<div class="pin-dot ${i < entered ? 'filled' : ''}"></div>`
   ).join('');
@@ -1024,11 +1046,12 @@ function pinKey(digit) {
   _pinValue += digit;
   updatePinDots();
   clearTimeout(_pinSubmitTimer);
-  // At 4 or 6 digits, wait 800ms to see if user keeps typing
-  // At 8 digits, submit immediately (max length)
-  if (_pinValue.length === 8) {
+  // Submit when we hit the known PIN length, or after 800ms pause if longer
+  if (_pinValue.length === _pinLength) {
+    _pinSubmitTimer = setTimeout(() => submitPin(), 300);
+  } else if (_pinValue.length === 8) {
     submitPin();
-  } else if (_pinValue.length === 4 || _pinValue.length === 6) {
+  } else if (_pinValue.length > _pinLength) {
     _pinSubmitTimer = setTimeout(() => submitPin(), 800);
   }
 }
@@ -1055,9 +1078,8 @@ async function submitPin() {
 
 // ── CREATE PROFILE ────────────────────────────────────────────────────────────
 async function deleteProfileFromSelector(profile) {
-  const pin = prompt(`Enter PIN for "${profile.name}" to delete this profile. This cannot be undone.`);
-  if (pin === null) return;
-  if (!pin.trim()) { alert('PIN is required'); return; }
+  const pin = prompt(`Enter PIN for "${profile.name}" to delete this profile.\nTHIS CANNOT BE UNDONE.`);
+  if (pin === null || pin.trim() === '') return;
   try {
     await api('DELETE', `/api/profiles/${profile.id}?pin=${encodeURIComponent(pin.trim())}`);
     toast('Profile deleted', 'warn');
@@ -1620,6 +1642,20 @@ function openSettings() {
   const sc = document.getElementById('save-cookies-toggle');
   if (_cfg && sc) sc.className = 'toggle-sw' + (_cfg.saveCookies ? ' on' : '');
 
+  // Populate avatar preview
+  const ap = document.getElementById('settings-avatar-preview');
+  if (ap) {
+    if (STATE.profileAvatar) {
+      ap.innerHTML = `<img src="${esc(STATE.profileAvatar)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.style.display='none'">`;
+    } else {
+      ap.textContent = (STATE.profileName || '?').slice(0,2).toUpperCase();
+    }
+  }
+  document.getElementById('settings-avatar-data').value = '';
+  document.getElementById('settings-avatar-file').value = '';
+  const saveBtn = document.getElementById('settings-avatar-save-btn');
+  if (saveBtn) saveBtn.style.display = 'none';
+
   // sync debug toggle + panel state
   const toggle = document.getElementById('debug-mode-toggle');
   if (toggle) toggle.className = 'toggle-sw' + (_debugMode ? ' on' : '');
@@ -1678,12 +1714,43 @@ function signOutProfile() {
 }
 
 async function deleteProfilePrompt() {
-  const pin = prompt('Enter your PIN to delete this profile. THIS CANNOT BE UNDONE.');
-  if (!pin) return;
+  const pin = prompt('Enter your PIN to delete this profile.\nTHIS CANNOT BE UNDONE.\n\n(Only the owner can delete a profile.)');
+  if (pin === null || pin.trim() === '') return;
   try {
-    await api('DELETE', `/api/profiles/${pid()}?pin=${encodeURIComponent(pin)}`);
+    await api('DELETE', `/api/profiles/${pid()}?pin=${encodeURIComponent(pin.trim())}`);
     signOutProfile();
     toast('Profile deleted', 'warn');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+function previewSettingsAvatar(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.size > 1024 * 1024) { toast('Image must be under 1MB', 'error'); input.value = ''; return; }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const data = e.target.result;
+    document.getElementById('settings-avatar-data').value = data;
+    const preview = document.getElementById('settings-avatar-preview');
+    preview.innerHTML = `<img src="${data}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`;
+    document.getElementById('settings-avatar-save-btn').style.display = 'inline-flex';
+  };
+  reader.readAsDataURL(file);
+}
+
+async function saveSettingsAvatar() {
+  const data = document.getElementById('settings-avatar-data').value;
+  if (!data) return;
+  const pin = prompt('Enter your PIN to confirm avatar change:');
+  if (pin === null || pin.trim() === '') return;
+  try {
+    await api('PUT', '/api/profiles', { profile_id: pid(), pin: pin.trim(), avatar_url: data });
+    STATE.profileAvatar = data;
+    // Update topbar avatar
+    const avatarEl = document.getElementById('topbar-avatar');
+    if (avatarEl) avatarEl.innerHTML = `<img src="${data}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`;
+    document.getElementById('settings-avatar-save-btn').style.display = 'none';
+    toast('Avatar updated!', 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
