@@ -106,8 +106,36 @@ def init_pg():
         cur = conn.cursor()
         cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT '';")
         conn.commit()
-        # Ensure id column is TEXT not integer
-        cur.execute("ALTER TABLE profiles ALTER COLUMN id TYPE TEXT;")
+        # Drop and recreate profiles table if id column is wrong type
+        cur.execute("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name='profiles' AND column_name='id'
+                    AND data_type != 'text'
+                ) THEN
+                    DROP TABLE IF EXISTS saved_credentials;
+                    DROP TABLE IF EXISTS profiles;
+                END IF;
+            END $$;
+        """)
+        conn.commit()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS profiles (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                pin_hash TEXT NOT NULL,
+                avatar_url TEXT DEFAULT '',
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS saved_credentials (
+                profile_id TEXT PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+                cookie_encrypted TEXT,
+                account_info JSONB,
+                saved_at TIMESTAMPTZ DEFAULT NOW()
+            );
+        """)
         conn.commit()
         cur.close()
         conn.close()
