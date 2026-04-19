@@ -184,12 +184,20 @@ def init_pg():
         conn.commit()
 
         # Add avatar_url column if missing
-        cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT '';")
-        conn.commit()
+        try:
+            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT '';")
+            conn.commit()
+        except Exception as _e:
+            conn.rollback()
+            print(f"[SENTINEL] avatar_url migration skipped: {_e}")
 
         # Add pin_length column if missing
-        cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pin_length INTEGER DEFAULT 4;")
-        conn.commit()
+        try:
+            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pin_length INTEGER DEFAULT 4;")
+            conn.commit()
+        except Exception as _e:
+            conn.rollback()
+            print(f"[SENTINEL] pin_length migration skipped: {_e}")
 
         # ── App data tables (groups, history, config, connect_codes) ──────────
         cur.execute("""
@@ -845,10 +853,19 @@ def api_list_profiles():
     try:
         conn = get_pg()
         cur  = conn.cursor()
-        cur.execute("SELECT id, name, avatar_url, created_at, pin_length FROM profiles ORDER BY created_at")
+        try:
+            cur.execute("SELECT id, name, avatar_url, created_at, pin_length FROM profiles ORDER BY created_at")
+        except Exception:
+            conn.rollback()
+            cur.execute("SELECT id, name, avatar_url, created_at FROM profiles ORDER BY created_at")
         rows = cur.fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d.setdefault("pin_length", 4)
+            result.append(d)
         cur.close(); release_pg(conn)
-        return [dict(r) for r in rows]
+        return result
     except Exception as e:
         raise HTTPException(500, str(e))
 
