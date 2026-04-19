@@ -448,7 +448,47 @@
       <input type="hidden" id="new-profile-avatar">
     </div>
 
+    <div style="margin-bottom:14px;">
+      <label class="field-label">Invite Code <span style="color:var(--text-dimmer);font-size:9px;">(required unless you're the first user)</span></label>
+      <input type="text" id="new-profile-invite" placeholder="e.g. AB12CD34" maxlength="8" style="text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()">
+    </div>
     <button class="btn btn-primary btn-block" onclick="createProfile()">Create Profile →</button>
+  </div>
+</div>
+
+<!-- ── REQUEST ACCESS MODAL ── -->
+<div class="modal-overlay" id="request-access-modal">
+  <div class="modal-box" style="max-width:440px;">
+    <button class="modal-close" onclick="closeRequestAccess()">✕</button>
+    <div style="font-family:var(--font-display);font-size:22px;font-weight:800;letter-spacing:3px;margin-bottom:6px;">REQUEST ACCESS</div>
+    <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);letter-spacing:2px;margin-bottom:24px;">SUBMIT A REQUEST — AN ADMIN WILL REVIEW IT</div>
+    <div id="request-access-success" style="display:none;text-align:center;padding:20px 0;">
+      <div style="font-size:32px;margin-bottom:12px;">✓</div>
+      <div style="font-family:var(--font-display);font-size:16px;font-weight:800;color:var(--accent);margin-bottom:8px;">REQUEST SENT</div>
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);">An admin will review your request and send you an invite code.</div>
+    </div>
+    <div id="request-access-form">
+      <div style="margin-bottom:14px;">
+        <label class="field-label">Your Name</label>
+        <input type="text" id="req-name" placeholder="e.g. Moderator123">
+      </div>
+      <div style="margin-bottom:20px;">
+        <label class="field-label">Why do you need access?</label>
+        <textarea id="req-reason" placeholder="Briefly explain your use case..." style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;color:var(--text);font-family:var(--font-mono);font-size:12px;resize:vertical;min-height:80px;box-sizing:border-box;"></textarea>
+      </div>
+      <button class="btn btn-primary btn-block" onclick="submitAccessRequest()">Submit Request →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── ADMIN PANEL MODAL ── -->
+<div class="modal-overlay" id="admin-panel-modal">
+  <div class="modal-box" style="max-width:580px;">
+    <button class="modal-close" onclick="closeAdminPanel()">✕</button>
+    <div style="font-family:var(--font-display);font-size:22px;font-weight:800;letter-spacing:3px;margin-bottom:6px;">ADMIN PANEL</div>
+    <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);letter-spacing:2px;margin-bottom:20px;">ACCESS REQUESTS</div>
+    <div id="admin-requests-list" style="display:flex;flex-direction:column;gap:12px;max-height:460px;overflow-y:auto;"></div>
+    <div id="admin-no-requests" style="display:none;font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);text-align:center;padding:30px 0;">No pending requests</div>
   </div>
 </div>
 
@@ -958,7 +998,7 @@ async function loadProfileScreen() {
           ${p.avatar_url ? `<img src="${esc(p.avatar_url)}" onerror="this.style.display='none'">` : initials}
         </div>
         <div class="profile-card-name">${esc(p.name)}</div>
-        <div class="profile-card-sub">Click to sign in</div>`;
+        <div class="profile-card-sub">${p.is_admin ? '⭐ Admin' : 'Click to sign in'}</div>`;
       card.querySelector('.profile-delete-btn').addEventListener('click', (e) => {
         e.stopPropagation();
         deleteProfileFromSelector(p);
@@ -967,31 +1007,149 @@ async function loadProfileScreen() {
       grid.appendChild(card);
     });
 
-    // Always show + card
-    const addCard = document.createElement('div');
-    addCard.className = 'profile-card add-card';
-    addCard.innerHTML = `
-      <div class="profile-card-avatar" style="font-size:28px;color:rgba(255,255,255,0.3);">+</div>
-      <div class="profile-card-name" style="color:var(--text-dim);">New Profile</div>
-      <div class="profile-card-sub">Create a new profile</div>`;
-    addCard.onclick = () => document.getElementById('create-profile-modal').classList.add('open');
-    grid.appendChild(addCard);
+    // Show correct action cards based on whether profiles exist
+    if (profiles.length === 0) {
+      // No profiles — first user becomes admin, show create directly
+      const addCard = document.createElement('div');
+      addCard.className = 'profile-card add-card';
+      addCard.innerHTML = `
+        <div class="profile-card-avatar" style="font-size:28px;color:rgba(255,255,255,0.3);">+</div>
+        <div class="profile-card-name" style="color:var(--text-dim);">Create Admin</div>
+        <div class="profile-card-sub">First profile becomes admin</div>`;
+      addCard.onclick = () => document.getElementById('create-profile-modal').classList.add('open');
+      grid.appendChild(addCard);
+    } else {
+      // Profiles exist — show "I have an invite code" and "Request Access"
+      const inviteCard = document.createElement('div');
+      inviteCard.className = 'profile-card add-card';
+      inviteCard.innerHTML = `
+        <div class="profile-card-avatar" style="font-size:24px;color:rgba(255,255,255,0.3);">🔑</div>
+        <div class="profile-card-name" style="color:var(--text-dim);">Join</div>
+        <div class="profile-card-sub">I have an invite code</div>`;
+      inviteCard.onclick = () => document.getElementById('create-profile-modal').classList.add('open');
+      grid.appendChild(inviteCard);
+
+      const reqCard = document.createElement('div');
+      reqCard.className = 'profile-card add-card';
+      reqCard.innerHTML = `
+        <div class="profile-card-avatar" style="font-size:24px;color:rgba(255,255,255,0.3);">✉</div>
+        <div class="profile-card-name" style="color:var(--text-dim);">Request Access</div>
+        <div class="profile-card-sub">Ask an admin for access</div>`;
+      reqCard.onclick = () => document.getElementById('request-access-modal').classList.add('open');
+      grid.appendChild(reqCard);
+    }
 
   } catch(e) {
-    // On error still show the + card so users aren't stuck
     grid.innerHTML = `
       <div style="grid-column:1/-1;font-family:var(--font-mono);font-size:11px;color:#ff6b6b;padding:10px 0;text-align:center;">
         Could not load profiles: ${esc(e.message)}
       </div>`;
-    const addCard = document.createElement('div');
-    addCard.className = 'profile-card add-card';
-    addCard.innerHTML = `
-      <div class="profile-card-avatar" style="font-size:28px;color:rgba(255,255,255,0.3);">+</div>
-      <div class="profile-card-name" style="color:var(--text-dim);">New Profile</div>
-      <div class="profile-card-sub">Create a new profile</div>`;
-    addCard.onclick = () => document.getElementById('create-profile-modal').classList.add('open');
-    grid.appendChild(addCard);
   }
+}
+
+// ── ACCESS REQUESTS ──────────────────────────────────────────────────────────
+
+function closeRequestAccess() {
+  document.getElementById('request-access-modal').classList.remove('open');
+  document.getElementById('req-name').value = '';
+  document.getElementById('req-reason').value = '';
+  document.getElementById('request-access-success').style.display = 'none';
+  document.getElementById('request-access-form').style.display = '';
+}
+
+async function submitAccessRequest() {
+  const name   = document.getElementById('req-name').value.trim();
+  const reason = document.getElementById('req-reason').value.trim();
+  if (!name)   { toast('Enter your name', 'error'); return; }
+  if (!reason) { toast('Enter a reason', 'error'); return; }
+  try {
+    await api('POST', '/api/access/request', { name, reason });
+    document.getElementById('request-access-form').style.display = 'none';
+    document.getElementById('request-access-success').style.display = '';
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+// Called after admin logs in — shows admin panel button in profile screen footer
+function maybeShowAdminButton(profile) {
+  if (!profile.is_admin) return;
+  const existing = document.getElementById('admin-panel-btn');
+  if (existing) return;
+  // Add admin button to topbar or we open panel from settings
+}
+
+async function openAdminPanel() {
+  const pin = STATE._lastPin;
+  if (!pin) { toast('Re-login to use admin panel', 'error'); return; }
+  try {
+    const requests = await api('GET', `/api/access/requests?profile_id=${STATE.profileId}&pin=${encodeURIComponent(pin)}`);
+    const list = document.getElementById('admin-requests-list');
+    const none = document.getElementById('admin-no-requests');
+    list.innerHTML = '';
+    const pending = requests.filter(r => r.status === 'pending');
+    const others  = requests.filter(r => r.status !== 'pending');
+    const all     = [...pending, ...others];
+    if (all.length === 0) {
+      none.style.display = '';
+    } else {
+      none.style.display = 'none';
+      all.forEach(r => {
+        const el = document.createElement('div');
+        el.style.cssText = 'background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;';
+        const statusColor = r.status === 'approved' ? 'var(--accent)' : r.status === 'denied' ? '#ff6b6b' : '#f5a623';
+        el.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px;">
+            <div>
+              <div style="font-family:var(--font-display);font-weight:800;font-size:14px;color:#fff;">${esc(r.name)}</div>
+              <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);margin-top:2px;">${new Date(r.created_at).toLocaleString()}</div>
+            </div>
+            <span style="font-family:var(--font-mono);font-size:10px;color:${statusColor};border:1px solid ${statusColor};padding:2px 8px;border-radius:4px;white-space:nowrap;">${r.status.toUpperCase()}</span>
+          </div>
+          <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-bottom:10px;">${esc(r.reason)}</div>
+          ${r.status === 'approved' && r.invite_code ? `<div style="font-family:var(--font-mono);font-size:11px;color:var(--accent);margin-bottom:10px;">Invite Code: <strong>${esc(r.invite_code)}</strong></div>` : ''}
+          ${r.status === 'pending' ? `
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-sm btn-primary" style="flex:1;" onclick="adminAction('${esc(r.id)}','approve')">✓ Approve</button>
+            <button class="btn btn-sm" style="flex:1;border-color:#ff6b6b;color:#ff6b6b;" onclick="adminAction('${esc(r.id)}','deny')">✕ Deny</button>
+          </div>` : `
+          <div style="display:flex;justify-content:flex-end;">
+            <button class="btn btn-sm" style="font-size:10px;color:var(--text-dimmer);" onclick="adminDeleteRequest('${esc(r.id)}')">Remove</button>
+          </div>`}
+        `;
+        list.appendChild(el);
+      });
+    }
+    document.getElementById('admin-panel-modal').classList.add('open');
+  } catch(e) { toast('Error loading requests: ' + e.message, 'error'); }
+}
+
+function closeAdminPanel() {
+  document.getElementById('admin-panel-modal').classList.remove('open');
+}
+
+async function adminAction(requestId, action) {
+  const pin = STATE._lastPin;
+  if (!pin) { toast('Session expired, re-login', 'error'); return; }
+  try {
+    const res = await api('POST', '/api/access/action', {
+      request_id: requestId, action, admin_id: STATE.profileId, admin_pin: pin
+    });
+    if (action === 'approve' && res.invite_code) {
+      toast(`Approved! Invite code: ${res.invite_code}`, 'success');
+      await navigator.clipboard.writeText(res.invite_code).catch(() => {});
+    } else {
+      toast('Request denied', 'warn');
+    }
+    await openAdminPanel(); // refresh
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function adminDeleteRequest(requestId) {
+  const pin = STATE._lastPin;
+  if (!pin) { toast('Session expired, re-login', 'error'); return; }
+  try {
+    await api('DELETE', `/api/access/requests/${requestId}?profile_id=${STATE.profileId}&pin=${encodeURIComponent(pin)}`);
+    await openAdminPanel();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
 // ── PIN MODAL ─────────────────────────────────────────────────────────────────
@@ -1067,6 +1225,8 @@ async function submitPin() {
   clearTimeout(_pinSubmitTimer);
   try {
     const res = await api('POST', '/api/profiles/login', { profile_id: _pinTarget.id, pin: _pinValue });
+    STATE._lastPin = _pinValue;  // store for admin actions
+    res.is_admin = _pinTarget.is_admin;  // carry forward
     document.getElementById('pin-modal').classList.remove('open');
     await loginToProfile(res);
   } catch(e) {
@@ -1095,6 +1255,7 @@ function closeCreateProfile() {
   document.getElementById('new-profile-pin').value = '';
   document.getElementById('new-profile-avatar').value = '';
   document.getElementById('new-profile-avatar-file').value = '';
+  document.getElementById('new-profile-invite').value = '';
   document.getElementById('avatar-preview').innerHTML = 'None';
 }
 
@@ -1102,14 +1263,12 @@ async function createProfile() {
   const name   = document.getElementById('new-profile-name').value.trim();
   const pin    = document.getElementById('new-profile-pin').value.trim();
   const avatar = document.getElementById('new-profile-avatar').value.trim();
+  const code   = document.getElementById('new-profile-invite').value.trim().toUpperCase();
   if (!name) { toast('Enter a profile name', 'error'); return; }
   if (pin.length < 4) { toast('PIN must be at least 4 digits', 'error'); return; }
   try {
-    await api('POST', '/api/profiles', { name, pin, avatar_url: avatar });
+    await api('POST', '/api/profiles', { name, pin, avatar_url: avatar, invite_code: code });
     closeCreateProfile();
-    document.getElementById('new-profile-name').value = '';
-    document.getElementById('new-profile-pin').value  = '';
-    document.getElementById('new-profile-avatar').value = '';
     await loadProfileScreen();
     toast('Profile created!', 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
@@ -1121,6 +1280,20 @@ async function loginToProfile(profileData) {
   STATE.profileName   = profileData.name;
   STATE.profileAvatar = profileData.avatar_url;
   STATE.hasCredential = profileData.hasCredential || false;
+  STATE.isAdmin       = profileData.is_admin || false;
+
+  // Show/hide admin button in topbar
+  const existingAdminBtn = document.getElementById('topbar-admin-btn');
+  if (existingAdminBtn) existingAdminBtn.remove();
+  if (STATE.isAdmin) {
+    const adminBtn = document.createElement('button');
+    adminBtn.id = 'topbar-admin-btn';
+    adminBtn.className = 'btn btn-sm';
+    adminBtn.textContent = '⭐ Admin';
+    adminBtn.style.cssText = 'font-size:11px;padding:4px 10px;margin-right:8px;';
+    adminBtn.onclick = openAdminPanel;
+    document.querySelector('.topbar-right')?.prepend(adminBtn);
+  }
 
   // Update topbar
   const avatarEl = document.getElementById('topbar-avatar');
