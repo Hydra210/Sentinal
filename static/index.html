@@ -325,8 +325,16 @@
       <input type="password" id="new-profile-pin" placeholder="••••" maxlength="8" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
     </div>
     <div style="margin-bottom:20px;">
-      <label class="field-label">Avatar URL (optional)</label>
-      <input type="url" id="new-profile-avatar" placeholder="https://...">
+      <label class="field-label">Profile Picture (optional)</label>
+      <div style="display:flex;align-items:center;gap:14px;">
+        <div id="avatar-preview" style="width:56px;height:56px;border-radius:50%;border:1px solid var(--border);background:var(--surface3);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);flex-shrink:0;overflow:hidden;">None</div>
+        <div style="flex:1;">
+          <input type="file" id="new-profile-avatar-file" accept="image/*" style="display:none;" onchange="previewAvatar(this)">
+          <button class="btn btn-sm btn-block" onclick="document.getElementById('new-profile-avatar-file').click()">Upload Image</button>
+          <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-dimmer);margin-top:6px;">JPG, PNG, GIF — max 1MB</div>
+        </div>
+      </div>
+      <input type="hidden" id="new-profile-avatar">
     </div>
 
     <button class="btn btn-primary btn-block" onclick="createProfile()">Create Profile →</button>
@@ -802,7 +810,14 @@ async function submitPin() {
 }
 
 // ── CREATE PROFILE ────────────────────────────────────────────────────────────
-function closeCreateProfile() { document.getElementById('create-profile-modal').classList.remove('open'); }
+function closeCreateProfile() {
+  document.getElementById('create-profile-modal').classList.remove('open');
+  document.getElementById('new-profile-name').value = '';
+  document.getElementById('new-profile-pin').value = '';
+  document.getElementById('new-profile-avatar').value = '';
+  document.getElementById('new-profile-avatar-file').value = '';
+  document.getElementById('avatar-preview').innerHTML = 'None';
+}
 
 async function createProfile() {
   const name   = document.getElementById('new-profile-name').value.trim();
@@ -1424,6 +1439,20 @@ async function clearCredentials() {
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
+function previewAvatar(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.size > 1024 * 1024) { toast('Image must be under 1MB', 'error'); input.value = ''; return; }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const data = e.target.result;
+    document.getElementById('new-profile-avatar').value = data;
+    const preview = document.getElementById('avatar-preview');
+    preview.innerHTML = `<img src="${data}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`;
+  };
+  reader.readAsDataURL(file);
+}
+
 function esc(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
