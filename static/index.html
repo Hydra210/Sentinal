@@ -804,11 +804,9 @@ function closePinModal() {
 
 function updatePinDots() {
   const display = document.getElementById('pin-display');
-  // Determine total dots from the target profile's PIN length
-  // We show dots equal to however many digits have been entered,
-  // up to the PIN length. Since we don't know the PIN length,
-  // show min 4, grow up to 8 as user types, snap to 4/6/8
   const entered = _pinValue.length;
+  // Show slots snapped to nearest of 4/6/8, always at least 4
+  // This grows as user types so a 6-digit PIN shows 6 slots after 5th digit
   const total = entered <= 4 ? 4 : entered <= 6 ? 6 : 8;
   display.innerHTML = Array.from({length: total}, (_, i) =>
     `<div class="pin-dot ${i < entered ? 'filled' : ''}"></div>`
@@ -819,12 +817,14 @@ function pinKey(digit) {
   if (_pinValue.length >= 8) return;
   _pinValue += digit;
   updatePinDots();
-  // Auto-submit only at 8 digits — for shorter PINs user presses a key that triggers submit
-  // Actually auto-submit when no more input for 600ms
   clearTimeout(_pinSubmitTimer);
-  _pinSubmitTimer = setTimeout(() => {
-    if (_pinValue.length >= 4) submitPin();
-  }, 600);
+  // At 4 or 6 digits, wait 800ms to see if user keeps typing
+  // At 8 digits, submit immediately (max length)
+  if (_pinValue.length === 8) {
+    submitPin();
+  } else if (_pinValue.length === 4 || _pinValue.length === 6) {
+    _pinSubmitTimer = setTimeout(() => submitPin(), 800);
+  }
 }
 
 function pinBackspace() {
@@ -835,6 +835,7 @@ function pinBackspace() {
 
 async function submitPin() {
   if (!_pinTarget) return;
+  clearTimeout(_pinSubmitTimer);
   try {
     const res = await api('POST', '/api/profiles/login', { profile_id: _pinTarget.id, pin: _pinValue });
     document.getElementById('pin-modal').classList.remove('open');
@@ -1327,12 +1328,17 @@ function toggleFastPoll(el) {
 }
 
 async function toggleSaveCookies(el) {
+  if (!pid()) { toast('No profile active', 'error'); return; }
   el.classList.toggle('on');
   const on = el.classList.contains('on');
   try {
     await api('POST', '/api/config', { profile_id: pid(), saveCookies: on });
     toast(on ? 'Credentials will now be saved' : 'Credentials cleared from database', on ? 'success' : 'warn');
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
+  } catch(e) {
+    // Revert toggle on error
+    el.classList.toggle('on');
+    toast('Error: ' + e.message, 'error');
+  }
 }
 
 async function saveConfig() {
