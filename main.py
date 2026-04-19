@@ -230,7 +230,7 @@ def init_pg():
         conn.commit()
 
         cur.close()
-        conn.close()
+        release_pg(conn)
         print("[SENTINEL] Postgres initialized")
     except Exception as e:
         print(f"[SENTINEL] Postgres migration error: {e}")
@@ -845,10 +845,19 @@ def api_list_profiles():
     try:
         conn = get_pg()
         cur  = conn.cursor()
-        cur.execute("SELECT id, name, avatar_url, created_at, pin_length FROM profiles ORDER BY created_at")
+        try:
+            cur.execute("SELECT id, name, avatar_url, created_at, pin_length FROM profiles ORDER BY created_at")
+        except Exception:
+            conn.rollback()
+            cur.execute("SELECT id, name, avatar_url, created_at FROM profiles ORDER BY created_at")
         rows = cur.fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d.setdefault("pin_length", 4)
+            result.append(d)
         cur.close(); release_pg(conn)
-        return [dict(r) for r in rows]
+        return result
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -866,13 +875,14 @@ def api_create_profile(body: ProfileCreate):
         profile_id = str(uuid.uuid4())
         conn = get_pg()
         cur  = conn.cursor()
+        pin_len = len(body.pin)
         cur.execute(
             "INSERT INTO profiles (id, name, pin_hash, avatar_url, pin_length) VALUES (%s,%s,%s,%s,%s)",
-            (profile_id, body.name.strip(), hash_pin(body.pin), body.avatar_url, len(body.pin))
+            (profile_id, body.name.strip(), hash_pin(body.pin), body.avatar_url, pin_len)
         )
         conn.commit()
         cur.close(); release_pg(conn)
-        return {"id": profile_id, "name": body.name.strip(), "avatar_url": body.avatar_url}
+        return {"id": profile_id, "name": body.name.strip(), "avatar_url": body.avatar_url, "pin_length": pin_len}
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -1193,6 +1203,19 @@ def api_update_config(body: ConfigBody):
 async def startup_event():
     asyncio.create_task(memory_watchdog())
     sentinel_log("SENTINEL backend started", "INFO", "SYSTEM")
+    # Force-run column migrations every startup — safe with IF NOT EXISTS
+    if PG_URL:
+        try:
+            conn = get_pg()
+            cur = conn.cursor()
+            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT '';")
+            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pin_length INTEGER DEFAULT 4;")
+            conn.commit()
+            cur.close()
+            release_pg(conn)
+            sentinel_log("Startup migrations OK (avatar_url, pin_length)", "INFO", "SYSTEM")
+        except Exception as _e:
+            sentinel_log(f"Startup migration error: {_e}", "ERROR", "SYSTEM")
 
 @app.get("/api/health")
 def health():
