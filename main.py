@@ -690,7 +690,11 @@ async def monitor_loop(profile_id: str):
                         continue
                 else:
                     new_ids = current_ids - session.known_assets[group_key]
-                    session.known_assets[group_key] = current_ids
+                    # Remove assets that are no longer in the active list (archived/deleted/restored)
+                    # so if they get restored later, they'll be detected as new again
+                    session.known_assets[group_key] -= (session.known_assets[group_key] - current_ids)
+                    # Don't add new_ids yet — we update per-asset after archiving
+                    # so failed archives get retried on the next scan
 
                 for aid in new_ids:
                     a            = current.get(aid, {})
@@ -702,11 +706,13 @@ async def monitor_loop(profile_id: str):
 
                     if creator_id.lower() in whitelist_all or creator_name.lower() in whitelist_all:
                         sentinel_log(f"Global whitelist skip: {creator_name} ({asset_type} {aid})", "INFO", "MONITOR")
+                        session.known_assets[group_key].add(aid)
                         continue
 
                     type_wl = {str(u).strip().lower() for u in cfg.get(f"whitelist_{asset_type}", [])}
                     if creator_id.lower() in type_wl or creator_name.lower() in type_wl:
                         sentinel_log(f"Type whitelist skip: {creator_name} ({asset_type})", "INFO", "MONITOR")
+                        session.known_assets[group_key].add(aid)
                         continue
 
                     sentinel_log(f"New {asset_type} detected: '{a.get('name')}' (ID {aid}) by {creator_name}", "ARCHIVE", "MONITOR")
@@ -719,6 +725,10 @@ async def monitor_loop(profile_id: str):
 
                     ok = await archive_asset(aid, cookie=session.cookie)
                     sentinel_log(f"Archive {aid}: {'OK' if ok else 'FAILED'}", "ARCHIVE" if ok else "ERROR", "MONITOR")
+
+                    if ok:
+                        # Only mark as known once successfully archived — failures retry next scan
+                        session.known_assets[group_key].add(aid)
 
                     dm_status = "n/a"
                     if notify and session.cookie and creator_id:
