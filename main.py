@@ -65,6 +65,28 @@ def init_db():
             expiry REAL NOT NULL);
     """)
     conn.commit()
+
+    # ── Schema migrations: add columns that may be missing from old DB ──────────
+    migrations = [
+        "ALTER TABLE history ADD COLUMN profile_id TEXT DEFAULT ''",
+        "ALTER TABLE history ADD COLUMN display_name TEXT DEFAULT ''",
+        "ALTER TABLE history ADD COLUMN user_id TEXT DEFAULT ''",
+        "ALTER TABLE history ADD COLUMN asset_type TEXT DEFAULT 'Audio'",
+        "ALTER TABLE history ADD COLUMN group_id TEXT DEFAULT ''",
+        "ALTER TABLE history ADD COLUMN group_name TEXT DEFAULT ''",
+        "ALTER TABLE history ADD COLUMN dm_status TEXT DEFAULT 'n/a'",
+        "ALTER TABLE history ADD COLUMN archived INTEGER DEFAULT 1",
+        "ALTER TABLE groups ADD COLUMN profile_id TEXT DEFAULT ''",
+        "ALTER TABLE groups ADD COLUMN name TEXT DEFAULT ''",
+        "ALTER TABLE config ADD COLUMN profile_id TEXT DEFAULT ''",
+    ]
+    for sql in migrations:
+        try:
+            conn.execute(sql)
+            conn.commit()
+        except Exception:
+            pass  # Column already exists — safe to ignore
+
     conn.close()
 
 init_db()
