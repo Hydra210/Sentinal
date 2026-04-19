@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sentinel — Review Request</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@700&display=swap');
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #080808;
+      --surface: #111;
+      --border: rgba(255,255,255,0.08);
+      --accent: #4ade80;
+      --danger: #ef4444;
+      --text: #e8e8e8;
+      --dim: #666;
+      --font-mono: 'Share Tech Mono', monospace;
+      --font-display: 'Rajdhani', sans-serif;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-mono);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 40px;
+      max-width: 500px;
+      width: 100%;
+    }
+    .logo {
+      font-family: var(--font-display);
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 4px;
+      color: #fff;
+      margin-bottom: 4px;
+    }
+    .logo-sub {
+      font-size: 10px;
+      color: var(--dim);
+      letter-spacing: 2px;
+      margin-bottom: 32px;
+    }
+    .state { display: none; }
+    .state.active { display: block; }
+
+    /* loading */
+    #state-loading { text-align: center; padding: 20px 0; }
+    .spinner {
+      width: 32px; height: 32px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* request details */
+    .section-label { font-size: 10px; color: var(--dim); letter-spacing: 2px; margin-bottom: 16px; }
+    .field { margin-bottom: 14px; }
+    .field-label { font-size: 10px; color: var(--dim); letter-spacing: 1px; margin-bottom: 4px; }
+    .field-value { font-size: 14px; color: #fff; }
+    .reason-box {
+      background: #0a0a0a;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+      font-size: 13px;
+      color: #ccc;
+      line-height: 1.6;
+    }
+    .action-row { display: flex; gap: 12px; margin-top: 28px; }
+    .btn {
+      flex: 1; padding: 14px;
+      border: none; border-radius: 8px;
+      font-family: var(--font-display);
+      font-size: 16px; font-weight: 700;
+      letter-spacing: 1px;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn:active { transform: scale(0.97); }
+    .btn-approve { background: var(--accent); color: #000; }
+    .btn-deny { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* result states */
+    .result-icon { font-size: 48px; margin-bottom: 16px; }
+    .result-title {
+      font-family: var(--font-display);
+      font-size: 22px; font-weight: 700;
+      letter-spacing: 2px; margin-bottom: 8px;
+    }
+    .result-body { font-size: 13px; color: #aaa; line-height: 1.6; }
+    .code-box {
+      background: #0a0a0a;
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      padding: 16px;
+      text-align: center;
+      font-size: 28px;
+      letter-spacing: 6px;
+      color: var(--accent);
+      margin: 20px 0;
+    }
+    .note { font-size: 11px; color: var(--dim); margin-top: 12px; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">⚔ SENTINEL</div>
+  <div class="logo-sub">ACCESS REQUEST REVIEW</div>
+
+  <!-- Loading -->
+  <div class="state active" id="state-loading">
+    <div class="spinner"></div>
+    <div style="font-size:12px;color:var(--dim);">Loading request...</div>
+  </div>
+
+  <!-- Request details (pending) -->
+  <div class="state" id="state-pending">
+    <div class="section-label">PENDING REQUEST</div>
+    <div class="field">
+      <div class="field-label">NAME</div>
+      <div class="field-value" id="req-name">—</div>
+    </div>
+    <div class="field">
+      <div class="field-label">EMAIL</div>
+      <div class="field-value" id="req-email">—</div>
+    </div>
+    <div class="field">
+      <div class="field-label">REASON</div>
+      <div class="reason-box" id="req-reason">—</div>
+    </div>
+    <div class="action-row">
+      <button class="btn btn-approve" id="btn-approve" onclick="doAction()">✓ APPROVE</button>
+      <button class="btn btn-deny" id="btn-deny" onclick="doAction()">✕ DENY</button>
+    </div>
+    <div class="note" id="expires-note"></div>
+  </div>
+
+  <!-- Approved result -->
+  <div class="state" id="state-approved">
+    <div class="result-icon">✓</div>
+    <div class="result-title" style="color:var(--accent);">APPROVED</div>
+    <div class="result-body" id="approved-body"></div>
+  </div>
+
+  <!-- Denied result -->
+  <div class="state" id="state-denied">
+    <div class="result-icon" style="color:var(--danger);">✕</div>
+    <div class="result-title" style="color:var(--danger);">DENIED</div>
+    <div class="result-body" id="denied-body"></div>
+  </div>
+
+  <!-- Expired -->
+  <div class="state" id="state-expired">
+    <div class="result-icon">⏱</div>
+    <div class="result-title" style="color:var(--dim);">LINK EXPIRED</div>
+    <div class="result-body">This review link has expired (links are valid for 24 hours). The request is still pending — generate a new review link from the admin panel.</div>
+  </div>
+
+  <!-- Already used -->
+  <div class="state" id="state-used">
+    <div class="result-icon">🔒</div>
+    <div class="result-title" style="color:var(--dim);">ALREADY ACTIONED</div>
+    <div class="result-body" id="used-body">This request has already been reviewed.</div>
+  </div>
+
+  <!-- Error -->
+  <div class="state" id="state-error">
+    <div class="result-icon">⚠</div>
+    <div class="result-title" style="color:var(--danger);">ERROR</div>
+    <div class="result-body" id="error-body">Something went wrong.</div>
+  </div>
+</div>
+
+<script>
+  const params   = new URLSearchParams(location.search);
+  const token    = params.get("token");
+  let   _action  = null; // 'approve' or 'deny' from server
+
+  function show(id) {
+    document.querySelectorAll(".state").forEach(s => s.classList.remove("active"));
+    document.getElementById(id).classList.add("active");
+  }
+
+  async function load() {
+    if (!token) { show("state-error"); document.getElementById("error-body").textContent = "No token in URL."; return; }
+    try {
+      const res  = await fetch(`/api/review?token=${encodeURIComponent(token)}`);
+      const data = await res.json();
+
+      if (!res.ok) {
+        show("state-error");
+        document.getElementById("error-body").textContent = data.detail || "Server error.";
+        return;
+      }
+
+      if (data.status === "expired") { show("state-expired"); return; }
+      if (data.status === "already_used" || data.status === "already_actioned") {
+        show("state-used");
+        document.getElementById("used-body").textContent =
+          `This request was already ${data.action === "approve" ? "approved" : data.action}d.`;
+        return;
+      }
+
+      // Pending — show details
+      _action = data.action; // what THIS token will do
+      document.getElementById("req-name").textContent   = data.name   || "—";
+      document.getElementById("req-email").textContent  = data.email  || "—";
+      document.getElementById("req-reason").textContent = data.reason || "—";
+
+      // Show only the relevant button, disable the other
+      if (_action === "approve") {
+        document.getElementById("btn-deny").disabled = true;
+        document.getElementById("btn-deny").style.display = "none";
+      } else {
+        document.getElementById("btn-approve").disabled = true;
+        document.getElementById("btn-approve").style.display = "none";
+      }
+
+      // Expiry note
+      if (data.expires_at) {
+        const exp = new Date(data.expires_at);
+        document.getElementById("expires-note").textContent =
+          `Link expires: ${exp.toLocaleString()}`;
+      }
+
+      show("state-pending");
+    } catch(e) {
+      show("state-error");
+      document.getElementById("error-body").textContent = e.message;
+    }
+  }
+
+  async function doAction() {
+    document.getElementById("btn-approve").disabled = true;
+    document.getElementById("btn-deny").disabled    = true;
+    try {
+      const res  = await fetch(`/api/review?token=${encodeURIComponent(token)}`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        show("state-error");
+        document.getElementById("error-body").textContent = data.detail || "Server error.";
+        return;
+      }
+      if (data.status === "approved") {
+        document.getElementById("approved-body").innerHTML =
+          `<strong style="color:#fff;">${data.name}</strong> has been approved and emailed their invite code.<br><br>` +
+          `<div class="code-box">${data.invite_code || ""}</div>` +
+          `<div class="note">A copy of this code was sent to ${data.email}.</div>`;
+        show("state-approved");
+      } else {
+        document.getElementById("denied-body").innerHTML =
+          `<strong style="color:#fff;">${data.name}</strong> has been denied access. They have been notified by email.`;
+        show("state-denied");
+      }
+    } catch(e) {
+      show("state-error");
+      document.getElementById("error-body").textContent = e.message;
+    }
+  }
+
+  load();
+</script>
+</body>
+</html>
