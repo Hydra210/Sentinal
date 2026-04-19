@@ -101,26 +101,23 @@ def init_pg():
         print(f"[SENTINEL] Postgres table creation error: {e}")
 
     try:
-        # Step 2 — migrations in a fresh connection so schema cache is fresh
+        # Step 2 — fresh connection, force correct schema
         conn = get_pg()
         cur = conn.cursor()
-        cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT '';")
-        conn.commit()
-        # Drop and recreate profiles table if id column is wrong type
+
+        # Check if id column is wrong type and drop if so
         cur.execute("""
-            DO $$
-            BEGIN
-                IF EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name='profiles' AND column_name='id'
-                    AND data_type != 'text'
-                ) THEN
-                    DROP TABLE IF EXISTS saved_credentials;
-                    DROP TABLE IF EXISTS profiles;
-                END IF;
-            END $$;
+            SELECT data_type FROM information_schema.columns
+            WHERE table_name='profiles' AND column_name='id'
         """)
-        conn.commit()
+        row = cur.fetchone()
+        if row and row['data_type'] != 'text':
+            print("[SENTINEL] Dropping profiles table — wrong id type, recreating...")
+            cur.execute("DROP TABLE IF EXISTS saved_credentials CASCADE;")
+            cur.execute("DROP TABLE IF EXISTS profiles CASCADE;")
+            conn.commit()
+
+        # Recreate with correct schema
         cur.execute("""
             CREATE TABLE IF NOT EXISTS profiles (
                 id TEXT PRIMARY KEY,
@@ -137,6 +134,11 @@ def init_pg():
             );
         """)
         conn.commit()
+
+        # Add avatar_url column if missing
+        cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT '';")
+        conn.commit()
+
         cur.close()
         conn.close()
         print("[SENTINEL] Postgres initialized")
