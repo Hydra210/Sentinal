@@ -328,6 +328,16 @@ async def validate_cookie(cookie: str) -> dict:
         "avatarUrl":   avatar_url,
     }
 
+async def get_username(user_id: str, cookie=None) -> str:
+    try:
+        r = await rblx_get(f"https://users.roblox.com/v1/users/{user_id}", cookie=cookie)
+        if r.status_code == 200:
+            d = r.json()
+            return d.get("displayName") or d.get("name") or user_id
+    except Exception:
+        pass
+    return user_id
+
 async def get_group_name(group_id: str, cookie=None) -> str:
     try:
         r = await rblx_get(f"https://groups.roblox.com/v1/groups/{group_id}", cookie=cookie)
@@ -379,37 +389,13 @@ async def archive_asset(asset_id: str, *, cookie=None) -> bool:
         return False
     csrf = await get_csrf(cookie)
     async with httpx.AsyncClient(timeout=15) as c:
-        # Try 1: PATCH with isArchived flag (current Roblox item config API)
-        r = await c.patch(
-            f"https://itemconfiguration.roblox.com/v1/assets/{asset_id}",
-            headers={"X-CSRF-TOKEN": csrf, "Content-Type": "application/json"},
+        r = await c.post(
+            f"https://develop.roblox.com/v1/assets/{asset_id}/archive",
+            headers={"X-CSRF-TOKEN": csrf},
             cookies={".ROBLOSECURITY": cookie},
-            json={"isArchived": True},
         )
-        print(f"[SENTINEL] archive PATCH {asset_id}: HTTP {r.status_code} — {r.text[:200]}")
-        if r.status_code in (200, 204):
-            return True
-
-        # Try 2: POST /archive endpoint
-        r2 = await c.post(
-            f"https://itemconfiguration.roblox.com/v1/assets/{asset_id}/archive",
-            headers={"X-CSRF-TOKEN": csrf, "Content-Type": "application/json"},
-            cookies={".ROBLOSECURITY": cookie},
-            json={},
-        )
-        print(f"[SENTINEL] archive POST {asset_id}: HTTP {r2.status_code} — {r2.text[:200]}")
-        if r2.status_code in (200, 204):
-            return True
-
-        # Try 3: v2 endpoint
-        r3 = await c.post(
-            f"https://itemconfiguration.roblox.com/v2/assets/{asset_id}/archive",
-            headers={"X-CSRF-TOKEN": csrf, "Content-Type": "application/json"},
-            cookies={".ROBLOSECURITY": cookie},
-            json={},
-        )
-        print(f"[SENTINEL] archive v2 {asset_id}: HTTP {r3.status_code} — {r3.text[:200]}")
-        return r3.status_code in (200, 204)
+        print(f"[SENTINEL] archive_asset {asset_id}: HTTP {r.status_code} — {r.text[:200]}")
+        return r.status_code in (200, 204)
 
 async def send_dm(user_id: str, subject: str, body: str, cookie: str) -> bool:
     csrf = await get_csrf(cookie)
@@ -473,7 +459,9 @@ async def monitor_loop(profile_id: str):
                 for aid in new_ids:
                     a            = current.get(aid, {})
                     creator_id   = a.get("creatorId", "")
-                    creator_name = a.get("creatorName", "Unknown")
+                    creator_name = a.get("creatorName", "") or ""
+                    if not creator_name and creator_id:
+                        creator_name = await get_username(creator_id, cookie=session.cookie)
                     asset_type   = a.get("assetType", "Unknown")
 
                     # Global whitelist check
