@@ -282,7 +282,6 @@ async def memory_watchdog():
         _MEM_TOTAL_MB = 512.0
 
     LIMIT_MB = float(os.environ.get("MEMORY_LIMIT_MB", 400))
-    _trim_counter = 0
 
     while True:
         try:
@@ -290,11 +289,8 @@ async def memory_watchdog():
             _MEMORY_MB  = round(rss, 1)
             _MEMORY_PCT = round((rss / LIMIT_MB) * 100, 1)
 
-            # Trim every 5 cycles (~20 seconds) to keep RSS from climbing
-            _trim_counter += 1
-            if _trim_counter >= 5:
-                _trim_counter = 0
-                _trim_memory()
+            # Trim every cycle — malloc_trim is cheap and keeps RSS stable
+            _trim_memory()
 
             if rss > LIMIT_MB and not _DEGRADED:
                 _DEGRADED = True
@@ -760,6 +756,9 @@ async def monitor_loop(profile_id: str):
                 raise
             except Exception as e:
                 sentinel_log(f"Error in group {gid}: {e}", "ERROR", "MONITOR")
+
+        # Trim after every scan cycle so archived asset memory is returned to OS immediately
+        _trim_memory()
 
         sleep_sec = poll_sec * 3 if _DEGRADED else poll_sec
         if _DEGRADED:
