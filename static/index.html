@@ -223,6 +223,23 @@
   .profile-card:hover { border-color: rgba(255,255,255,0.25); background: var(--surface2); transform: translateY(-2px); }
   .profile-card.add-card { border-style: dashed; border-color: rgba(255,255,255,0.1); }
   .profile-card.add-card:hover { border-color: rgba(255,255,255,0.25); }
+  .profile-card { position: relative; }
+  .profile-delete-btn {
+    position: absolute; top: 8px; right: 8px;
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    background: rgba(255,59,59,0.15);
+    border: 1px solid rgba(255,59,59,0.3);
+    color: #ff5f5f;
+    font-size: 12px;
+    display: none;
+    align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    z-index: 10;
+  }
+  .profile-delete-btn:hover { background: rgba(255,59,59,0.3); }
+  .profile-card:hover .profile-delete-btn { display: flex; }
 
   .profile-card-avatar { width: 64px; height: 64px; border-radius: 50%; border: 2px solid var(--border); background: var(--surface3); margin: 0 auto 14px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-weight: 800; font-size: 24px; color: rgba(255,255,255,0.5); }
   .profile-card-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
@@ -290,8 +307,7 @@
     <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);margin-bottom:4px;">ENTER YOUR PIN</div>
     <div id="pin-error" style="font-family:var(--font-mono);font-size:10px;color:#ff6b6b;min-height:16px;margin-bottom:4px;"></div>
     <div class="pin-display" id="pin-display">
-      <div class="pin-dot"></div><div class="pin-dot"></div>
-      <div class="pin-dot"></div><div class="pin-dot"></div>
+      <!-- dots generated dynamically based on PIN length -->
     </div>
     <div class="pin-keypad">
       <div class="pin-key" onclick="pinKey('1')">1</div>
@@ -718,11 +734,16 @@ async function loadProfileScreen() {
       card.className = 'profile-card';
       const initials = p.name.slice(0,2).toUpperCase();
       card.innerHTML = `
+        <button class="profile-delete-btn" title="Delete profile">✕</button>
         <div class="profile-card-avatar">
           ${p.avatar_url ? `<img src="${esc(p.avatar_url)}" onerror="this.style.display='none'">` : initials}
         </div>
         <div class="profile-card-name">${esc(p.name)}</div>
         <div class="profile-card-sub">Click to sign in</div>`;
+      card.querySelector('.profile-delete-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteProfileFromSelector(p);
+      });
       card.onclick = () => openPinModal(p);
       grid.appendChild(card);
     });
@@ -757,6 +778,7 @@ async function loadProfileScreen() {
 // ── PIN MODAL ─────────────────────────────────────────────────────────────────
 let _pinTarget = null;
 let _pinValue  = '';
+let _pinSubmitTimer = null;
 
 function openPinModal(profile) {
   _pinTarget = profile;
@@ -774,20 +796,35 @@ function openPinModal(profile) {
 function closePinModal() {
   document.getElementById('pin-modal').classList.remove('open');
   _pinValue = ''; _pinTarget = null;
-  updatePinDots();
+  clearTimeout(_pinSubmitTimer);
+  // Reset to 4 empty dots
+  document.getElementById('pin-display').innerHTML =
+    Array.from({length: 4}, () => '<div class="pin-dot"></div>').join('');
 }
 
 function updatePinDots() {
-  document.querySelectorAll('#pin-display .pin-dot').forEach((d, i) => {
-    d.classList.toggle('filled', i < _pinValue.length);
-  });
+  const display = document.getElementById('pin-display');
+  // Determine total dots from the target profile's PIN length
+  // We show dots equal to however many digits have been entered,
+  // up to the PIN length. Since we don't know the PIN length,
+  // show min 4, grow up to 8 as user types, snap to 4/6/8
+  const entered = _pinValue.length;
+  const total = entered <= 4 ? 4 : entered <= 6 ? 6 : 8;
+  display.innerHTML = Array.from({length: total}, (_, i) =>
+    `<div class="pin-dot ${i < entered ? 'filled' : ''}"></div>`
+  ).join('');
 }
 
 function pinKey(digit) {
   if (_pinValue.length >= 8) return;
   _pinValue += digit;
   updatePinDots();
-  if (_pinValue.length >= 4) submitPin();
+  // Auto-submit only at 8 digits — for shorter PINs user presses a key that triggers submit
+  // Actually auto-submit when no more input for 600ms
+  clearTimeout(_pinSubmitTimer);
+  _pinSubmitTimer = setTimeout(() => {
+    if (_pinValue.length >= 4) submitPin();
+  }, 600);
 }
 
 function pinBackspace() {
@@ -810,6 +847,19 @@ async function submitPin() {
 }
 
 // ── CREATE PROFILE ────────────────────────────────────────────────────────────
+async function deleteProfileFromSelector(profile) {
+  const pin = prompt(`Enter PIN for "${profile.name}" to delete this profile. This cannot be undone.`);
+  if (pin === null) return;
+  if (!pin.trim()) { alert('PIN is required'); return; }
+  try {
+    await api('DELETE', `/api/profiles/${profile.id}?pin=${encodeURIComponent(pin.trim())}`);
+    toast('Profile deleted', 'warn');
+    await loadProfileScreen();
+  } catch(e) {
+    toast('Wrong PIN or error: ' + e.message, 'error');
+  }
+}
+
 function closeCreateProfile() {
   document.getElementById('create-profile-modal').classList.remove('open');
   document.getElementById('new-profile-name').value = '';
