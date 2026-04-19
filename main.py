@@ -184,49 +184,11 @@ def init_pg():
         conn.commit()
 
         # Add avatar_url column if missing
-        try:
-            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT '';")
-            conn.commit()
-        except Exception as _e:
-            conn.rollback(); print(f"[SENTINEL] avatar_url migration skipped: {_e}")
-
-        # Add pin_length column if missing
-        try:
-            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pin_length INTEGER DEFAULT 4;")
-            conn.commit()
-        except Exception as _e:
-            conn.rollback(); print(f"[SENTINEL] pin_length migration skipped: {_e}")
-
-        # Add is_admin column if missing
-        try:
-            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;")
-            conn.commit()
-        except Exception as _e:
-            conn.rollback(); print(f"[SENTINEL] is_admin migration skipped: {_e}")
-
-        # Access requests table
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS access_requests (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                reason TEXT NOT NULL,
-                status TEXT DEFAULT 'pending',
-                invite_code TEXT DEFAULT '',
-                created_at TIMESTAMPTZ DEFAULT NOW()
-            );
-        """)
+        cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT '';")
         conn.commit()
 
-        # Invite codes table
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS invite_codes (
-                code TEXT PRIMARY KEY,
-                created_by TEXT NOT NULL,
-                used BOOLEAN DEFAULT FALSE,
-                used_by TEXT DEFAULT '',
-                created_at TIMESTAMPTZ DEFAULT NOW()
-            );
-        """)
+        # Add pin_length column if missing
+        cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pin_length INTEGER DEFAULT 4;")
         conn.commit()
 
         # ── App data tables (groups, history, config, connect_codes) ──────────
@@ -268,7 +230,7 @@ def init_pg():
         conn.commit()
 
         cur.close()
-        release_pg(conn)
+        conn.close()
         print("[SENTINEL] Postgres initialized")
     except Exception as e:
         print(f"[SENTINEL] Postgres migration error: {e}")
@@ -874,22 +836,6 @@ class ConfigBody(BaseModel):
 class MonitorBody(BaseModel):
     profile_id: str
 
-class AccessRequestBody(BaseModel):
-    name:   str
-    reason: str
-
-class AccessRequestAction(BaseModel):
-    request_id: str
-    action:     str   # 'approve' or 'deny'
-    admin_id:   str
-    admin_pin:  str
-
-class ProfileCreateWithCode(BaseModel):
-    name:        str
-    pin:         str
-    avatar_url:  str = ""
-    invite_code: str
-
 # ── PROFILE ROUTES ────────────────────────────────────────────────────────────
 
 @app.get("/api/profiles")
@@ -899,25 +845,15 @@ def api_list_profiles():
     try:
         conn = get_pg()
         cur  = conn.cursor()
-        try:
-            cur.execute("SELECT id, name, avatar_url, created_at, pin_length, is_admin FROM profiles ORDER BY created_at")
-        except Exception:
-            conn.rollback()
-            cur.execute("SELECT id, name, avatar_url, created_at FROM profiles ORDER BY created_at")
+        cur.execute("SELECT id, name, avatar_url, created_at, pin_length FROM profiles ORDER BY created_at")
         rows = cur.fetchall()
-        result = []
-        for r in rows:
-            d = dict(r)
-            d.setdefault("pin_length", 4)
-            d.setdefault("is_admin", False)
-            result.append(d)
         cur.close(); release_pg(conn)
-        return result
+        return [dict(r) for r in rows]
     except Exception as e:
         raise HTTPException(500, str(e))
 
 @app.post("/api/profiles")
-def api_create_profile(body: ProfileCreateWithCode):
+def api_create_profile(body: ProfileCreate):
     if not PG_URL:
         raise HTTPException(503, "Postgres not configured")
     if not body.name.strip():
@@ -926,48 +862,18 @@ def api_create_profile(body: ProfileCreateWithCode):
         raise HTTPException(400, "PIN must be at least 4 digits")
     if len(body.pin) > 8:
         raise HTTPException(400, "PIN must be at most 8 digits")
-
-    # Check if any profiles exist — first profile ever becomes admin, no code needed
-    conn = get_pg()
-    cur  = conn.cursor()
-    try:
-        cur.execute("SELECT COUNT(*) AS c FROM profiles")
-        row = cur.fetchone()
-        is_first = (row["c"] == 0)
-    except Exception:
-        is_first = False
-
-    if not is_first:
-        # Validate invite code
-        code = (body.invite_code or "").strip().upper()
-        if not code:
-            cur.close(); release_pg(conn)
-            raise HTTPException(403, "An invite code is required to create a profile")
-        cur.execute("SELECT used FROM invite_codes WHERE code=%s", (code,))
-        inv = cur.fetchone()
-        if not inv:
-            cur.close(); release_pg(conn)
-            raise HTTPException(403, "Invalid invite code")
-        if inv["used"]:
-            cur.close(); release_pg(conn)
-            raise HTTPException(403, "Invite code already used")
-
     try:
         profile_id = str(uuid.uuid4())
-        pin_len    = len(body.pin)
-        is_admin   = is_first  # first profile becomes admin
+        conn = get_pg()
+        cur  = conn.cursor()
         cur.execute(
-            "INSERT INTO profiles (id, name, pin_hash, avatar_url, pin_length, is_admin) VALUES (%s,%s,%s,%s,%s,%s)",
-            (profile_id, body.name.strip(), hash_pin(body.pin), body.avatar_url, pin_len, is_admin)
+            "INSERT INTO profiles (id, name, pin_hash, avatar_url, pin_length) VALUES (%s,%s,%s,%s,%s)",
+            (profile_id, body.name.strip(), hash_pin(body.pin), body.avatar_url, len(body.pin))
         )
-        if not is_first:
-            cur.execute("UPDATE invite_codes SET used=TRUE, used_by=%s WHERE code=%s", (profile_id, code))
         conn.commit()
         cur.close(); release_pg(conn)
-        return {"id": profile_id, "name": body.name.strip(), "avatar_url": body.avatar_url,
-                "pin_length": pin_len, "is_admin": is_admin}
+        return {"id": profile_id, "name": body.name.strip(), "avatar_url": body.avatar_url}
     except Exception as e:
-        conn.rollback(); cur.close(); release_pg(conn)
         raise HTTPException(500, str(e))
 
 @app.post("/api/profiles/login")
@@ -1281,127 +1187,51 @@ def api_update_config(body: ConfigBody):
             print(f"[SENTINEL] Error clearing credentials on toggle off: {e}")
     return get_config(pid)
 
-# ── ACCESS CONTROL ───────────────────────────────────────────────────────────
-
-@app.post("/api/access/request")
-def api_submit_access_request(body: AccessRequestBody):
-    if not PG_URL:
-        raise HTTPException(503, "Postgres not configured")
-    if not body.name.strip() or not body.reason.strip():
-        raise HTTPException(400, "Name and reason are required")
-    req_id = str(uuid.uuid4())
-    try:
-        conn = get_pg()
-        cur  = conn.cursor()
-        cur.execute(
-            "INSERT INTO access_requests (id, name, reason) VALUES (%s,%s,%s)",
-            (req_id, body.name.strip(), body.reason.strip())
-        )
-        conn.commit()
-        cur.close(); release_pg(conn)
-        return {"id": req_id, "status": "pending"}
-    except Exception as e:
-        raise HTTPException(500, str(e))
-
-@app.get("/api/access/requests")
-def api_list_access_requests(profile_id: str, pin: str):
-    if not PG_URL:
-        raise HTTPException(503, "Postgres not configured")
-    # Verify admin
-    conn = get_pg()
-    cur  = conn.cursor()
-    cur.execute("SELECT is_admin FROM profiles WHERE id=%s AND pin_hash=%s", (profile_id, hash_pin(pin)))
-    row = cur.fetchone()
-    if not row or not row["is_admin"]:
-        cur.close(); release_pg(conn)
-        raise HTTPException(403, "Admin access required")
-    cur.execute("SELECT * FROM access_requests ORDER BY created_at DESC")
-    rows = cur.fetchall()
-    cur.close(); release_pg(conn)
-    return [dict(r) for r in rows]
-
-@app.post("/api/access/action")
-def api_access_action(body: AccessRequestAction):
-    if not PG_URL:
-        raise HTTPException(503, "Postgres not configured")
-    if body.action not in ("approve", "deny"):
-        raise HTTPException(400, "Action must be approve or deny")
-    # Verify admin
-    conn = get_pg()
-    cur  = conn.cursor()
-    cur.execute("SELECT is_admin FROM profiles WHERE id=%s AND pin_hash=%s",
-                (body.admin_id, hash_pin(body.admin_pin)))
-    row = cur.fetchone()
-    if not row or not row["is_admin"]:
-        cur.close(); release_pg(conn)
-        raise HTTPException(403, "Admin access required")
-
-    if body.action == "approve":
-        # Generate a one-time invite code
-        code = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))
-        cur.execute(
-            "INSERT INTO invite_codes (code, created_by) VALUES (%s,%s)",
-            (code, body.admin_id)
-        )
-        cur.execute(
-            "UPDATE access_requests SET status='approved', invite_code=%s WHERE id=%s",
-            (code, body.request_id)
-        )
-        conn.commit()
-        cur.close(); release_pg(conn)
-        return {"action": "approved", "invite_code": code}
-    else:
-        cur.execute("UPDATE access_requests SET status='denied' WHERE id=%s", (body.request_id,))
-        conn.commit()
-        cur.close(); release_pg(conn)
-        return {"action": "denied"}
-
-@app.delete("/api/access/requests/{request_id}")
-def api_delete_access_request(request_id: str, profile_id: str, pin: str):
-    if not PG_URL:
-        raise HTTPException(503, "Postgres not configured")
-    conn = get_pg()
-    cur  = conn.cursor()
-    cur.execute("SELECT is_admin FROM profiles WHERE id=%s AND pin_hash=%s", (profile_id, hash_pin(pin)))
-    row = cur.fetchone()
-    if not row or not row["is_admin"]:
-        cur.close(); release_pg(conn)
-        raise HTTPException(403, "Admin access required")
-    cur.execute("DELETE FROM access_requests WHERE id=%s", (request_id,))
-    conn.commit()
-    cur.close(); release_pg(conn)
-    return {"deleted": True}
-
 # ── MISC ──────────────────────────────────────────────────────────────────────
 
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(memory_watchdog())
     sentinel_log("SENTINEL backend started", "INFO", "SYSTEM")
-    if PG_URL:
-        try:
-            conn = get_pg()
-            cur  = conn.cursor()
-            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT '';")
-            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pin_length INTEGER DEFAULT 4;")
-            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;")
-            cur.execute("""CREATE TABLE IF NOT EXISTS access_requests (
-                id TEXT PRIMARY KEY, name TEXT NOT NULL, reason TEXT NOT NULL,
-                status TEXT DEFAULT 'pending', invite_code TEXT DEFAULT '',
-                created_at TIMESTAMPTZ DEFAULT NOW());""")
-            cur.execute("""CREATE TABLE IF NOT EXISTS invite_codes (
-                code TEXT PRIMARY KEY, created_by TEXT NOT NULL,
-                used BOOLEAN DEFAULT FALSE, used_by TEXT DEFAULT '',
-                created_at TIMESTAMPTZ DEFAULT NOW());""")
-            conn.commit()
-            cur.close(); release_pg(conn)
-            sentinel_log("Startup migrations OK", "INFO", "SYSTEM")
-        except Exception as _e:
-            sentinel_log(f"Startup migration error: {_e}", "ERROR", "SYSTEM")
 
 @app.get("/api/health")
 def health():
     return {"ok": True}
+
+@app.get("/api/admin/promote-first-profile")
+def promote_first_profile(secret: str = ""):
+    """One-time utility: promotes the only existing profile to admin.
+    Requires ADMIN_SECRET env var to match the ?secret= query param."""
+    if not PG_URL:
+        raise HTTPException(503, "Postgres not configured")
+    expected = os.environ.get("ADMIN_SECRET", "")
+    if not expected:
+        raise HTTPException(503, "ADMIN_SECRET env var not set on server")
+    if not secrets.compare_digest(secret, expected):
+        raise HTTPException(403, "Invalid secret")
+    try:
+        conn = get_pg()
+        cur  = conn.cursor()
+        cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;")
+        conn.commit()
+        cur.execute("SELECT id, name, is_admin FROM profiles")
+        rows = cur.fetchall()
+        if len(rows) == 0:
+            cur.close(); release_pg(conn)
+            return {"ok": False, "message": "No profiles found"}
+        if len(rows) > 1:
+            cur.close(); release_pg(conn)
+            return {"ok": False, "message": f"{len(rows)} profiles exist — too risky to auto-promote. Specify a profile_id."}
+        profile = rows[0]
+        if profile["is_admin"]:
+            cur.close(); release_pg(conn)
+            return {"ok": True, "message": f"'{profile['name']}' is already an admin — nothing to do!"}
+        cur.execute("UPDATE profiles SET is_admin = TRUE WHERE id = %s", (profile["id"],))
+        conn.commit()
+        cur.close(); release_pg(conn)
+        return {"ok": True, "message": f"✓ '{profile['name']}' promoted to admin!"}
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 @app.get("/api/asset-types")
 def api_asset_types():
