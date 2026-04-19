@@ -93,6 +93,7 @@ def init_pg():
                 account_info JSONB,
                 saved_at TIMESTAMPTZ DEFAULT NOW()
             );
+            ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT '';
         """)
         conn.commit()
         cur.close()
