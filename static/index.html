@@ -1022,7 +1022,7 @@ function closePinModal() {
   clearTimeout(_pinSubmitTimer);
   document.removeEventListener('keydown', _pinKeyHandler);
   document.getElementById('pin-display').innerHTML =
-    Array.from({length: 4}, () => '<div class="pin-dot"></div>').join('');
+    Array.from({length: _pinLength}, () => '<div class="pin-dot"></div>').join('');
 }
 
 function _pinKeyHandler(e) {
