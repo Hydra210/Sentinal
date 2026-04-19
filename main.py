@@ -1024,6 +1024,8 @@ def api_clear_credentials(body: MonitorBody):
             cur.execute("DELETE FROM saved_credentials WHERE profile_id=%s", (body.profile_id,))
             conn.commit()
             cur.close(); release_pg(conn)
+        except Exception as e:
+            print(f"[SENTINEL] Failed to clear credentials: {e}")
     session = get_session(body.profile_id)
     session.cookie       = None
     session.account_info = None
