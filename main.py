@@ -230,7 +230,7 @@ def init_pg():
         conn.commit()
 
         cur.close()
-        conn.close()
+        release_pg(conn)
         print("[SENTINEL] Postgres initialized")
     except Exception as e:
         print(f"[SENTINEL] Postgres migration error: {e}")
