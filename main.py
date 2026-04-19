@@ -2,12 +2,13 @@
 # Start command: uvicorn main:app --host 0.0.0.0 --port $PORT
 
 from __future__ import annotations
-import asyncio, json, os, sqlite3, time, secrets, string, hashlib, uuid
+import asyncio, json, os, sqlite3, time, secrets, string, hashlib, uuid, gc, collections
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Dict
 
 import httpx
+import psutil
 import psycopg2
 import psycopg2.extras
 from fastapi import FastAPI, HTTPException
@@ -214,7 +215,58 @@ init_pg()
 def hash_pin(pin: str) -> str:
     return hashlib.sha256(pin.encode()).hexdigest()
 
-# ── UNIFIED DB HELPER ─────────────────────────────────────────────────────────
+# ── DEBUG / MEMORY / LOG SYSTEM ───────────────────────────────────────────────
+
+_LOG_BUFFER: collections.deque = collections.deque(maxlen=500)
+_DEBUG_MODE: bool = False
+_DEGRADED:   bool = False
+_MEMORY_MB:  float = 0.0
+_MEMORY_PCT: float = 0.0
+_MEM_TOTAL_MB: float = 0.0
+
+LOG_LEVELS = {"INFO", "WARN", "ERROR", "DEBUG", "ARCHIVE", "DM", "NETWORK", "MEMORY"}
+
+def sentinel_log(msg: str, level: str = "INFO", source: str = "SENTINEL"):
+    """Central log function — always buffers, prints always (debug filters on frontend)."""
+    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    entry = {
+        "ts":     ts,
+        "level":  level.upper(),
+        "source": source,
+        "msg":    msg,
+    }
+    _LOG_BUFFER.append(entry)
+    print(f"[{entry['source']}][{entry['level']}] {msg}")
+
+async def memory_watchdog():
+    global _DEGRADED, _MEMORY_MB, _MEMORY_PCT, _MEM_TOTAL_MB
+    process = psutil.Process()
+    try:
+        vm = psutil.virtual_memory()
+        _MEM_TOTAL_MB = vm.total / 1024 / 1024
+    except Exception:
+        _MEM_TOTAL_MB = 512.0
+
+    LIMIT_MB = float(os.environ.get("MEMORY_LIMIT_MB", 400))
+
+    while True:
+        try:
+            rss = process.memory_info().rss / 1024 / 1024
+            _MEMORY_MB  = round(rss, 1)
+            _MEMORY_PCT = round((rss / LIMIT_MB) * 100, 1)
+
+            if rss > LIMIT_MB and not _DEGRADED:
+                _DEGRADED = True
+                gc.collect()
+                sentinel_log(f"High memory {rss:.1f}MB/{LIMIT_MB:.0f}MB — degraded mode ON", "MEMORY", "WATCHDOG")
+            elif rss < LIMIT_MB * 0.75 and _DEGRADED:
+                _DEGRADED = False
+                sentinel_log(f"Memory normal {rss:.1f}MB — degraded mode OFF", "MEMORY", "WATCHDOG")
+        except Exception as e:
+            sentinel_log(f"Watchdog error: {e}", "ERROR", "WATCHDOG")
+        await asyncio.sleep(4)
+
+
 # Routes all app-data queries to Postgres when DATABASE_URL is set,
 # falls back to SQLite for local development.
 
@@ -536,7 +588,7 @@ async def send_dm(user_id: str, subject: str, body: str, cookie: str) -> bool:
 
 async def monitor_loop(profile_id: str):
     session = get_session(profile_id)
-    print(f"[SENTINEL] Monitor loop started for profile {profile_id}")
+    sentinel_log(f"Monitor loop started for profile {profile_id}", "INFO", "MONITOR")
 
     while session.monitoring:
         cfg              = get_config(profile_id)
@@ -557,10 +609,15 @@ async def monitor_loop(profile_id: str):
             gid, gname = grp["id"], grp["name"]
             try:
                 all_assets: list[dict] = []
-                for asset_type in asset_filters:
+                active_filters = asset_filters[:3] if _DEGRADED else asset_filters
+                if _DEGRADED:
+                    sentinel_log(f"Degraded mode — limiting asset scan to {active_filters}", "MEMORY", "MONITOR")
+                for asset_type in active_filters:
+                    sentinel_log(f"Scanning group {gid} ({gname}) for {asset_type}", "DEBUG", "NETWORK")
                     type_assets = await fetch_group_assets(
                         gid, asset_type, cookie=session.cookie
                     )
+                    sentinel_log(f"Found {len(type_assets)} {asset_type} assets in group {gid}", "DEBUG", "NETWORK")
                     all_assets.extend(type_assets)
 
                 current    = {a["id"]: a for a in all_assets}
@@ -569,7 +626,7 @@ async def monitor_loop(profile_id: str):
 
                 if group_key not in session.known_assets:
                     session.known_assets[group_key] = current_ids
-                    print(f"[SENTINEL] Profile {profile_id} Group {gid} baseline: {len(current_ids)} assets")
+                    sentinel_log(f"Group {gid} ({gname}) baseline: {len(current_ids)} assets", "INFO", "MONITOR")
                     if archive_existing:
                         new_ids = current_ids
                     else:
@@ -586,25 +643,25 @@ async def monitor_loop(profile_id: str):
                         creator_name = await get_username(creator_id, cookie=session.cookie)
                     asset_type   = a.get("assetType", "Unknown")
 
-                    # Global whitelist check
                     if creator_id.lower() in whitelist_all or creator_name.lower() in whitelist_all:
-                        print(f"[SENTINEL] Global whitelist skip: {creator_name}")
+                        sentinel_log(f"Global whitelist skip: {creator_name} ({asset_type} {aid})", "INFO", "MONITOR")
                         continue
 
-                    # Per-type whitelist check
                     type_wl = {str(u).strip().lower() for u in cfg.get(f"whitelist_{asset_type}", [])}
                     if creator_id.lower() in type_wl or creator_name.lower() in type_wl:
-                        print(f"[SENTINEL] Type whitelist skip: {creator_name} ({asset_type})")
+                        sentinel_log(f"Type whitelist skip: {creator_name} ({asset_type})", "INFO", "MONITOR")
                         continue
 
-                    print(f"[SENTINEL] New {asset_type} {aid} ({a.get('name')}) by {creator_name}")
+                    sentinel_log(f"New {asset_type} detected: '{a.get('name')}' (ID {aid}) by {creator_name}", "ARCHIVE", "MONITOR")
 
                     if delay_sec > 0:
+                        sentinel_log(f"Waiting {delay_sec}s before archiving {aid}", "DEBUG", "MONITOR")
                         await asyncio.sleep(delay_sec)
                         if not session.monitoring:
                             break
 
                     ok = await archive_asset(aid, cookie=session.cookie)
+                    sentinel_log(f"Archive {aid}: {'OK' if ok else 'FAILED'}", "ARCHIVE" if ok else "ERROR", "MONITOR")
 
                     dm_status = "n/a"
                     if notify and session.cookie and creator_id:
@@ -616,8 +673,9 @@ async def monitor_loop(profile_id: str):
                                    .replace("[GROUP_NAME]", gname))
                             sent = await send_dm(creator_id, "Asset Policy Notice", msg, session.cookie)
                             dm_status = "sent" if sent else "failed"
+                            sentinel_log(f"DM to {creator_name} (UID {creator_id}): {'sent' if sent else 'failed'}", "DM", "MONITOR")
                         except Exception as e:
-                            print(f"[SENTINEL] DM error: {e}")
+                            sentinel_log(f"DM error for {creator_id}: {e}", "ERROR", "MONITOR")
                             dm_status = "failed"
 
                     db_insert_ignore("history", {
@@ -635,16 +693,19 @@ async def monitor_loop(profile_id: str):
                         "dm_status":    dm_status,
                         "archived":     1,
                     })
-                    print(f"[SENTINEL] archived={ok} dm={dm_status}")
+                    sentinel_log(f"History written: {aid} archived={ok} dm={dm_status}", "DEBUG", "MONITOR")
 
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                print(f"[SENTINEL] Error in group {gid}: {e}")
+                sentinel_log(f"Error in group {gid}: {e}", "ERROR", "MONITOR")
 
-        await asyncio.sleep(poll_sec)
+        sleep_sec = poll_sec * 3 if _DEGRADED else poll_sec
+        if _DEGRADED:
+            sentinel_log(f"Degraded mode: sleeping {sleep_sec}s instead of {poll_sec}s", "MEMORY", "MONITOR")
+        await asyncio.sleep(sleep_sec)
 
-    print(f"[SENTINEL] Monitor loop stopped for profile {profile_id}")
+    sentinel_log(f"Monitor loop stopped for profile {profile_id}", "INFO", "MONITOR")
 
 # ── PYDANTIC MODELS ───────────────────────────────────────────────────────────
 
@@ -1045,6 +1106,11 @@ def api_update_config(body: ConfigBody):
 
 # ── MISC ──────────────────────────────────────────────────────────────────────
 
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(memory_watchdog())
+    sentinel_log("SENTINEL backend started", "INFO", "SYSTEM")
+
 @app.get("/api/health")
 def health():
     return {"ok": True}
@@ -1052,6 +1118,66 @@ def health():
 @app.get("/api/asset-types")
 def api_asset_types():
     return ALL_ASSET_TYPES
+
+# ── DEBUG ROUTES ──────────────────────────────────────────────────────────────
+
+@app.get("/api/debug/logs")
+def api_debug_logs(limit: int = 200, level: str = "", source: str = ""):
+    logs = list(_LOG_BUFFER)
+    if level:
+        logs = [l for l in logs if l["level"] == level.upper()]
+    if source:
+        logs = [l for l in logs if l["source"] == source.upper()]
+    return list(reversed(logs))[-limit:]
+
+@app.get("/api/debug/memory")
+def api_debug_memory():
+    process = psutil.Process()
+    mem     = process.memory_info()
+    cpu     = psutil.cpu_percent(interval=None)
+    vm      = psutil.virtual_memory()
+    return {
+        "rss_mb":       round(mem.rss / 1024 / 1024, 2),
+        "vms_mb":       round(mem.vms / 1024 / 1024, 2),
+        "pct":          _MEMORY_PCT,
+        "limit_mb":     float(os.environ.get("MEMORY_LIMIT_MB", 400)),
+        "total_mb":     round(vm.total / 1024 / 1024, 2),
+        "available_mb": round(vm.available / 1024 / 1024, 2),
+        "sys_pct":      vm.percent,
+        "cpu_pct":      cpu,
+        "degraded":     _DEGRADED,
+        "sessions":     len(_sessions),
+        "log_count":    len(_LOG_BUFFER),
+    }
+
+@app.post("/api/debug/gc")
+def api_debug_gc():
+    before = psutil.Process().memory_info().rss / 1024 / 1024
+    collected = gc.collect()
+    after  = psutil.Process().memory_info().rss / 1024 / 1024
+    freed  = round(before - after, 2)
+    sentinel_log(f"Manual GC: collected {collected} objects, freed ~{freed}MB", "MEMORY", "DEBUG")
+    return {"collected": collected, "freed_mb": freed, "rss_after_mb": round(after, 2)}
+
+@app.delete("/api/debug/logs")
+def api_clear_logs():
+    _LOG_BUFFER.clear()
+    sentinel_log("Log buffer cleared", "INFO", "DEBUG")
+    return {"cleared": True}
+
+@app.get("/api/debug/sessions")
+def api_debug_sessions():
+    result = []
+    for pid_key, sess in _sessions.items():
+        result.append({
+            "profile_id":    pid_key,
+            "monitoring":    sess.monitoring,
+            "has_cookie":    bool(sess.cookie),
+            "known_groups":  len(sess.known_assets),
+            "known_assets":  sum(len(v) for v in sess.known_assets.values()),
+            "has_task":      sess.monitor_task is not None and not sess.monitor_task.done(),
+        })
+    return result
 
 # ── SERVE FRONTEND ────────────────────────────────────────────────────────────
 
