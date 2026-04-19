@@ -274,6 +274,101 @@
     .tab-panel { padding: 16px; }
     .profile-grid { grid-template-columns: repeat(2, 1fr); }
   }
+
+  /* ── MEMORY BAR ── */
+  .mem-bar-wrap {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 12px; border: 1px solid var(--border);
+    background: var(--surface); border-radius: 6px;
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--text-dimmer); letter-spacing: 1px;
+    cursor: default; transition: all 0.3s;
+  }
+  .mem-bar-wrap.warn { border-color: rgba(240,192,64,0.4); color: var(--warn); }
+  .mem-bar-wrap.crit { border-color: rgba(255,59,59,0.5); color: #ff6b6b; animation: pulse-border 1s infinite; }
+  @keyframes pulse-border { 0%,100%{border-color:rgba(255,59,59,0.5)} 50%{border-color:rgba(255,59,59,0.9)} }
+  .mem-track { width: 60px; height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden; }
+  .mem-fill { height: 100%; border-radius: 2px; background: rgba(255,255,255,0.5); transition: width 0.5s, background 0.5s; }
+  .mem-fill.warn { background: var(--warn); }
+  .mem-fill.crit { background: #ff5f5f; }
+  .degraded-tag {
+    padding: 2px 6px; font-size: 9px; letter-spacing: 1px;
+    background: rgba(255,59,59,0.15); color: #ff6b6b;
+    border: 1px solid rgba(255,59,59,0.3); border-radius: 3px;
+    animation: pulse-dot 1s infinite;
+  }
+
+  /* ── FLOATING LOG BUTTON ── */
+  #log-float-btn {
+    position: fixed; right: 0; top: 50%; transform: translateY(-50%);
+    width: 22px; height: 60px; background: var(--surface2);
+    border: 1px solid var(--border); border-right: none;
+    border-radius: 6px 0 0 6px; cursor: pointer; z-index: 300;
+    display: flex; align-items: center; justify-content: center;
+    writing-mode: vertical-rl; font-family: var(--font-mono);
+    font-size: 8px; color: var(--text-dimmer); letter-spacing: 2px;
+    text-transform: uppercase; transition: all 0.2s;
+  }
+  #log-float-btn:hover { background: var(--surface3); color: var(--text); border-color: rgba(255,255,255,0.15); }
+  #log-float-btn.debug-on { color: #ff5f5f; border-color: rgba(255,59,59,0.3); }
+
+  /* ── FLOATING LOG WINDOW ── */
+  #log-float-panel {
+    position: fixed; right: 22px; top: 50%;
+    transform: translateY(-50%);
+    width: 420px; max-height: 60vh;
+    background: rgba(10,10,10,0.97);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px; z-index: 299;
+    display: none; flex-direction: column;
+    box-shadow: -8px 0 40px rgba(0,0,0,0.6);
+    backdrop-filter: blur(16px);
+    animation: slideInRight 0.2s ease;
+  }
+  #log-float-panel.open { display: flex; }
+  @keyframes slideInRight { from{opacity:0;transform:translateY(-50%) translateX(20px)} to{opacity:1;transform:translateY(-50%) translateX(0)} }
+
+  .log-panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .log-panel-title { font-family: var(--font-display); font-size: 12px; font-weight: 700; letter-spacing: 2px; color: #fff; }
+  .log-panel-controls { display: flex; gap: 6px; align-items: center; }
+  .log-panel-controls select { background: var(--surface2); border: 1px solid var(--border); color: var(--text-dim); padding: 3px 6px; font-family: var(--font-mono); font-size: 9px; border-radius: 4px; }
+
+  .log-entries {
+    flex: 1; overflow-y: auto; padding: 8px;
+    font-family: var(--font-mono); font-size: 10px;
+    line-height: 1.6;
+  }
+  .log-entry { padding: 3px 6px; border-radius: 3px; margin-bottom: 2px; display: flex; gap: 8px; }
+  .log-entry:hover { background: rgba(255,255,255,0.03); }
+  .log-ts { color: var(--text-dimmer); flex-shrink: 0; }
+  .log-src { color: rgba(255,255,255,0.35); flex-shrink: 0; min-width: 60px; }
+  .log-lvl { flex-shrink: 0; min-width: 52px; font-weight: 700; }
+  .log-msg { color: var(--text-dim); word-break: break-all; }
+  .log-lvl.INFO    { color: rgba(200,200,200,0.8); }
+  .log-lvl.DEBUG   { color: rgba(150,180,255,0.8); }
+  .log-lvl.WARN    { color: var(--warn); }
+  .log-lvl.ERROR   { color: #ff5f5f; }
+  .log-lvl.ARCHIVE { color: rgba(100,255,160,0.8); }
+  .log-lvl.DM      { color: rgba(200,150,255,0.8); }
+  .log-lvl.NETWORK { color: rgba(100,200,255,0.8); }
+  .log-lvl.MEMORY  { color: rgba(255,180,100,0.8); }
+
+  /* ── DEBUG PANEL IN SETTINGS ── */
+  .debug-section { margin-top: 20px; }
+  .debug-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .debug-stat { background: var(--surface2); border: 1px solid var(--border); padding: 12px 14px; border-radius: 8px; }
+  .debug-stat-val { font-family: var(--font-display); font-size: 22px; font-weight: 800; color: #fff; }
+  .debug-stat-lbl { font-family: var(--font-mono); font-size: 9px; color: var(--text-dimmer); letter-spacing: 1px; text-transform: uppercase; margin-top: 3px; }
+  .debug-log-box {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; height: 260px; overflow-y: auto;
+    font-family: var(--font-mono); font-size: 10px;
+    padding: 8px;
+  }
 </style>
 </head>
 <body>
@@ -406,10 +501,80 @@
           <div class="toggle-sw" id="save-cookies-toggle" onclick="toggleSaveCookies(this)"></div>
         </div>
         <div class="info-box warn-box" style="margin-top:8px;margin-bottom:0;">
-          ⚠ Only enable if you trust this server. Cookie grants full Roblox account access.
+          Only enable if you trust this server. Cookie grants full Roblox account access.
         </div>
       </div>
     </div>
+
+    <div class="divider"></div>
+
+    <!-- Debug section -->
+    <div class="debug-section">
+      <div class="section-title">Debug & Monitoring</div>
+
+      <div class="toggle-row" style="margin-bottom:12px;">
+        <div>
+          <div class="toggle-label" style="font-size:13px;">Debug Mode</div>
+          <div class="toggle-desc">Shows memory bar, live logs, and all system events</div>
+        </div>
+        <div class="toggle-sw" id="debug-mode-toggle" onclick="toggleDebugMode(this)"></div>
+      </div>
+
+      <div id="debug-panel-content" style="display:none;">
+
+        <!-- Memory stats -->
+        <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-dimmer);letter-spacing:2px;text-transform:uppercase;margin-bottom:10px;">Memory</div>
+        <div class="debug-grid">
+          <div class="debug-stat"><div class="debug-stat-val" id="dbg-rss">—</div><div class="debug-stat-lbl">Heap RSS (MB)</div></div>
+          <div class="debug-stat"><div class="debug-stat-val" id="dbg-pct">—</div><div class="debug-stat-lbl">Limit Usage %</div></div>
+          <div class="debug-stat"><div class="debug-stat-val" id="dbg-cpu">—</div><div class="debug-stat-lbl">CPU %</div></div>
+          <div class="debug-stat"><div class="debug-stat-val" id="dbg-sessions">—</div><div class="debug-stat-lbl">Active Sessions</div></div>
+        </div>
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);margin-bottom:12px;" id="dbg-mem-detail">—</div>
+        <div class="btn-group" style="margin-bottom:18px;">
+          <button class="btn btn-sm" onclick="forceGC()">Force GC</button>
+          <button class="btn btn-sm" onclick="refreshDebugStats()">Refresh Stats</button>
+          <button class="btn btn-sm btn-warn" id="dbg-degraded-badge" style="display:none;">DEGRADED MODE ACTIVE</button>
+        </div>
+
+        <!-- Session inspector -->
+        <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-dimmer);letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;">Active Sessions</div>
+        <div id="dbg-sessions-list" style="margin-bottom:18px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:var(--font-mono);font-size:10px;color:var(--text-dim);">—</div>
+
+        <!-- Log viewer -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-dimmer);letter-spacing:2px;text-transform:uppercase;">Live Logs</div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <select id="settings-log-level" onchange="renderSettingsLogs()" style="width:auto;padding:3px 8px;font-size:10px;">
+              <option value="">ALL</option>
+              <option value="INFO">INFO</option>
+              <option value="DEBUG">DEBUG</option>
+              <option value="WARN">WARN</option>
+              <option value="ERROR">ERROR</option>
+              <option value="ARCHIVE">ARCHIVE</option>
+              <option value="DM">DM</option>
+              <option value="NETWORK">NETWORK</option>
+              <option value="MEMORY">MEMORY</option>
+            </select>
+            <select id="settings-log-source" onchange="renderSettingsLogs()" style="width:auto;padding:3px 8px;font-size:10px;">
+              <option value="">ALL SOURCES</option>
+              <option value="MONITOR">MONITOR</option>
+              <option value="SYSTEM">SYSTEM</option>
+              <option value="WATCHDOG">WATCHDOG</option>
+              <option value="DEBUG">DEBUG</option>
+            </select>
+            <button class="btn btn-sm" style="padding:3px 10px;font-size:10px;" onclick="renderSettingsLogs()">Refresh</button>
+            <button class="btn btn-sm btn-danger" style="padding:3px 10px;font-size:10px;" onclick="clearServerLogs()">Clear</button>
+          </div>
+        </div>
+        <div class="debug-log-box" id="settings-log-box">
+          <div style="color:var(--text-dimmer);text-align:center;padding:20px 0;font-family:var(--font-mono);font-size:10px;">No logs yet</div>
+        </div>
+        <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-dimmer);margin-top:6px;" id="settings-log-count">0 entries</div>
+
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -435,6 +600,41 @@
   </div>
 </div>
 
+<!-- ── FLOATING LOG BUTTON ── -->
+<div id="log-float-btn" onclick="toggleFloatLog()" title="Toggle log panel">LOG</div>
+
+<!-- ── FLOATING LOG PANEL ── -->
+<div id="log-float-panel">
+  <div class="log-panel-header">
+    <div class="log-panel-title">LIVE LOGS</div>
+    <div class="log-panel-controls">
+      <select id="float-log-level" onchange="renderFloatLogs()">
+        <option value="">ALL LEVELS</option>
+        <option value="INFO">INFO</option>
+        <option value="DEBUG">DEBUG</option>
+        <option value="WARN">WARN</option>
+        <option value="ERROR">ERROR</option>
+        <option value="ARCHIVE">ARCHIVE</option>
+        <option value="DM">DM</option>
+        <option value="NETWORK">NETWORK</option>
+        <option value="MEMORY">MEMORY</option>
+      </select>
+      <select id="float-log-source" onchange="renderFloatLogs()">
+        <option value="">ALL SOURCES</option>
+        <option value="MONITOR">MONITOR</option>
+        <option value="SYSTEM">SYSTEM</option>
+        <option value="WATCHDOG">WATCHDOG</option>
+        <option value="DEBUG">DEBUG</option>
+        <option value="NETWORK">NETWORK</option>
+      </select>
+      <button class="btn btn-sm btn-danger" style="padding:3px 8px;font-size:9px;" onclick="clearFloatLogs()">CLR</button>
+    </div>
+  </div>
+  <div class="log-entries" id="float-log-entries">
+    <div style="color:var(--text-dimmer);text-align:center;padding:20px 0;">Enable debug mode to see logs</div>
+  </div>
+</div>
+
 <!-- ── MAIN APP ── -->
 <div id="app">
   <div id="grid-bg"></div>
@@ -452,6 +652,12 @@
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
+      <div class="mem-bar-wrap" id="mem-bar-wrap" style="display:none;">
+        <div class="mem-track"><div class="mem-fill" id="mem-fill" style="width:0%"></div></div>
+        <span id="mem-pct-text">0%</span>
+        <span id="mem-mb-text" style="color:var(--text-dimmer);">0MB</span>
+        <span class="degraded-tag" id="degraded-tag" style="display:none;">DEGRADED</span>
+      </div>
       <div class="status-pill">
         <div class="status-dot" id="main-status-dot"></div>
         <span id="main-status-text">OFFLINE</span>
@@ -1511,6 +1717,193 @@ function previewAvatar(input) {
 
 function esc(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── DEBUG SYSTEM ──────────────────────────────────────────────────────────────
+let _debugMode      = false;
+let _debugInterval  = null;
+let _floatLogOpen   = false;
+let _cachedLogs     = [];
+
+function toggleDebugMode(el) {
+  el.classList.toggle('on');
+  _debugMode = el.classList.contains('on');
+  const panel = document.getElementById('debug-panel-content');
+  const memBar = document.getElementById('mem-bar-wrap');
+  const floatBtn = document.getElementById('log-float-btn');
+  if (_debugMode) {
+    panel.style.display  = 'block';
+    memBar.style.display = 'flex';
+    floatBtn.classList.add('debug-on');
+    refreshDebugStats();
+    renderSettingsLogs();
+    if (!_debugInterval) {
+      _debugInterval = setInterval(() => {
+        refreshDebugStats();
+        if (_floatLogOpen) renderFloatLogs();
+        const settingsOpen = document.getElementById('settings-modal').classList.contains('open');
+        if (settingsOpen) renderSettingsLogs();
+      }, 3000);
+    }
+  } else {
+    panel.style.display  = 'none';
+    memBar.style.display = 'none';
+    floatBtn.classList.remove('debug-on');
+    if (_floatLogOpen) toggleFloatLog();
+    if (_debugInterval) { clearInterval(_debugInterval); _debugInterval = null; }
+  }
+}
+
+async function refreshDebugStats() {
+  try {
+    const data = await api('GET', '/api/debug/memory');
+    // topbar mem bar
+    const pct   = Math.min(data.pct, 100);
+    const fill  = document.getElementById('mem-fill');
+    const wrap  = document.getElementById('mem-bar-wrap');
+    const pctTx = document.getElementById('mem-pct-text');
+    const mbTx  = document.getElementById('mem-mb-text');
+    const degTag = document.getElementById('degraded-tag');
+    if (fill) {
+      fill.style.width = pct + '%';
+      fill.className   = 'mem-fill' + (pct >= 90 ? ' crit' : pct >= 70 ? ' warn' : '');
+    }
+    if (wrap)  wrap.className  = 'mem-bar-wrap' + (pct >= 90 ? ' crit' : pct >= 70 ? ' warn' : '');
+    if (pctTx) pctTx.textContent = pct.toFixed(1) + '%';
+    if (mbTx)  mbTx.textContent  = data.rss_mb + 'MB';
+    if (degTag) degTag.style.display = data.degraded ? 'inline' : 'none';
+
+    // settings panel stats
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    set('dbg-rss', data.rss_mb);
+    set('dbg-pct', data.pct + '%');
+    set('dbg-cpu', data.cpu_pct + '%');
+    set('dbg-sessions', data.sessions);
+
+    const detail = document.getElementById('dbg-mem-detail');
+    if (detail) detail.textContent =
+      `VMS: ${data.vms_mb}MB  |  Sys avail: ${data.available_mb}MB / ${data.total_mb}MB  |  Sys: ${data.sys_pct}%  |  Limit: ${data.limit_mb}MB  |  Logs buffered: ${data.log_count}`;
+
+    const badge = document.getElementById('dbg-degraded-badge');
+    if (badge) badge.style.display = data.degraded ? 'inline-flex' : 'none';
+
+    // sessions list
+    const sessions = await api('GET', '/api/debug/sessions').catch(() => []);
+    const sl = document.getElementById('dbg-sessions-list');
+    if (sl) {
+      if (!sessions.length) {
+        sl.textContent = 'No active sessions';
+      } else {
+        sl.innerHTML = sessions.map(s => `
+          <div style="padding:4px 0;border-bottom:1px solid var(--border);display:flex;gap:12px;flex-wrap:wrap;">
+            <span style="color:rgba(255,255,255,0.5);">ID:</span> <span style="color:#fff;">${esc(s.profile_id.slice(0,8))}…</span>
+            <span style="color:rgba(255,255,255,0.5);">monitoring:</span> <span style="color:${s.monitoring ? 'rgba(100,255,160,0.8)' : '#ff6b6b'};">${s.monitoring}</span>
+            <span style="color:rgba(255,255,255,0.5);">cookie:</span> <span>${s.has_cookie}</span>
+            <span style="color:rgba(255,255,255,0.5);">groups:</span> <span>${s.known_groups}</span>
+            <span style="color:rgba(255,255,255,0.5);">assets:</span> <span>${s.known_assets}</span>
+            <span style="color:rgba(255,255,255,0.5);">task:</span> <span style="color:${s.has_task ? 'rgba(100,255,160,0.8)' : '#ff6b6b'};">${s.has_task}</span>
+          </div>`).join('');
+      }
+    }
+  } catch(e) {
+    console.warn('Debug stats error:', e);
+  }
+}
+
+function buildLogEntry(log) {
+  return `<div class="log-entry">
+    <span class="log-ts">${esc(log.ts)}</span>
+    <span class="log-src">${esc(log.source)}</span>
+    <span class="log-lvl ${esc(log.level)}">${esc(log.level)}</span>
+    <span class="log-msg">${esc(log.msg)}</span>
+  </div>`;
+}
+
+async function fetchLogs(level = '', source = '') {
+  const params = new URLSearchParams({ limit: 300 });
+  if (level)  params.append('level', level);
+  if (source) params.append('source', source);
+  return await api('GET', `/api/debug/logs?${params}`).catch(() => []);
+}
+
+async function renderSettingsLogs() {
+  if (!_debugMode) return;
+  const level  = document.getElementById('settings-log-level')?.value || '';
+  const source = document.getElementById('settings-log-source')?.value || '';
+  const logs   = await fetchLogs(level, source);
+  const box    = document.getElementById('settings-log-box');
+  const count  = document.getElementById('settings-log-count');
+  if (!box) return;
+  if (!logs.length) {
+    box.innerHTML = '<div style="color:var(--text-dimmer);text-align:center;padding:20px 0;font-family:var(--font-mono);font-size:10px;">No logs matching filter</div>';
+  } else {
+    box.innerHTML = logs.map(buildLogEntry).join('');
+    box.scrollTop = box.scrollHeight;
+  }
+  if (count) count.textContent = logs.length + ' entries';
+}
+
+async function renderFloatLogs() {
+  if (!_debugMode || !_floatLogOpen) return;
+  const level  = document.getElementById('float-log-level')?.value || '';
+  const source = document.getElementById('float-log-source')?.value || '';
+  const logs   = await fetchLogs(level, source);
+  const box    = document.getElementById('float-log-entries');
+  if (!box) return;
+  if (!logs.length) {
+    box.innerHTML = '<div style="color:var(--text-dimmer);text-align:center;padding:20px 0;">No logs matching filter</div>';
+  } else {
+    const wasAtBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 20;
+    box.innerHTML = logs.map(buildLogEntry).join('');
+    if (wasAtBottom) box.scrollTop = box.scrollHeight;
+  }
+}
+
+function toggleFloatLog() {
+  if (!_debugMode) {
+    toast('Enable debug mode first', 'warn');
+    return;
+  }
+  _floatLogOpen = !_floatLogOpen;
+  const panel = document.getElementById('log-float-panel');
+  if (_floatLogOpen) {
+    panel.classList.add('open');
+    renderFloatLogs();
+  } else {
+    panel.classList.remove('open');
+  }
+}
+
+async function clearFloatLogs() {
+  await api('DELETE', '/api/debug/logs').catch(() => {});
+  renderFloatLogs();
+}
+
+async function clearServerLogs() {
+  await api('DELETE', '/api/debug/logs').catch(() => {});
+  renderSettingsLogs();
+  toast('Logs cleared', 'warn');
+}
+
+async function forceGC() {
+  try {
+    const r = await api('POST', '/api/debug/gc');
+    toast(`GC done — ${r.collected} objects, freed ~${r.freed_mb}MB`, 'success');
+    await refreshDebugStats();
+  } catch(e) {
+    toast('GC failed: ' + e.message, 'error');
+  }
+}
+
+// patch openSettings to also sync debug toggle state and refresh debug data
+const _origOpenSettings = openSettings;
+function openSettings() {
+  _origOpenSettings();
+  const toggle = document.getElementById('debug-mode-toggle');
+  if (toggle) toggle.className = 'toggle-sw' + (_debugMode ? ' on' : '');
+  const panel = document.getElementById('debug-panel-content');
+  if (panel) panel.style.display = _debugMode ? 'block' : 'none';
+  if (_debugMode) { refreshDebugStats(); renderSettingsLogs(); }
 }
 
 // ── BOOT ──────────────────────────────────────────────────────────────────────
