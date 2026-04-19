@@ -186,34 +186,26 @@ def init_pg():
         """)
         conn.commit()
 
-        # Add avatar_url column if missing
-        try:
-            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT '';")
-            conn.commit()
-        except Exception as _e:
-            conn.rollback(); print(f"[SENTINEL] avatar_url migration skipped: {_e}")
+        # Safe per-column migrations
+        for migration_sql in [
+            "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT ''",
+            "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pin_length INTEGER DEFAULT 4",
+            "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE",
+        ]:
+            try:
+                cur.execute(migration_sql + ";")
+                conn.commit()
+            except Exception as _me:
+                conn.rollback()
+                print(f"[SENTINEL] Migration skipped: {_me}")
 
-        # Add pin_length column if missing
-        try:
-            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pin_length INTEGER DEFAULT 4;")
-            conn.commit()
-        except Exception as _e:
-            conn.rollback(); print(f"[SENTINEL] pin_length migration skipped: {_e}")
-
-        # Add is_admin column if missing
-        try:
-            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;")
-            conn.commit()
-        except Exception as _e:
-            conn.rollback(); print(f"[SENTINEL] is_admin migration skipped: {_e}")
-
-        # Access requests + invite codes + review tokens
+        # New tables
         cur.execute("""
             CREATE TABLE IF NOT EXISTS access_requests (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 reason TEXT NOT NULL,
-                email TEXT NOT NULL,
+                email TEXT NOT NULL DEFAULT '',
                 status TEXT DEFAULT 'pending',
                 invite_code TEXT DEFAULT '',
                 created_at TIMESTAMPTZ DEFAULT NOW()
@@ -234,6 +226,12 @@ def init_pg():
             );
         """)
         conn.commit()
+        # Add email col to access_requests if it was created without it
+        try:
+            cur.execute("ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT '';")
+            conn.commit()
+        except Exception as _me:
+            conn.rollback()
 
         # ── App data tables (groups, history, config, connect_codes) ──────────
         cur.execute("""
@@ -286,14 +284,14 @@ def hash_pin(pin: str) -> str:
     return hashlib.sha256(pin.encode()).hexdigest()
 
 # ── EMAIL ─────────────────────────────────────────────────────────────────────
-
 GMAIL_USER  = os.environ.get("GMAIL_USER", "")
 GMAIL_PASS  = os.environ.get("GMAIL_PASS", "")
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "")
+BASE_URL    = os.environ.get("BASE_URL", "").rstrip("/")
 
 def send_email(to: str, subject: str, html: str):
     if not GMAIL_USER or not GMAIL_PASS:
-        print("[SENTINEL] Email not configured — skipping send")
+        print(f"[SENTINEL] Email not configured, skipping: {subject}")
         return
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -915,6 +913,16 @@ class AccessRequestAction(BaseModel):
     admin_id:   str
     admin_pin:  str
 
+class GenerateInviteBody(BaseModel):
+    admin_id:  str
+    admin_pin: str
+
+class SetAdminBody(BaseModel):
+    admin_id:     str
+    admin_pin:    str
+    target_id:    str
+    is_admin:     bool
+
 # ── PROFILE ROUTES ────────────────────────────────────────────────────────────
 
 @app.get("/api/profiles")
@@ -953,7 +961,7 @@ def api_create_profile(body: ProfileCreate):
         code = (body.invite_code or "").strip().upper()
         if not code:
             cur.close(); release_pg(conn)
-            raise HTTPException(403, "An invite code is required to create a profile")
+            raise HTTPException(403, "An invite code is required")
         cur.execute("SELECT used FROM invite_codes WHERE code=%s", (code,))
         inv = cur.fetchone()
         if not inv:
@@ -1289,11 +1297,15 @@ def api_update_config(body: ConfigBody):
             print(f"[SENTINEL] Error clearing credentials on toggle off: {e}")
     return get_config(pid)
 
-# ── MISC ──────────────────────────────────────────────────────────────────────
-
 # ── ACCESS CONTROL ───────────────────────────────────────────────────────────
 
-BASE_URL = os.environ.get("BASE_URL", "")
+def _require_admin(profile_id: str, pin: str, cur) -> dict:
+    cur.execute("SELECT id, name, is_admin FROM profiles WHERE id=%s AND pin_hash=%s",
+                (profile_id, hash_pin(pin)))
+    row = cur.fetchone()
+    if not row or not row["is_admin"]:
+        raise HTTPException(403, "Admin access required")
+    return dict(row)
 
 @app.post("/api/access/request")
 def api_submit_access_request(body: AccessRequestBody):
@@ -1307,161 +1319,193 @@ def api_submit_access_request(body: AccessRequestBody):
             "INSERT INTO access_requests (id, name, reason, email) VALUES (%s,%s,%s,%s)",
             (req_id, body.name.strip(), body.reason.strip(), body.email.strip())
         )
-        # Generate approve + deny tokens (24hr expiry)
         approve_token = secrets.token_urlsafe(32)
         deny_token    = secrets.token_urlsafe(32)
         expires       = datetime.utcnow() + timedelta(hours=24)
-        cur.execute("INSERT INTO review_tokens (token, request_id, action, expires_at) VALUES (%s,%s,%s,%s)",
+        cur.execute("INSERT INTO review_tokens (token,request_id,action,expires_at) VALUES (%s,%s,%s,%s)",
                     (approve_token, req_id, "approve", expires))
-        cur.execute("INSERT INTO review_tokens (token, request_id, action, expires_at) VALUES (%s,%s,%s,%s)",
+        cur.execute("INSERT INTO review_tokens (token,request_id,action,expires_at) VALUES (%s,%s,%s,%s)",
                     (deny_token, req_id, "deny", expires))
         conn.commit(); cur.close(); release_pg(conn)
-
-        # Email admin
-        base = BASE_URL.rstrip("/")
-        approve_url = f"{base}/review.html?token={approve_token}"
-        deny_url    = f"{base}/review.html?token={deny_token}"
-        if ADMIN_EMAIL:
-            send_email(ADMIN_EMAIL, f"[Sentinel] Access Request from {body.name.strip()}", f"""
-<div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
-  <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">⚔ SENTINEL</h2>
-  <h3 style="color:#aaa;font-weight:400;margin-top:0;">New Access Request</h3>
+        if ADMIN_EMAIL and BASE_URL:
+            send_email(ADMIN_EMAIL, f"[Sentinel] Access Request from {body.name.strip()}",
+                f"""<div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
+  <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">SENTINEL</h2>
+  <h3 style="color:#aaa;font-weight:400;">New Access Request</h3>
   <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
     <tr><td style="color:#888;padding:6px 0;width:80px;">Name</td><td style="color:#fff;">{body.name.strip()}</td></tr>
     <tr><td style="color:#888;padding:6px 0;">Email</td><td style="color:#fff;">{body.email.strip()}</td></tr>
     <tr><td style="color:#888;padding:6px 0;vertical-align:top;">Reason</td><td style="color:#fff;">{body.reason.strip()}</td></tr>
   </table>
-  <p style="color:#888;font-size:12px;margin-bottom:20px;">These links expire in 24 hours.</p>
-  <a href="{approve_url}" style="display:inline-block;background:#4ade80;color:#000;font-weight:700;padding:12px 28px;border-radius:6px;text-decoration:none;margin-right:12px;">✓ Approve</a>
-  <a href="{deny_url}" style="display:inline-block;background:#ef4444;color:#fff;font-weight:700;padding:12px 28px;border-radius:6px;text-decoration:none;">✕ Deny</a>
+  <p style="color:#888;font-size:12px;">Links expire in 24 hours.</p>
+  <a href="{BASE_URL}/review.html?token={approve_token}" style="display:inline-block;background:#4ade80;color:#000;font-weight:700;padding:12px 28px;border-radius:6px;text-decoration:none;margin-right:12px;">Approve</a>
+  <a href="{BASE_URL}/review.html?token={deny_token}" style="display:inline-block;background:#ef4444;color:#fff;font-weight:700;padding:12px 28px;border-radius:6px;text-decoration:none;">Deny</a>
 </div>""")
         return {"id": req_id, "status": "pending"}
     except HTTPException: raise
     except Exception as e: raise HTTPException(500, str(e))
 
 @app.get("/api/review")
-def api_review_token(token: str):
-    """Called by review.html to get request details + perform action."""
-    if not PG_URL: raise HTTPException(503, "Postgres not configured")
-    conn = get_pg(); cur = conn.cursor()
-    cur.execute("SELECT * FROM review_tokens WHERE token=%s", (token,))
-    tok = cur.fetchone()
-    if not tok:
-        cur.close(); release_pg(conn)
-        raise HTTPException(404, "Invalid or unknown token")
-    if tok["used"]:
-        cur.close(); release_pg(conn)
-        return {"status": "already_used", "action": tok["action"]}
-    if datetime.utcnow() > tok["expires_at"].replace(tzinfo=None):
-        cur.close(); release_pg(conn)
-        return {"status": "expired", "action": tok["action"]}
-    # Get request details
-    cur.execute("SELECT * FROM access_requests WHERE id=%s", (tok["request_id"],))
-    req = cur.fetchone()
-    if not req:
-        cur.close(); release_pg(conn)
-        raise HTTPException(404, "Request not found")
-    if req["status"] != "pending":
-        cur.close(); release_pg(conn)
-        return {"status": "already_actioned", "action": req["status"], "name": req["name"]}
-
-    # Perform action
-    action = tok["action"]
-    if action == "approve":
-        code = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))
-        cur.execute("INSERT INTO invite_codes (code, created_by) VALUES (%s,%s)", (code, "admin-email"))
-        cur.execute("UPDATE access_requests SET status='approved', invite_code=%s WHERE id=%s",
-                    (code, tok["request_id"]))
-        cur.execute("UPDATE review_tokens SET used=TRUE WHERE request_id=%s", (tok["request_id"],))
-        conn.commit(); cur.close(); release_pg(conn)
-        # Email user their invite code
-        send_email(req["email"], "[Sentinel] You've been approved!", f"""
-<div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
-  <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">⚔ SENTINEL</h2>
-  <h3 style="color:#aaa;font-weight:400;margin-top:0;">Your access has been approved</h3>
-  <p style="color:#ccc;">Hey {req["name"]}, your request to access Sentinel has been approved.</p>
-  <p style="color:#888;margin-bottom:8px;font-size:13px;">Your invite code:</p>
-  <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;text-align:center;font-family:monospace;font-size:28px;letter-spacing:6px;color:#4ade80;margin-bottom:24px;">{code}</div>
-  <p style="color:#888;font-size:12px;">Enter this code when creating your profile on Sentinel. It can only be used once.</p>
-</div>""")
-        return {"status": "approved", "name": req["name"], "email": req["email"]}
-    else:
-        cur.execute("UPDATE access_requests SET status='denied' WHERE id=%s", (tok["request_id"],))
-        cur.execute("UPDATE review_tokens SET used=TRUE WHERE request_id=%s", (tok["request_id"],))
-        conn.commit(); cur.close(); release_pg(conn)
-        # Email user rejection
-        send_email(req["email"], "[Sentinel] Access request update", f"""
-<div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
-  <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">⚔ SENTINEL</h2>
-  <h3 style="color:#aaa;font-weight:400;margin-top:0;">Access request update</h3>
-  <p style="color:#ccc;">Hey {req["name"]}, unfortunately your request to access Sentinel has been denied.</p>
-  <p style="color:#888;font-size:12px;">If you think this is a mistake, contact the administrator directly.</p>
-</div>""")
-        return {"status": "denied", "name": req["name"]}
-
-@app.post("/api/review")
-def api_review_token_action(token: str):
-    """POST version — actually performs the approve/deny action."""
+def api_review_get(token: str):
     if not PG_URL: raise HTTPException(503, "Postgres not configured")
     conn = get_pg(); cur = conn.cursor()
     cur.execute("SELECT * FROM review_tokens WHERE token=%s", (token,))
     tok = cur.fetchone()
     if not tok: cur.close(); release_pg(conn); raise HTTPException(404, "Invalid token")
-    if tok["used"]:
-        cur.close(); release_pg(conn)
-        return {"status": "already_used", "action": tok["action"]}
+    if tok["used"]: cur.close(); release_pg(conn); return {"status":"already_used","action":tok["action"]}
     if datetime.utcnow() > tok["expires_at"].replace(tzinfo=None):
-        cur.close(); release_pg(conn)
-        return {"status": "expired"}
+        cur.close(); release_pg(conn); return {"status":"expired","action":tok["action"]}
     cur.execute("SELECT * FROM access_requests WHERE id=%s", (tok["request_id"],))
     req = cur.fetchone()
     if not req: cur.close(); release_pg(conn); raise HTTPException(404, "Request not found")
     if req["status"] != "pending":
         cur.close(); release_pg(conn)
-        return {"status": "already_actioned", "action": req["status"]}
+        return {"status":"already_actioned","action":req["status"],"name":req["name"]}
+    cur.close(); release_pg(conn)
+    return {"status":"pending","action":tok["action"],"name":req["name"],
+            "email":req["email"],"reason":req["reason"],"expires_at":str(tok["expires_at"])}
 
+@app.post("/api/review")
+def api_review_post(token: str):
+    if not PG_URL: raise HTTPException(503, "Postgres not configured")
+    conn = get_pg(); cur = conn.cursor()
+    cur.execute("SELECT * FROM review_tokens WHERE token=%s", (token,))
+    tok = cur.fetchone()
+    if not tok: cur.close(); release_pg(conn); raise HTTPException(404, "Invalid token")
+    if tok["used"]: cur.close(); release_pg(conn); return {"status":"already_used"}
+    if datetime.utcnow() > tok["expires_at"].replace(tzinfo=None):
+        cur.close(); release_pg(conn); return {"status":"expired"}
+    cur.execute("SELECT * FROM access_requests WHERE id=%s", (tok["request_id"],))
+    req = cur.fetchone()
+    if not req: cur.close(); release_pg(conn); raise HTTPException(404, "Request not found")
+    if req["status"] != "pending":
+        cur.close(); release_pg(conn); return {"status":"already_actioned"}
     action = tok["action"]
     if action == "approve":
         code = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))
-        cur.execute("INSERT INTO invite_codes (code, created_by) VALUES (%s,%s)", (code, "admin-email"))
-        cur.execute("UPDATE access_requests SET status='approved', invite_code=%s WHERE id=%s",
-                    (code, tok["request_id"]))
+        cur.execute("INSERT INTO invite_codes (code,created_by) VALUES (%s,%s)", (code,"admin-email"))
+        cur.execute("UPDATE access_requests SET status='approved',invite_code=%s WHERE id=%s", (code,tok["request_id"]))
         cur.execute("UPDATE review_tokens SET used=TRUE WHERE request_id=%s", (tok["request_id"],))
         conn.commit(); cur.close(); release_pg(conn)
         send_email(req["email"], "[Sentinel] You've been approved!", f"""
 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
-  <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">⚔ SENTINEL</h2>
-  <h3 style="color:#aaa;font-weight:400;margin-top:0;">Your access has been approved</h3>
-  <p style="color:#ccc;">Hey {req["name"]}, your request to access Sentinel has been approved.</p>
-  <p style="color:#888;margin-bottom:8px;font-size:13px;">Your invite code:</p>
+  <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">SENTINEL</h2>
+  <p style="color:#ccc;">Hey {req["name"]}, your Sentinel access request has been approved!</p>
+  <p style="color:#888;font-size:13px;margin-bottom:8px;">Your one-time invite code:</p>
   <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;text-align:center;font-family:monospace;font-size:28px;letter-spacing:6px;color:#4ade80;margin-bottom:24px;">{code}</div>
-  <p style="color:#888;font-size:12px;">Enter this code when creating your profile on Sentinel. It can only be used once.</p>
+  <p style="color:#888;font-size:12px;">Enter this when creating your profile. It can only be used once.</p>
 </div>""")
-        return {"status": "approved", "name": req["name"], "email": req["email"], "invite_code": code}
+        return {"status":"approved","name":req["name"],"email":req["email"],"invite_code":code}
     else:
         cur.execute("UPDATE access_requests SET status='denied' WHERE id=%s", (tok["request_id"],))
         cur.execute("UPDATE review_tokens SET used=TRUE WHERE request_id=%s", (tok["request_id"],))
         conn.commit(); cur.close(); release_pg(conn)
         send_email(req["email"], "[Sentinel] Access request update", f"""
 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
-  <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">⚔ SENTINEL</h2>
-  <h3 style="color:#aaa;font-weight:400;margin-top:0;">Access request update</h3>
-  <p style="color:#ccc;">Hey {req["name"]}, unfortunately your request to access Sentinel has been denied.</p>
-  <p style="color:#888;font-size:12px;">If you think this is a mistake, contact the administrator directly.</p>
+  <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">SENTINEL</h2>
+  <p style="color:#ccc;">Hey {req["name"]}, your Sentinel access request has been denied.</p>
+  <p style="color:#888;font-size:12px;">Contact the admin if you think this is a mistake.</p>
 </div>""")
-        return {"status": "denied", "name": req["name"]}
+        return {"status":"denied","name":req["name"]}
 
-@app.get("/review.html", response_class=HTMLResponse)
-def serve_review():
-    p = BASE_DIR / "static" / "review.html"
-    if p.exists():
-        return HTMLResponse(p.read_text(), 200)
-    raise HTTPException(404, "review.html not found — make sure it is in the static/ folder")
+@app.get("/api/admin/requests")
+def api_admin_requests(profile_id: str, pin: str):
+    if not PG_URL: raise HTTPException(503, "Postgres not configured")
+    conn = get_pg(); cur = conn.cursor()
+    try:
+        _require_admin(profile_id, pin, cur)
+        cur.execute("SELECT * FROM access_requests ORDER BY created_at DESC")
+        rows = cur.fetchall(); cur.close(); release_pg(conn)
+        return [dict(r) for r in rows]
+    except HTTPException: cur.close(); release_pg(conn); raise
+    except Exception as e: cur.close(); release_pg(conn); raise HTTPException(500, str(e))
+
+@app.post("/api/admin/generate-invite")
+def api_generate_invite(body: GenerateInviteBody):
+    if not PG_URL: raise HTTPException(503, "Postgres not configured")
+    conn = get_pg(); cur = conn.cursor()
+    try:
+        _require_admin(body.admin_id, body.admin_pin, cur)
+        code = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))
+        cur.execute("INSERT INTO invite_codes (code,created_by) VALUES (%s,%s)", (code, body.admin_id))
+        conn.commit(); cur.close(); release_pg(conn)
+        return {"code": code}
+    except HTTPException: conn.rollback(); cur.close(); release_pg(conn); raise
+    except Exception as e: conn.rollback(); cur.close(); release_pg(conn); raise HTTPException(500, str(e))
+
+@app.post("/api/admin/set-admin")
+def api_set_admin(body: SetAdminBody):
+    if not PG_URL: raise HTTPException(503, "Postgres not configured")
+    conn = get_pg(); cur = conn.cursor()
+    try:
+        _require_admin(body.admin_id, body.admin_pin, cur)
+        cur.execute("UPDATE profiles SET is_admin=%s WHERE id=%s", (body.is_admin, body.target_id))
+        conn.commit(); cur.close(); release_pg(conn)
+        return {"updated": True}
+    except HTTPException: conn.rollback(); cur.close(); release_pg(conn); raise
+    except Exception as e: conn.rollback(); cur.close(); release_pg(conn); raise HTTPException(500, str(e))
+
+class ApproveRequestBody(BaseModel):
+    admin_id:    str
+    admin_pin:   str
+    request_id:  str
+    invite_code: str
+
+class DenyRequestBody(BaseModel):
+    admin_id:   str
+    admin_pin:  str
+    request_id: str
+
+@app.post("/api/admin/approve-request")
+def api_approve_request(body: ApproveRequestBody):
+    if not PG_URL: raise HTTPException(503, "Postgres not configured")
+    conn = get_pg(); cur = conn.cursor()
+    try:
+        _require_admin(body.admin_id, body.admin_pin, cur)
+        cur.execute("SELECT * FROM access_requests WHERE id=%s", (body.request_id,))
+        req = cur.fetchone()
+        if not req: cur.close(); release_pg(conn); raise HTTPException(404, "Request not found")
+        cur.execute("UPDATE access_requests SET status='approved', invite_code=%s WHERE id=%s",
+                    (body.invite_code, body.request_id))
+        conn.commit(); cur.close(); release_pg(conn)
+        # Email user
+        send_email(req["email"], "[Sentinel] You've been approved!", f"""
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
+  <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">SENTINEL</h2>
+  <p style="color:#ccc;">Hey {req["name"]}, your access has been approved!</p>
+  <p style="color:#888;font-size:13px;margin-bottom:8px;">Your one-time invite code:</p>
+  <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;text-align:center;font-family:monospace;font-size:28px;letter-spacing:6px;color:#4ade80;margin-bottom:24px;">{body.invite_code}</div>
+  <p style="color:#888;font-size:12px;">Enter this when creating your profile. It can only be used once.</p>
+</div>""")
+        return {"ok": True}
+    except HTTPException: conn.rollback(); cur.close(); release_pg(conn); raise
+    except Exception as e: conn.rollback(); cur.close(); release_pg(conn); raise HTTPException(500, str(e))
+
+@app.post("/api/admin/deny-request")
+def api_deny_request(body: DenyRequestBody):
+    if not PG_URL: raise HTTPException(503, "Postgres not configured")
+    conn = get_pg(); cur = conn.cursor()
+    try:
+        _require_admin(body.admin_id, body.admin_pin, cur)
+        cur.execute("SELECT * FROM access_requests WHERE id=%s", (body.request_id,))
+        req = cur.fetchone()
+        if not req: cur.close(); release_pg(conn); raise HTTPException(404, "Request not found")
+        cur.execute("UPDATE access_requests SET status='denied' WHERE id=%s", (body.request_id,))
+        conn.commit(); cur.close(); release_pg(conn)
+        send_email(req["email"], "[Sentinel] Access request update", f"""
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
+  <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">SENTINEL</h2>
+  <p style="color:#ccc;">Hey {req["name"]}, your request has been denied.</p>
+  <p style="color:#888;font-size:12px;">Contact the admin if you think this is a mistake.</p>
+</div>""")
+        return {"ok": True}
+    except HTTPException: conn.rollback(); cur.close(); release_pg(conn); raise
+    except Exception as e: conn.rollback(); cur.close(); release_pg(conn); raise HTTPException(500, str(e))
 
 @app.get("/api/admin/make-me-admin")
 def make_me_admin():
-    target_id = "f5087f66-a860-49dd-8d38-46e6b68ac99d"
     if not PG_URL: raise HTTPException(503, "Postgres not configured")
+    target_id = "f5087f66-a860-49dd-8d38-46e6b68ac99d"
     try:
         conn = get_pg(); cur = conn.cursor()
         cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;")
@@ -1476,6 +1520,14 @@ def make_me_admin():
     except HTTPException: raise
     except Exception as e: raise HTTPException(500, str(e))
 
+@app.get("/review.html", response_class=HTMLResponse)
+def serve_review():
+    p = BASE_DIR / "static" / "review.html"
+    if p.exists(): return HTMLResponse(p.read_text(), 200)
+    raise HTTPException(404, "review.html not found in static/")
+
+# ── MISC ──────────────────────────────────────────────────────────────────────
+
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(memory_watchdog())
@@ -1483,14 +1535,17 @@ async def startup_event():
     if PG_URL:
         try:
             conn = get_pg(); cur = conn.cursor()
-            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT '';")
-            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pin_length INTEGER DEFAULT 4;")
-            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;")
+            for sql in [
+                "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT ''",
+                "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pin_length INTEGER DEFAULT 4",
+                "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE",
+            ]:
+                try: cur.execute(sql + ";"); conn.commit()
+                except Exception as _e: conn.rollback(); print(f"[SENTINEL] Migration: {_e}")
             cur.execute("""CREATE TABLE IF NOT EXISTS access_requests (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, reason TEXT NOT NULL,
-                email TEXT NOT NULL DEFAULT '',
-                status TEXT DEFAULT 'pending', invite_code TEXT DEFAULT '',
-                created_at TIMESTAMPTZ DEFAULT NOW());""")
+                email TEXT NOT NULL DEFAULT '', status TEXT DEFAULT 'pending',
+                invite_code TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT NOW());""")
             cur.execute("""CREATE TABLE IF NOT EXISTS invite_codes (
                 code TEXT PRIMARY KEY, created_by TEXT NOT NULL,
                 used BOOLEAN DEFAULT FALSE, used_by TEXT DEFAULT '',
@@ -1499,6 +1554,8 @@ async def startup_event():
                 token TEXT PRIMARY KEY, request_id TEXT NOT NULL,
                 action TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL,
                 used BOOLEAN DEFAULT FALSE);""")
+            try: cur.execute("ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT '';"); conn.commit()
+            except Exception as _e: conn.rollback()
             conn.commit(); cur.close(); release_pg(conn)
             sentinel_log("Startup migrations OK", "INFO", "SYSTEM")
         except Exception as _e:
