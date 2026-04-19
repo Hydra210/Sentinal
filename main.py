@@ -2,7 +2,7 @@
 # Start command: uvicorn main:app --host 0.0.0.0 --port $PORT
 
 from __future__ import annotations
-import asyncio, json, os, sqlite3, time, secrets, string, hashlib, uuid, gc, collections
+import asyncio, json, os, sqlite3, time, secrets, string, hashlib, uuid, gc, collections, ctypes
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Dict
@@ -260,6 +260,18 @@ def sentinel_log(msg: str, level: str = "INFO", source: str = "SENTINEL"):
     _LOG_BUFFER.append(entry)
     print(f"[{entry['source']}][{entry['level']}] {msg}")
 
+_libc = None
+def _trim_memory():
+    """Force glibc to release free memory back to the OS (fixes RSS bloat on Linux)."""
+    global _libc
+    try:
+        if _libc is None:
+            _libc = ctypes.CDLL("libc.so.6")
+        gc.collect()
+        _libc.malloc_trim(0)
+    except Exception:
+        pass  # Non-Linux or libc not available — safe to ignore
+
 async def memory_watchdog():
     global _DEGRADED, _MEMORY_MB, _MEMORY_PCT, _MEM_TOTAL_MB
     process = psutil.Process()
@@ -270,6 +282,7 @@ async def memory_watchdog():
         _MEM_TOTAL_MB = 512.0
 
     LIMIT_MB = float(os.environ.get("MEMORY_LIMIT_MB", 400))
+    _trim_counter = 0
 
     while True:
         try:
@@ -277,9 +290,15 @@ async def memory_watchdog():
             _MEMORY_MB  = round(rss, 1)
             _MEMORY_PCT = round((rss / LIMIT_MB) * 100, 1)
 
+            # Trim every 5 cycles (~20 seconds) to keep RSS from climbing
+            _trim_counter += 1
+            if _trim_counter >= 5:
+                _trim_counter = 0
+                _trim_memory()
+
             if rss > LIMIT_MB and not _DEGRADED:
                 _DEGRADED = True
-                gc.collect()
+                _trim_memory()
                 sentinel_log(f"High memory {rss:.1f}MB/{LIMIT_MB:.0f}MB — degraded mode ON", "MEMORY", "WATCHDOG")
             elif rss < LIMIT_MB * 0.75 and _DEGRADED:
                 _DEGRADED = False
@@ -1196,9 +1215,10 @@ def api_debug_memory():
 def api_debug_gc():
     before = psutil.Process().memory_info().rss / 1024 / 1024
     collected = gc.collect()
+    _trim_memory()
     after  = psutil.Process().memory_info().rss / 1024 / 1024
     freed  = round(before - after, 2)
-    sentinel_log(f"Manual GC: collected {collected} objects, freed ~{freed}MB", "MEMORY", "DEBUG")
+    sentinel_log(f"Manual GC+trim: collected {collected} objects, freed ~{freed}MB", "MEMORY", "DEBUG")
     return {"collected": collected, "freed_mb": freed, "rss_after_mb": round(after, 2)}
 
 @app.delete("/api/debug/logs")
