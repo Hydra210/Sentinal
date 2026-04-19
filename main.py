@@ -472,11 +472,19 @@ async def rblx_get(url: str, *, cookie=None, params=None) -> httpx.Response:
     async with httpx.AsyncClient(timeout=15, follow_redirects=True) as c:
         return await c.get(url, cookies=cookies, params=params)
 
+_csrf_cache: dict = {}
+
 async def get_csrf(cookie: str) -> str:
+    now = time.time()
+    if cookie in _csrf_cache and now - _csrf_cache[cookie][1] < 60:
+        return _csrf_cache[cookie][0]
     async with httpx.AsyncClient(timeout=10) as c:
         r = await c.post("https://auth.roblox.com/v2/logout",
                          cookies={".ROBLOSECURITY": cookie})
-        return r.headers.get("x-csrf-token", "")
+        token = r.headers.get("x-csrf-token", "")
+        _csrf_cache[cookie] = (token, now)
+        sentinel_log(f"CSRF token refreshed", "DEBUG", "NETWORK")
+        return token
 
 async def validate_cookie(cookie: str) -> dict:
     r = await rblx_get("https://users.roblox.com/v1/users/authenticated", cookie=cookie)
@@ -570,7 +578,19 @@ async def archive_asset(asset_id: str, *, cookie=None) -> bool:
             headers={"X-CSRF-TOKEN": csrf},
             cookies={".ROBLOSECURITY": cookie},
         )
-        print(f"[SENTINEL] archive_asset {asset_id}: HTTP {r.status_code} — {r.text[:200]}")
+        sentinel_log(f"Archive {asset_id}: HTTP {r.status_code}", "ARCHIVE", "NETWORK")
+        if r.status_code == 403:
+            new_csrf = r.headers.get("x-csrf-token")
+            if new_csrf:
+                _csrf_cache[cookie] = (new_csrf, time.time())
+                sentinel_log(f"CSRF expired for {asset_id} — refreshed and retrying", "DEBUG", "NETWORK")
+                r2 = await c.post(
+                    f"https://develop.roblox.com/v1/assets/{asset_id}/archive",
+                    headers={"X-CSRF-TOKEN": new_csrf},
+                    cookies={".ROBLOSECURITY": cookie},
+                )
+                sentinel_log(f"Archive retry {asset_id}: HTTP {r2.status_code}", "ARCHIVE", "NETWORK")
+                return r2.status_code in (200, 204)
         return r.status_code in (200, 204)
 
 async def send_dm(user_id: str, subject: str, body: str, cookie: str) -> bool:
