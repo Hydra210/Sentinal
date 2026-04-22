@@ -528,8 +528,8 @@ DEFAULT_CFG = {
     "allowFastPolling":    False,
     "archiveDelay":        0,
     "archiveExisting":     False,
-    "notifyEnabled":       True,
     "saveCookies":         False,
+    "autoStartMonitoring": False,
     "assetTypeFilters":    ALL_ASSET_TYPES,
     "whitelist_Audio":     [],
     "whitelist_Image":     [],
@@ -541,12 +541,6 @@ DEFAULT_CFG = {
     "whitelist_Model":     [],
     "whitelist_Package":   [],
     "whitelist_all":       [],
-    "dmTemplate": (
-        "Hi [USER_NAME], your asset [AUDIO_NAME] was removed from [GROUP_NAME] "
-        "because we only accept uploads through approved channels.\n\n"
-        "If you believe this was a mistake, please contact group staff."
-    ),
-    "altAccount": "",
 }
 
 def get_config(profile_id: str) -> dict:
@@ -720,12 +714,9 @@ async def monitor_loop(profile_id: str):
         cfg              = get_config(profile_id)
         poll_sec         = int(cfg.get("pollingInterval", 60))
         delay_sec        = int(cfg.get("archiveDelay", 0))
-        notify           = bool(cfg.get("notifyEnabled", True))
         archive_existing = bool(cfg.get("archiveExisting", False))
         asset_filters    = cfg.get("assetTypeFilters", ALL_ASSET_TYPES)
         whitelist_all    = {str(u).strip().lower() for u in cfg.get("whitelist_all", [])}
-        dm_tmpl          = str(cfg.get("dmTemplate", DEFAULT_CFG["dmTemplate"]))
-        alt              = str(cfg.get("altAccount", ""))
 
         groups = db_exec(
             "SELECT id, name FROM groups WHERE profile_id=?", (profile_id,), fetch="all"
@@ -773,13 +764,19 @@ async def monitor_loop(profile_id: str):
                         creator_name = await get_username(creator_id, cookie=session.cookie)
                     asset_type   = a.get("assetType", "Unknown")
 
-                    if creator_id.lower() in whitelist_all or creator_name.lower() in whitelist_all:
+                    # Normalize whitelist entries: strip, lowercase
+                    def _in_wl(wl_set):
+                        return (
+                            creator_id.strip().lower() in wl_set or
+                            creator_name.strip().lower() in wl_set
+                        )
+                    if _in_wl(whitelist_all):
                         sentinel_log(f"Global whitelist skip: {creator_name} ({asset_type} {aid})", "INFO", "MONITOR")
                         session.known_assets[group_key].add(aid)
                         continue
 
                     type_wl = {str(u).strip().lower() for u in cfg.get(f"whitelist_{asset_type}", [])}
-                    if creator_id.lower() in type_wl or creator_name.lower() in type_wl:
+                    if _in_wl(type_wl):
                         sentinel_log(f"Type whitelist skip: {creator_name} ({asset_type})", "INFO", "MONITOR")
                         session.known_assets[group_key].add(aid)
                         continue
@@ -800,19 +797,6 @@ async def monitor_loop(profile_id: str):
                         session.known_assets[group_key].add(aid)
 
                     dm_status = "n/a"
-                    if notify and session.cookie and creator_id:
-                        try:
-                            msg = (dm_tmpl
-                                   .replace("[USER_NAME]",  creator_name)
-                                   .replace("[AUDIO_NAME]", a.get("name", ""))
-                                   .replace("[ALT_ACCOUNT]", alt)
-                                   .replace("[GROUP_NAME]", gname))
-                            sent = await send_dm(creator_id, "Asset Policy Notice", msg, session.cookie)
-                            dm_status = "sent" if sent else "failed"
-                            sentinel_log(f"DM to {creator_name} (UID {creator_id}): {'sent' if sent else 'failed'}", "DM", "MONITOR")
-                        except Exception as e:
-                            sentinel_log(f"DM error for {creator_id}: {e}", "ERROR", "MONITOR")
-                            dm_status = "failed"
 
                     db_insert_ignore("history", {
                         "id":           f"{aid}_{int(time.time())}",
@@ -878,26 +862,24 @@ class GroupBody(BaseModel):
     profile_id: str
 
 class ConfigBody(BaseModel):
-    profile_id:          str
-    pollingInterval:     Optional[int]       = None
-    allowFastPolling:    Optional[bool]      = None
-    archiveDelay:        Optional[int]       = None
-    archiveExisting:     Optional[bool]      = None
-    notifyEnabled:       Optional[bool]      = None
-    saveCookies:         Optional[bool]      = None
-    assetTypeFilters:    Optional[List[str]] = None
-    whitelist_Audio:     Optional[List[str]] = None
-    whitelist_Image:     Optional[List[str]] = None
-    whitelist_Decal:     Optional[List[str]] = None
-    whitelist_Video:     Optional[List[str]] = None
-    whitelist_Mesh:      Optional[List[str]] = None
-    whitelist_Plugin:    Optional[List[str]] = None
-    whitelist_Animation: Optional[List[str]] = None
-    whitelist_Model:     Optional[List[str]] = None
-    whitelist_Package:   Optional[List[str]] = None
-    whitelist_all:       Optional[List[str]] = None
-    dmTemplate:          Optional[str]       = None
-    altAccount:          Optional[str]       = None
+    profile_id:           str
+    pollingInterval:      Optional[int]       = None
+    allowFastPolling:     Optional[bool]      = None
+    archiveDelay:         Optional[int]       = None
+    archiveExisting:      Optional[bool]      = None
+    saveCookies:          Optional[bool]      = None
+    autoStartMonitoring:  Optional[bool]      = None
+    assetTypeFilters:     Optional[List[str]] = None
+    whitelist_Audio:      Optional[List[str]] = None
+    whitelist_Image:      Optional[List[str]] = None
+    whitelist_Decal:      Optional[List[str]] = None
+    whitelist_Video:      Optional[List[str]] = None
+    whitelist_Mesh:       Optional[List[str]] = None
+    whitelist_Plugin:     Optional[List[str]] = None
+    whitelist_Animation:  Optional[List[str]] = None
+    whitelist_Model:      Optional[List[str]] = None
+    whitelist_Package:    Optional[List[str]] = None
+    whitelist_all:        Optional[List[str]] = None
 
 class MonitorBody(BaseModel):
     profile_id: str
@@ -1019,6 +1001,12 @@ def api_login_profile(body: ProfileLogin):
             session = get_session(body.profile_id)
             session.cookie       = saved_cookie
             session.account_info = saved_account
+            # Auto-restart monitoring if it was active and server was restarted
+            cfg_check = get_config(body.profile_id)
+            if cfg_check.get("_monitoringActive") and not session.monitoring:
+                session.monitoring   = True
+                session.monitor_task = asyncio.create_task(monitor_loop(body.profile_id))
+                print(f"[SENTINEL] Auto-restarted monitoring on login for profile {body.profile_id}")
 
         return {
             "id":            row["id"],
@@ -1122,12 +1110,14 @@ async def api_redeem_code(body: ConnectCodeBody):
         session.cookie       = body.cookie
         session.account_info = info
 
-        # Auto-restart monitoring if it was active before the server restarted
+        # Auto-restart monitoring if it was active, OR if autoStartMonitoring is enabled
         cfg_check = get_config(profile_id)
-        if cfg_check.get("_monitoringActive") and not session.monitoring:
+        should_start = cfg_check.get("_monitoringActive") or cfg_check.get("autoStartMonitoring")
+        if should_start and not session.monitoring:
             session.monitoring   = True
             session.monitor_task = asyncio.create_task(monitor_loop(profile_id))
-            print(f"[SENTINEL] Auto-restarted monitoring for profile {profile_id}")
+            set_cfg(profile_id, "_monitoringActive", True)
+            print(f"[SENTINEL] Auto-started monitoring for profile {profile_id}")
 
     except HTTPException:
         raise
@@ -1168,6 +1158,7 @@ def api_status(profile_id: str = ""):
 
 @app.post("/api/credentials/clear")
 def api_clear_credentials(body: MonitorBody):
+    """Fully unlink Roblox — wipes saved_credentials in Postgres AND in-memory session."""
     if PG_URL:
         try:
             conn = get_pg()
@@ -1181,6 +1172,73 @@ def api_clear_credentials(body: MonitorBody):
     session.cookie       = None
     session.account_info = None
     return {"cleared": True}
+
+@app.post("/api/extension/unlink")
+def api_extension_unlink(body: MonitorBody):
+    """Unlink only the extension session (in-memory cookie cleared).
+    Saved credentials in Postgres are preserved so the dashboard stays linked."""
+    session = get_session(body.profile_id)
+    session.cookie       = None
+    session.account_info = None
+    return {"unlinked": True}
+
+@app.get("/api/saved-accounts")
+def api_saved_accounts(profile_id: str = ""):
+    """Return list of previously saved account infos for a profile (for extension account picker)."""
+    if not PG_URL or not profile_id:
+        return []
+    try:
+        conn = get_pg(); cur = conn.cursor()
+        cur.execute("SELECT account_info, saved_at FROM saved_credentials WHERE profile_id=%s", (profile_id,))
+        row = cur.fetchone()
+        cur.close(); release_pg(conn)
+        if row and row["account_info"]:
+            info = row["account_info"]
+            if isinstance(info, str):
+                info = json.loads(info)
+            return [info]
+        return []
+    except Exception as e:
+        print(f"[SENTINEL] saved-accounts error: {e}")
+        return []
+
+class RelinkBody(BaseModel):
+    profile_id: str
+    cookie:     str
+
+@app.post("/api/credentials/relink")
+async def api_relink(body: RelinkBody):
+    """Relink using a saved or provided cookie directly — no connect code needed.
+    Used by the extension when switching back to a saved account."""
+    try:
+        info = await validate_cookie(body.cookie)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Could not verify Roblox session: {e}")
+    session = get_session(body.profile_id)
+    session.cookie       = body.cookie
+    session.account_info = info
+    cfg_check = get_config(body.profile_id)
+    should_start = cfg_check.get("_monitoringActive") or cfg_check.get("autoStartMonitoring")
+    if should_start and not session.monitoring:
+        session.monitoring   = True
+        session.monitor_task = asyncio.create_task(monitor_loop(body.profile_id))
+        set_cfg(body.profile_id, "_monitoringActive", True)
+    if cfg_check.get("saveCookies") and PG_URL:
+        try:
+            conn = get_pg(); cur = conn.cursor()
+            cur.execute(
+                """INSERT INTO saved_credentials (profile_id, cookie_encrypted, account_info)
+                   VALUES (%s,%s,%s)
+                   ON CONFLICT (profile_id) DO UPDATE
+                   SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
+                (body.profile_id, body.cookie, json.dumps(info), body.cookie, json.dumps(info))
+            )
+            conn.commit(); cur.close(); release_pg(conn)
+        except Exception as e:
+            print(f"[SENTINEL] Failed to save relinked credentials: {e}")
+    return {**info, "profile_id": body.profile_id}
 
 # ── MONITORING ────────────────────────────────────────────────────────────────
 
