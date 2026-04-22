@@ -509,31 +509,24 @@
 
     <div class="divider"></div>
 
-    <!-- Groups -->
-    <div style="margin-bottom:24px;">
-      <div class="section-title">Group Management</div>
-      <label class="field-label">Group URL or ID</label>
-      <div style="display:flex;gap:8px;">
-        <input type="text" id="settings-group-url" placeholder="https://www.roblox.com/groups/12345/ or just 12345" style="flex:1;">
-        <button class="btn btn-primary btn-sm" onclick="addGroupFromSettings()">Add</button>
-      </div>
-    </div>
-
-    <div class="divider"></div>
-
     <!-- Danger zone -->
     <div class="danger-zone">
       <div class="section-title" style="color:var(--accent3);">Danger Zone</div>
       <div class="btn-group">
         <button class="btn btn-danger btn-sm" onclick="clearAllHistory()">Clear History</button>
-        <button class="btn btn-danger btn-sm" onclick="clearCredentials()">Disconnect Roblox</button>
+        <button class="btn btn-danger btn-sm" onclick="clearCredentials()">Unlink Roblox Account</button>
+        <button class="btn btn-sm" style="border-color:rgba(240,192,64,0.35);color:var(--warn);" onclick="unlinkExtension()">Unlink Extension Only</button>
+      </div>
+      <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);margin-top:8px;line-height:1.7;">
+        <b style="color:rgba(255,255,255,0.5);">Unlink Roblox</b> — removes the saved cookie everywhere.<br>
+        <b style="color:rgba(255,255,255,0.5);">Unlink Extension Only</b> — drops the live session but keeps saved credentials, so the dashboard stays linked.
       </div>
 
       <div style="margin-top:16px;">
         <div class="toggle-row">
           <div>
             <div class="toggle-label" style="font-size:13px;">Save Credentials to Database</div>
-            <div class="toggle-desc">Cookie will be stored in Postgres — stays connected after server restart</div>
+            <div class="toggle-desc">Cookie stored in Postgres — survives server restarts</div>
           </div>
           <div class="toggle-sw" id="save-cookies-toggle" onclick="toggleSaveCookies(this)"></div>
         </div>
@@ -712,7 +705,7 @@
     <button class="nav-tab" onclick="showTab('groups')">Groups</button>
     <button class="nav-tab" onclick="showTab('config')">Config</button>
     <button class="nav-tab" onclick="showTab('history')">History<span class="tab-badge" id="history-badge"></span></button>
-    <button class="nav-tab" onclick="showTab('notifications')">Notifications</button>
+
     <button class="nav-tab" id="admin-tab-btn" style="display:none;" onclick="showTab('admin')">Admin</button>
   </div>
 
@@ -739,6 +732,10 @@
               <div><div class="toggle-label">Archive Existing Assets</div><div class="toggle-desc">Also archive assets already in group on start</div></div>
               <div class="toggle-sw" id="archive-existing-toggle" onclick="toggleArchiveExisting(this)"></div>
             </div>
+            <div class="toggle-row">
+              <div><div class="toggle-label">Auto-Start on Connect</div><div class="toggle-desc">Automatically start monitoring when extension connects</div></div>
+              <div class="toggle-sw" id="auto-start-toggle" onclick="toggleAutoStart(this)"></div>
+            </div>
           </div>
 
           <div class="card">
@@ -761,6 +758,7 @@
 
             <div id="connected-account-section" style="display:none;">
               <button class="btn btn-block" onclick="testConnection()" style="margin-top:8px;">Test Connection</button>
+              <button class="btn btn-block btn-sm" onclick="showConnectCode()" style="margin-top:8px;">Re-link Extension</button>
             </div>
           </div>
         </div>
@@ -833,13 +831,7 @@
           </div>
         </div>
 
-        <div class="section-title">Notifications</div>
-        <div class="card mb-28">
-          <div class="toggle-row">
-            <div><div class="toggle-label">Auto-Notify Uploader</div><div class="toggle-desc">Send a DM to the user when their asset is archived</div></div>
-            <div class="toggle-sw on" id="notify-toggle" onclick="this.classList.toggle('on')"></div>
-          </div>
-        </div>
+
 
         <div class="section-title">Whitelist</div>
         <div class="card mb-28">
@@ -881,29 +873,7 @@
       </div>
     </div>
 
-    <!-- ── NOTIFICATIONS ── -->
-    <div class="tab-panel" id="tab-notifications">
-      <div style="max-width:800px;margin:0 auto;">
-        <div class="section-title">DM Template</div>
-        <div class="card mb-28">
-          <label class="field-label">Message Sent to Uploader</label>
-          <textarea id="dm-template" style="min-height:140px;"></textarea>
-          <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);margin-top:10px;line-height:1.8;">
-            Placeholders:
-            <code style="color:rgba(255,255,255,0.75);background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px;">[USER_NAME]</code>
-            <code style="color:rgba(255,255,255,0.75);background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px;">[AUDIO_NAME]</code>
-            <code style="color:rgba(255,255,255,0.75);background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px;">[GROUP_NAME]</code>
-            <code style="color:rgba(255,255,255,0.75);background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px;">[ALT_ACCOUNT]</code>
-          </div>
-        </div>
-        <div class="section-title">Alt Account</div>
-        <div class="card mb-28">
-          <label class="field-label">Alt Account Username (for [ALT_ACCOUNT] placeholder)</label>
-          <input type="text" id="alt-account" placeholder="e.g. YourBotAccountName">
-        </div>
-        <button class="btn btn-primary" onclick="saveNotifSettings()">Save Notification Settings</button>
-      </div>
-    </div>
+
 
     <!-- ── ADMIN ── -->
     <div class="tab-panel" id="tab-admin">
@@ -1359,7 +1329,6 @@ async function initApp() {
     refreshGroups(),
     refreshHistory(),
     loadConfigFromApi(),
-    loadNotifFromApi(),
   ]);
   startLiveUpdates();
 }
@@ -1510,11 +1479,7 @@ async function addGroup() {
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
-function addGroupFromSettings() {
-  document.getElementById('group-url-input').value = document.getElementById('settings-group-url').value;
-  addGroup();
-  document.getElementById('settings-group-url').value = '';
-}
+
 
 async function removeGroup(id) {
   if (!confirm('Remove this group?')) return;
@@ -1658,14 +1623,14 @@ async function loadConfigFromApi() {
   if (poll)  { poll.value  = _cfg.pollingInterval ?? 60; document.getElementById('polling-val').textContent  = (_cfg.pollingInterval ?? 60) + 's'; }
   if (delay) { delay.value = _cfg.archiveDelay    ?? 0;  document.getElementById('delay-val').textContent    = (_cfg.archiveDelay    ?? 0)  + 's'; }
 
-  const nt = document.getElementById('notify-toggle');
-  if (nt) nt.className = 'toggle-sw' + (_cfg.notifyEnabled !== false ? ' on' : '');
-
   const ae = document.getElementById('archive-existing-toggle');
   if (ae) ae.className = 'toggle-sw' + (_cfg.archiveExisting ? ' on' : '');
 
   const fp = document.getElementById('fast-poll-toggle');
   if (fp) fp.className = 'toggle-sw' + (_cfg.allowFastPolling ? ' on' : '');
+
+  const ast = document.getElementById('auto-start-toggle');
+  if (ast) ast.className = 'toggle-sw' + (_cfg.autoStartMonitoring ? ' on' : '');
 
   const sc = document.getElementById('save-cookies-toggle');
   if (sc) sc.className = 'toggle-sw' + (_cfg.saveCookies ? ' on' : '');
@@ -1677,13 +1642,7 @@ async function loadConfigFromApi() {
   buildWlTabs();
 }
 
-async function loadNotifFromApi() {
-  const cfg = await api('GET', `/api/config?profile_id=${pid()}`).catch(() => ({}));
-  const tmpl = document.getElementById('dm-template');
-  const alt  = document.getElementById('alt-account');
-  if (tmpl) tmpl.value = cfg.dmTemplate || '';
-  if (alt)  alt.value  = cfg.altAccount || '';
-}
+
 
 function buildAssetFilterGrid() {
   const grid = document.getElementById('asset-filter-grid');
@@ -1784,38 +1743,30 @@ async function saveConfig() {
   const selectedTypes = [...document.querySelectorAll('.asset-chip.selected')].map(c => c.textContent.trim());
 
   const body = {
-    profile_id:      pid(),
-    pollingInterval: parseInt(document.getElementById('polling-slider').value),
-    archiveDelay:    parseInt(document.getElementById('delay-slider').value),
-    notifyEnabled:   document.getElementById('notify-toggle').classList.contains('on'),
-    archiveExisting: document.getElementById('archive-existing-toggle').classList.contains('on'),
+    profile_id:       pid(),
+    pollingInterval:  parseInt(document.getElementById('polling-slider').value),
+    archiveDelay:     parseInt(document.getElementById('delay-slider').value),
+    archiveExisting:  document.getElementById('archive-existing-toggle').classList.contains('on'),
     allowFastPolling: document.getElementById('fast-poll-toggle').classList.contains('on'),
     assetTypeFilters: selectedTypes,
   };
 
-  // Add all whitelists
+  // Add all whitelists from _cfg (already kept in sync via saveWlTab)
   ['all', ...ALL_ASSET_TYPES].forEach(t => {
     const key = t === 'all' ? 'whitelist_all' : `whitelist_${t}`;
-    body[key === 'whitelist_all' ? 'whitelist_all' : key] = _cfg[key] || [];
+    body[key] = _cfg[key] || [];
   });
 
   try {
-    await api('POST', '/api/config', body);
+    const saved = await api('POST', '/api/config', body);
+    // Update in-memory _cfg so chip state survives tab switches without re-fetching
+    _cfg = { ..._cfg, ...saved };
     await refreshStats();
     toast('Config saved', 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
-async function saveNotifSettings() {
-  try {
-    await api('POST', '/api/config', {
-      profile_id: pid(),
-      dmTemplate: document.getElementById('dm-template').value,
-      altAccount: document.getElementById('alt-account').value,
-    });
-    toast('Notification settings saved', 'success');
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
-}
+
 
 async function exportConfig() {
   const [cfg, groups] = await Promise.all([
@@ -1832,7 +1783,7 @@ async function exportConfig() {
 
 async function clearConfig() {
   if (!confirm('Reset config to defaults?')) return;
-  await api('POST', '/api/config', { profile_id: pid(), pollingInterval: 60, archiveDelay: 0, notifyEnabled: true, whitelist_all: [], dmTemplate: '', altAccount: '' });
+  await api('POST', '/api/config', { profile_id: pid(), pollingInterval: 60, archiveDelay: 0, whitelist_all: [], assetTypeFilters: ALL_ASSET_TYPES });
   await loadConfigFromApi();
   await loadNotifFromApi();
   toast('Config reset', 'warn');
@@ -1972,14 +1923,38 @@ async function clearAllHistory() {
 }
 
 async function clearCredentials() {
-  if (!confirm('Disconnect Roblox account? You will need to reconnect the extension.')) return;
+  if (!confirm('Fully unlink Roblox account? This removes the saved cookie and you will need to reconnect the extension.')) return;
   await api('POST', '/api/credentials/clear', { profile_id: pid() });
   STATE.hasCredential = false;
   document.getElementById('connect-code-section').style.display   = 'block';
   document.getElementById('connected-account-section').style.display = 'none';
   document.getElementById('conn-account-display').innerHTML = 'No account connected';
   closeSettings();
-  toast('Roblox account disconnected', 'warn');
+  toast('Roblox account fully unlinked', 'warn');
+}
+
+async function unlinkExtension() {
+  if (!confirm('Unlink the extension session? The saved Roblox credentials stay in the database — the dashboard remains linked. Only the live extension session is dropped.')) return;
+  await api('POST', '/api/extension/unlink', { profile_id: pid() });
+  STATE.hasCredential = false;
+  document.getElementById('connect-code-section').style.display   = 'block';
+  document.getElementById('connected-account-section').style.display = 'none';
+  document.getElementById('conn-account-display').innerHTML = 'Session unlinked (credentials preserved)';
+  closeSettings();
+  toast('Extension session unlinked — credentials preserved', 'warn');
+}
+
+async function toggleAutoStart(el) {
+  el.classList.toggle('on');
+  const on = el.classList.contains('on');
+  try {
+    await api('POST', '/api/config', { profile_id: pid(), autoStartMonitoring: on });
+    _cfg.autoStartMonitoring = on;
+    toast(on ? 'Auto-start enabled' : 'Auto-start disabled', on ? 'success' : 'warn');
+  } catch(e) {
+    el.classList.toggle('on');
+    toast('Error: ' + e.message, 'error');
+  }
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
