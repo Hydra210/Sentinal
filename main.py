@@ -139,10 +139,12 @@ def init_pg():
                 created_at TIMESTAMPTZ DEFAULT NOW()
             );
             CREATE TABLE IF NOT EXISTS saved_credentials (
-                profile_id TEXT PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+                profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+                roblox_user_id TEXT NOT NULL DEFAULT '',
                 cookie_encrypted TEXT,
                 account_info JSONB,
-                saved_at TIMESTAMPTZ DEFAULT NOW()
+                saved_at TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (profile_id, roblox_user_id)
             );
         """)
         conn.commit()
@@ -178,10 +180,12 @@ def init_pg():
                 created_at TIMESTAMPTZ DEFAULT NOW()
             );
             CREATE TABLE IF NOT EXISTS saved_credentials (
-                profile_id TEXT PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+                profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+                roblox_user_id TEXT NOT NULL DEFAULT '',
                 cookie_encrypted TEXT,
                 account_info JSONB,
-                saved_at TIMESTAMPTZ DEFAULT NOW()
+                saved_at TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (profile_id, roblox_user_id)
             );
         """)
         conn.commit()
@@ -484,12 +488,13 @@ def db_insert_ignore(table: str, data: dict):
 
 class ProfileSession:
     def __init__(self):
-        self.profile_id:   Optional[str]  = None
-        self.cookie:       Optional[str]  = None
-        self.monitoring:   bool           = False
-        self.monitor_task: Optional[asyncio.Task] = None
-        self.known_assets: dict           = {}
-        self.account_info: Optional[dict] = None
+        self.profile_id:          Optional[str]  = None
+        self.cookie:              Optional[str]  = None
+        self.monitoring:          bool           = False
+        self.monitor_task:        Optional[asyncio.Task] = None
+        self.known_assets:        dict           = {}
+        self.account_info:        Optional[dict] = None
+        self.extension_last_seen: float          = 0.0
 
 _sessions: Dict[str, ProfileSession] = {}
 
@@ -986,14 +991,24 @@ def api_login_profile(body: ProfileLogin):
 
         saved_cookie  = None
         saved_account = None
+        saved_accounts_list = []
         cur.execute(
-            "SELECT cookie_encrypted, account_info FROM saved_credentials WHERE profile_id=%s",
+            "SELECT roblox_user_id, cookie_encrypted, account_info FROM saved_credentials WHERE profile_id=%s ORDER BY saved_at DESC",
             (body.profile_id,)
         )
-        cred = cur.fetchone()
-        if cred:
-            saved_cookie  = cred["cookie_encrypted"]
-            saved_account = cred["account_info"]
+        creds = cur.fetchall()
+        if creds:
+            # Use most recent as active session
+            first = creds[0]
+            saved_cookie  = first["cookie_encrypted"]
+            saved_account = first["account_info"]
+            for c in creds:
+                info_entry = c["account_info"]
+                if isinstance(info_entry, str):
+                    try: info_entry = json.loads(info_entry)
+                    except: info_entry = {}
+                if info_entry:
+                    saved_accounts_list.append(info_entry)
 
         cur.close(); release_pg(conn)
 
@@ -1014,6 +1029,7 @@ def api_login_profile(body: ProfileLogin):
             "avatar_url":    row["avatar_url"],
             "hasCredential": bool(saved_cookie),
             "account":       saved_account,
+            "savedAccounts": saved_accounts_list,
         }
     except HTTPException:
         raise
@@ -1107,8 +1123,9 @@ async def api_redeem_code(body: ConnectCodeBody):
         except Exception as e:
             raise HTTPException(500, f"Could not verify Roblox session: {e}")
         session = get_session(profile_id)
-        session.cookie       = body.cookie
-        session.account_info = info
+        session.cookie              = body.cookie
+        session.account_info        = info
+        session.extension_last_seen = time.time()
 
         # Auto-restart monitoring if it was active, OR if autoStartMonitoring is enabled
         cfg_check = get_config(profile_id)
@@ -1125,16 +1142,17 @@ async def api_redeem_code(body: ConnectCodeBody):
         raise HTTPException(500, str(e))
 
     cfg = get_config(profile_id)
-    if cfg.get("saveCookies") and PG_URL:
+    roblox_uid = info.get("userId", "")
+    if cfg.get("saveCookies") and PG_URL and roblox_uid:
         try:
             conn = get_pg()
             cur  = conn.cursor()
             cur.execute(
-                """INSERT INTO saved_credentials (profile_id, cookie_encrypted, account_info)
-                   VALUES (%s,%s,%s)
-                   ON CONFLICT (profile_id) DO UPDATE
+                """INSERT INTO saved_credentials (profile_id, roblox_user_id, cookie_encrypted, account_info)
+                   VALUES (%s,%s,%s,%s)
+                   ON CONFLICT (profile_id, roblox_user_id) DO UPDATE
                    SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
-                (profile_id, body.cookie, json.dumps(info), body.cookie, json.dumps(info))
+                (profile_id, roblox_uid, body.cookie, json.dumps(info), body.cookie, json.dumps(info))
             )
             conn.commit()
             cur.close(); release_pg(conn)
@@ -1148,17 +1166,62 @@ async def api_redeem_code(body: ConnectCodeBody):
 @app.get("/api/status")
 def api_status(profile_id: str = ""):
     if not profile_id:
-        return {"monitoring": False, "hasCredential": False, "account": None}
+        return {"monitoring": False, "hasCredential": False, "account": None, "extensionLinked": False}
     session = get_session(profile_id)
+    ext_linked = (time.time() - session.extension_last_seen) < 90
+    return {
+        "monitoring":      session.monitoring,
+        "account":         session.account_info,
+        "hasCredential":   bool(session.cookie),
+        "extensionLinked": ext_linked,
+    }
+
+@app.post("/api/extension/heartbeat")
+def api_extension_heartbeat(body: MonitorBody):
+    """Called by extension every ~30s to signal it is active."""
+    session = get_session(body.profile_id)
+    session.extension_last_seen = time.time()
     return {
         "monitoring":    session.monitoring,
-        "account":       session.account_info,
         "hasCredential": bool(session.cookie),
+        "account":       session.account_info,
     }
+
+@app.post("/api/extension/relink")
+async def api_extension_relink(body: MonitorBody):
+    """Relink extension without a code — restores most recent saved credential from Postgres."""
+    if not PG_URL:
+        raise HTTPException(503, "Postgres not configured")
+    try:
+        conn = get_pg(); cur = conn.cursor()
+        cur.execute(
+            "SELECT cookie_encrypted, account_info FROM saved_credentials WHERE profile_id=%s ORDER BY saved_at DESC LIMIT 1",
+            (body.profile_id,)
+        )
+        row = cur.fetchone(); cur.close(); release_pg(conn)
+    except Exception as e:
+        raise HTTPException(500, f"Database error: {e}")
+    if not row or not row["cookie_encrypted"]:
+        raise HTTPException(404, "No saved credentials — connect with a code first")
+    cookie = row["cookie_encrypted"]
+    try:
+        info = await validate_cookie(cookie)
+    except HTTPException:
+        raise HTTPException(401, "Saved cookie expired — reconnect from extension")
+    session = get_session(body.profile_id)
+    session.cookie              = cookie
+    session.account_info        = info
+    session.extension_last_seen = time.time()
+    cfg_check = get_config(body.profile_id)
+    if (cfg_check.get("_monitoringActive") or cfg_check.get("autoStartMonitoring")) and not session.monitoring:
+        session.monitoring   = True
+        session.monitor_task = asyncio.create_task(monitor_loop(body.profile_id))
+        set_cfg(body.profile_id, "_monitoringActive", True)
+    return {**info, "profile_id": body.profile_id}
 
 @app.post("/api/credentials/clear")
 def api_clear_credentials(body: MonitorBody):
-    """Fully unlink Roblox — wipes saved_credentials in Postgres AND in-memory session."""
+    """Fully unlink ALL Roblox accounts — wipes all saved_credentials AND in-memory session."""
     if PG_URL:
         try:
             conn = get_pg()
@@ -1173,6 +1236,117 @@ def api_clear_credentials(body: MonitorBody):
     session.account_info = None
     return {"cleared": True}
 
+@app.post("/api/credentials/remove-account")
+def api_remove_account(body: RemoveAccountBody):
+    """Remove a single saved Roblox account by user ID."""
+    if PG_URL:
+        try:
+            conn = get_pg(); cur = conn.cursor()
+            cur.execute(
+                "DELETE FROM saved_credentials WHERE profile_id=%s AND roblox_user_id=%s",
+                (body.profile_id, body.roblox_user_id)
+            )
+            conn.commit(); cur.close(); release_pg(conn)
+        except Exception as e:
+            print(f"[SENTINEL] Failed to remove account: {e}")
+    # If the currently active session belongs to this account, clear it
+    session = get_session(body.profile_id)
+    if session.account_info and session.account_info.get("userId") == body.roblox_user_id:
+        session.cookie = None
+        session.account_info = None
+    return {"removed": True}
+
+@app.post("/api/credentials/manual")
+async def api_manual_cookie(body: ManualCookieBody):
+    """Add a Roblox account via manually entered cookie.
+    ALWAYS saves to Postgres regardless of saveCookies setting (user is explicitly consenting by entering manually)."""
+    if not PG_URL:
+        raise HTTPException(503, "Postgres not configured — manual cookie requires database")
+    try:
+        info = await validate_cookie(body.cookie)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Could not verify cookie: {e}")
+    roblox_uid = info.get("userId", "")
+    if not roblox_uid:
+        raise HTTPException(400, "Could not determine Roblox user ID")
+    # Always save — user explicitly entered this
+    try:
+        conn = get_pg(); cur = conn.cursor()
+        cur.execute(
+            """INSERT INTO saved_credentials (profile_id, roblox_user_id, cookie_encrypted, account_info)
+               VALUES (%s,%s,%s,%s)
+               ON CONFLICT (profile_id, roblox_user_id) DO UPDATE
+               SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
+            (body.profile_id, roblox_uid, body.cookie, json.dumps(info), body.cookie, json.dumps(info))
+        )
+        conn.commit(); cur.close(); release_pg(conn)
+    except Exception as e:
+        raise HTTPException(500, f"Failed to save credentials: {e}")
+    # Set as active session
+    session = get_session(body.profile_id)
+    session.cookie       = body.cookie
+    session.account_info = info
+    cfg_check = get_config(body.profile_id)
+    should_start = cfg_check.get("_monitoringActive") or cfg_check.get("autoStartMonitoring")
+    if should_start and not session.monitoring:
+        session.monitoring   = True
+        session.monitor_task = asyncio.create_task(monitor_loop(body.profile_id))
+        set_cfg(body.profile_id, "_monitoringActive", True)
+    return {**info, "profile_id": body.profile_id}
+
+class RelinkSavedBody(BaseModel):
+    profile_id:     str
+    roblox_user_id: str
+
+@app.post("/api/credentials/relink-saved")
+async def api_relink_saved(body: RelinkSavedBody):
+    """Activate a previously saved Roblox account by userId (no cookie needed from client).
+    Restores cookie from Postgres and sets as the active session."""
+    if not PG_URL:
+        raise HTTPException(503, "Postgres not configured")
+    try:
+        conn = get_pg(); cur = conn.cursor()
+        cur.execute(
+            "SELECT cookie_encrypted, account_info FROM saved_credentials WHERE profile_id=%s AND roblox_user_id=%s",
+            (body.profile_id, body.roblox_user_id)
+        )
+        row = cur.fetchone(); cur.close(); release_pg(conn)
+    except Exception as e:
+        raise HTTPException(500, f"Database error: {e}")
+    if not row or not row["cookie_encrypted"]:
+        raise HTTPException(404, "Account not found in saved credentials")
+    cookie = row["cookie_encrypted"]
+    # Verify cookie is still valid
+    try:
+        info = await validate_cookie(cookie)
+    except HTTPException:
+        raise HTTPException(401, "Saved cookie has expired — please re-add this account")
+    except Exception as e:
+        raise HTTPException(500, f"Could not verify cookie: {e}")
+    session = get_session(body.profile_id)
+    session.cookie       = cookie
+    session.account_info = info
+    cfg_check = get_config(body.profile_id)
+    should_start = cfg_check.get("_monitoringActive") or cfg_check.get("autoStartMonitoring")
+    if should_start and not session.monitoring:
+        session.monitoring   = True
+        session.monitor_task = asyncio.create_task(monitor_loop(body.profile_id))
+        set_cfg(body.profile_id, "_monitoringActive", True)
+    # Update saved account info (displayName/avatar may have changed)
+    roblox_uid = info.get("userId", body.roblox_user_id)
+    try:
+        conn = get_pg(); cur = conn.cursor()
+        cur.execute(
+            "UPDATE saved_credentials SET account_info=%s, saved_at=NOW() WHERE profile_id=%s AND roblox_user_id=%s",
+            (json.dumps(info), body.profile_id, roblox_uid)
+        )
+        conn.commit(); cur.close(); release_pg(conn)
+    except Exception as e:
+        print(f"[SENTINEL] Failed to update account info: {e}")
+    return {**info, "profile_id": body.profile_id}
+
 @app.post("/api/extension/unlink")
 def api_extension_unlink(body: MonitorBody):
     """Unlink only the extension session (in-memory cookie cleared).
@@ -1184,20 +1358,26 @@ def api_extension_unlink(body: MonitorBody):
 
 @app.get("/api/saved-accounts")
 def api_saved_accounts(profile_id: str = ""):
-    """Return list of previously saved account infos for a profile (for extension account picker)."""
+    """Return list of all saved Roblox accounts for a profile."""
     if not PG_URL or not profile_id:
         return []
     try:
         conn = get_pg(); cur = conn.cursor()
-        cur.execute("SELECT account_info, saved_at FROM saved_credentials WHERE profile_id=%s", (profile_id,))
-        row = cur.fetchone()
+        cur.execute(
+            "SELECT roblox_user_id, account_info, saved_at FROM saved_credentials WHERE profile_id=%s ORDER BY saved_at DESC",
+            (profile_id,)
+        )
+        rows = cur.fetchall()
         cur.close(); release_pg(conn)
-        if row and row["account_info"]:
+        result = []
+        for row in rows:
             info = row["account_info"]
             if isinstance(info, str):
-                info = json.loads(info)
-            return [info]
-        return []
+                try: info = json.loads(info)
+                except: info = {}
+            if info:
+                result.append({**info, "saved_at": str(row.get("saved_at", ""))})
+        return result
     except Exception as e:
         print(f"[SENTINEL] saved-accounts error: {e}")
         return []
@@ -1205,6 +1385,14 @@ def api_saved_accounts(profile_id: str = ""):
 class RelinkBody(BaseModel):
     profile_id: str
     cookie:     str
+
+class ManualCookieBody(BaseModel):
+    profile_id: str
+    cookie:     str
+
+class RemoveAccountBody(BaseModel):
+    profile_id:     str
+    roblox_user_id: str
 
 @app.post("/api/credentials/relink")
 async def api_relink(body: RelinkBody):
@@ -1225,15 +1413,16 @@ async def api_relink(body: RelinkBody):
         session.monitoring   = True
         session.monitor_task = asyncio.create_task(monitor_loop(body.profile_id))
         set_cfg(body.profile_id, "_monitoringActive", True)
-    if cfg_check.get("saveCookies") and PG_URL:
+    roblox_uid = info.get("userId", "")
+    if cfg_check.get("saveCookies") and PG_URL and roblox_uid:
         try:
             conn = get_pg(); cur = conn.cursor()
             cur.execute(
-                """INSERT INTO saved_credentials (profile_id, cookie_encrypted, account_info)
-                   VALUES (%s,%s,%s)
-                   ON CONFLICT (profile_id) DO UPDATE
+                """INSERT INTO saved_credentials (profile_id, roblox_user_id, cookie_encrypted, account_info)
+                   VALUES (%s,%s,%s,%s)
+                   ON CONFLICT (profile_id, roblox_user_id) DO UPDATE
                    SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
-                (body.profile_id, body.cookie, json.dumps(info), body.cookie, json.dumps(info))
+                (body.profile_id, roblox_uid, body.cookie, json.dumps(info), body.cookie, json.dumps(info))
             )
             conn.commit(); cur.close(); release_pg(conn)
         except Exception as e:
@@ -1245,8 +1434,23 @@ async def api_relink(body: RelinkBody):
 @app.post("/api/monitoring/start")
 async def api_start(body: MonitorBody):
     session = get_session(body.profile_id)
+    # Headless mode: if no in-memory cookie but saved credentials exist, restore them
+    if not session.cookie and PG_URL:
+        try:
+            conn = get_pg(); cur = conn.cursor()
+            cur.execute(
+                "SELECT cookie_encrypted, account_info FROM saved_credentials WHERE profile_id=%s ORDER BY saved_at DESC LIMIT 1",
+                (body.profile_id,)
+            )
+            cred = cur.fetchone(); cur.close(); release_pg(conn)
+            if cred and cred["cookie_encrypted"]:
+                session.cookie       = cred["cookie_encrypted"]
+                session.account_info = cred["account_info"]
+                print(f"[SENTINEL] Headless mode: restored credentials for profile {body.profile_id}")
+        except Exception as e:
+            print(f"[SENTINEL] Headless restore error: {e}")
     if not session.cookie:
-        raise HTTPException(400, "No credentials. Connect extension first.")
+        raise HTTPException(400, "No credentials. Connect a Roblox account first.")
     if session.monitoring:
         return {"status": "already_running"}
     session.monitoring   = True
@@ -1597,6 +1801,9 @@ async def startup_event():
                 "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT ''",
                 "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pin_length INTEGER DEFAULT 4",
                 "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE",
+                # Multi-account credential migration
+                "ALTER TABLE saved_credentials ADD COLUMN IF NOT EXISTS roblox_user_id TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE saved_credentials DROP CONSTRAINT IF EXISTS saved_credentials_pkey",
             ]:
                 try: cur.execute(sql + ";"); conn.commit()
                 except Exception as _e: conn.rollback(); print(f"[SENTINEL] Migration: {_e}")
@@ -1622,6 +1829,20 @@ async def startup_event():
 @app.get("/api/health")
 def health():
     return {"ok": True}
+
+class ValidateCookieBody(BaseModel):
+    cookie: str
+
+@app.post("/api/validate-cookie")
+async def api_validate_cookie(body: ValidateCookieBody):
+    """Validate a Roblox cookie and return account info. Used by extension during account scanning."""
+    try:
+        info = await validate_cookie(body.cookie)
+        return info
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, f"Invalid cookie: {e}")
 
 @app.get("/api/asset-types")
 def api_asset_types():
