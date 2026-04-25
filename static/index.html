@@ -714,11 +714,11 @@
     <!-- ── DASHBOARD ── -->
     <div class="tab-panel active" id="tab-dashboard">
       <div style="max-width:1200px;margin:0 auto;">
-        <div class="grid-3 mb-20">
+        <div class="grid-4 mb-20">
           <div class="stat-card"><div class="stat-value" id="stat-archived">0</div><div class="stat-label">Assets Archived</div></div>
-          <div class="stat-card"><div class="stat-value" id="stat-dms">0</div><div class="stat-label">DMs Sent</div></div>
           <div class="stat-card"><div class="stat-value" id="stat-groups">0</div><div class="stat-label">Groups Monitored</div></div>
           <div class="stat-card"><div class="stat-value" id="stat-whitelisted">0</div><div class="stat-label">Whitelisted</div></div>
+          <div class="stat-card" id="headless-stat-card"><div class="stat-value" id="stat-headless" style="font-size:18px;">—</div><div class="stat-label">Mode</div></div>
         </div>
 
         <div class="grid-2 mb-20">
@@ -739,11 +739,19 @@
           </div>
 
           <div class="card">
-            <div class="section-title">Connection</div>
-            <div id="conn-account-display" style="font-size:13px;color:var(--text-dim);margin-bottom:14px;">No account connected</div>
+            <div class="section-title">Roblox Accounts</div>
 
-            <!-- Connect code section -->
-            <div id="connect-code-section">
+            <!-- Active account display -->
+            <div id="conn-account-display" style="font-size:13px;color:var(--text-dim);margin-bottom:14px;">No account active</div>
+
+            <!-- Saved accounts list -->
+            <div id="saved-accounts-section" style="display:none;margin-bottom:14px;">
+              <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-dimmer);letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;">Saved Accounts</div>
+              <div id="saved-accounts-list"></div>
+            </div>
+
+            <!-- Add account options -->
+            <div id="add-account-section">
               <div id="connect-code-box" style="display:none;margin-bottom:14px;">
                 <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-dimmer);letter-spacing:2px;text-align:center;margin-bottom:10px;">ENTER IN EXTENSION</div>
                 <div class="connect-code-display" id="connect-code-display">----</div>
@@ -751,13 +759,34 @@
               </div>
 
               <a href="/static/sentinel-extension.zip" download style="text-decoration:none;display:block;margin-bottom:8px;">
-                <button class="btn btn-primary btn-block" onclick="showConnectCode()">⬇ Download Extension + Get Code</button>
+                <button class="btn btn-primary btn-block">⬇ Download Extension + Get Code</button>
               </a>
-              <button class="btn btn-block" onclick="showConnectCode()">I have the extension — Get Code</button>
+              <button class="btn btn-block" onclick="showConnectCode()" style="margin-bottom:8px;">Extension — Get Connect Code</button>
+              <button class="btn btn-block" onclick="showManualCookieInput()" style="border-color:rgba(240,192,64,0.3);color:var(--text-dim);font-size:12px;">⚠ Add Account Manually (No Extension)</button>
             </div>
 
-            <div id="connected-account-section" style="display:none;">
-              <button class="btn btn-block" onclick="testConnection()" style="margin-top:8px;">Test Connection</button>
+            <!-- Manual cookie input (discouraged fallback) -->
+            <div id="manual-cookie-section" style="display:none;margin-top:10px;">
+              <div class="info-box" style="background:rgba(240,192,64,0.06);border-color:rgba(240,192,64,0.25);margin-bottom:10px;">
+                <div style="color:var(--warn);font-family:var(--font-mono);font-size:10px;font-weight:700;margin-bottom:6px;">⚠ Security Warning</div>
+                <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim);line-height:1.7;">
+                  Your cookie grants <b>full access</b> to this Roblox account.<br>
+                  It will be <b>saved to Postgres</b> regardless of your "Save Credentials" setting.<br>
+                  You can remove it later from the account list above.<br>
+                  <b>Only use a dedicated bot/mod account — never your main.</b>
+                </div>
+              </div>
+              <label class="field-label">Roblox Cookie (.ROBLOSECURITY)</label>
+              <textarea id="manual-cookie-input" placeholder="Paste your .ROBLOSECURITY cookie here..." style="min-height:70px;font-family:var(--font-mono);font-size:10px;word-break:break-all;"></textarea>
+              <div style="display:flex;gap:8px;margin-top:8px;">
+                <button class="btn btn-primary" style="flex:1;" onclick="submitManualCookie()">Add Account</button>
+                <button class="btn" onclick="hideManualCookieInput()">Cancel</button>
+              </div>
+            </div>
+
+            <!-- Connected actions -->
+            <div id="connected-account-section" style="display:none;margin-top:10px;">
+              <button class="btn btn-block" onclick="testConnection()">Test Active Connection</button>
               <button class="btn btn-block btn-sm" onclick="showConnectCode()" style="margin-top:8px;">Re-link Extension</button>
             </div>
           </div>
@@ -861,12 +890,7 @@
             <option>Video</option><option>Mesh</option><option>Plugin</option>
             <option>Animation</option><option>Model</option><option>Package</option>
           </select>
-          <select id="history-filter-dm" onchange="filterHistory()" style="width:auto;">
-            <option value="">All DM Statuses</option>
-            <option value="sent">DM Sent</option>
-            <option value="failed">DM Failed</option>
-            <option value="n/a">DM N/A</option>
-          </select>
+
           <button class="btn btn-sm" onclick="clearHistory()">Clear History</button>
         </div>
         <div id="history-list"><div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);padding:20px 0;text-align:center;">No moderation history yet.</div></div>
@@ -915,14 +939,15 @@ const ALL_ASSET_TYPES = ['Audio','Image','Decal','Video','Mesh','Plugin','Animat
 const WL_KEYS = ['all', ...ALL_ASSET_TYPES];
 
 let STATE = {
-  profileId:    null,
-  profileName:  null,
-  profileAvatar: null,
-  monitoring:   false,
-  hasCredential: false,
-  activeWlTab:  'all',
-  isAdmin:      false,
-  _lastPin:     null,
+  profileId:      null,
+  profileName:    null,
+  profileAvatar:  null,
+  monitoring:     false,
+  hasCredential:  false,
+  extensionLinked: false,
+  activeWlTab:    'all',
+  isAdmin:        false,
+  _lastPin:       null,
 };
 
 // ── API ───────────────────────────────────────────────────────────────────────
@@ -1315,9 +1340,12 @@ async function loginToProfile(profileData) {
   // If saved credentials exist, restore them
   if (profileData.hasCredential && profileData.account) {
     updateAccountDisplay(profileData.account);
+    const connectedSection = document.getElementById('connected-account-section');
+    if (connectedSection) connectedSection.style.display = 'block';
   }
 
   await initApp();
+  await refreshSavedAccounts();
   toast(`Welcome, ${profileData.name}!`, 'success');
 }
 
@@ -1329,6 +1357,7 @@ async function initApp() {
     refreshGroups(),
     refreshHistory(),
     loadConfigFromApi(),
+    refreshSavedAccounts(),
   ]);
   startLiveUpdates();
 }
@@ -1338,13 +1367,16 @@ let _prevHistCount = 0;
 
 function startLiveUpdates() {
   if (_liveInterval) clearInterval(_liveInterval);
+  // Fast 2s live stats + status; history every 5s when monitoring
+  let _tick = 0;
   _liveInterval = setInterval(async () => {
+    _tick++;
     try {
       await refreshStatus();
       await refreshStats();
-      if (STATE.monitoring) await refreshHistory();
+      if (STATE.monitoring && _tick % 3 === 0) await refreshHistory();
     } catch {}
-  }, 4000);
+  }, 2000);
 }
 
 // ── STATUS ────────────────────────────────────────────────────────────────────
@@ -1355,16 +1387,66 @@ async function refreshStatus() {
   applyMonitoringUI(status.monitoring);
   if (status.account) updateAccountDisplay(status.account);
 
-  // Show/hide connect vs connected sections
-  const connectSection   = document.getElementById('connect-code-section');
   const connectedSection = document.getElementById('connected-account-section');
   if (status.hasCredential) {
-    connectSection.style.display   = 'none';
-    connectedSection.style.display = 'block';
+    if (connectedSection) connectedSection.style.display = 'block';
   } else {
-    connectSection.style.display   = 'block';
-    connectedSection.style.display = 'none';
+    if (connectedSection) connectedSection.style.display = 'none';
+    updateAccountDisplay(null);
   }
+}
+
+async function refreshSavedAccounts() {
+  const list = document.getElementById('saved-accounts-list');
+  const section = document.getElementById('saved-accounts-section');
+  if (!list || !section) return;
+  try {
+    const accounts = await api('GET', `/api/saved-accounts?profile_id=${pid()}`);
+    if (!accounts.length) {
+      section.style.display = 'none';
+      list.innerHTML = '';
+      return;
+    }
+    section.style.display = 'block';
+    list.innerHTML = accounts.map(a => `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;">
+        <div style="width:32px;height:32px;border-radius:50%;overflow:hidden;border:1px solid var(--border);flex-shrink:0;background:var(--surface3);display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:700;font-size:12px;color:rgba(255,255,255,0.5);">
+          ${a.avatarUrl ? `<img src="${esc(a.avatarUrl)}" style="width:100%;height:100%;object-fit:cover;">` : esc((a.displayName||'?').charAt(0))}
+        </div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(a.displayName||a.username)}</div>
+          <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);">@${esc(a.username)} · UID ${esc(a.userId)}</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0;">
+          <button class="btn btn-sm btn-primary" style="font-size:10px;padding:4px 10px;" onclick="activateAccount('${esc(a.userId)}')">Use</button>
+          <button class="btn btn-sm btn-danger" style="font-size:10px;padding:4px 8px;" onclick="removeAccount('${esc(a.userId)}','${esc(a.displayName||a.username)}')">✕</button>
+        </div>
+      </div>`).join('');
+  } catch(e) {
+    section.style.display = 'none';
+  }
+}
+
+async function activateAccount(userId) {
+  try {
+    // Call relink with no cookie — backend will restore from saved_credentials
+    const res = await api('POST', '/api/credentials/relink-saved', { profile_id: pid(), roblox_user_id: userId });
+    STATE.hasCredential = true;
+    updateAccountDisplay(res);
+    document.getElementById('connected-account-section').style.display = 'block';
+    toast(`✓ Switched to ${res.displayName}`, 'success');
+    await refreshStatus();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function removeAccount(userId, name) {
+  if (!confirm(`Remove saved account "${name}"? This cannot be undone.`)) return;
+  try {
+    await api('POST', '/api/credentials/remove-account', { profile_id: pid(), roblox_user_id: userId });
+    toast(`Account "${name}" removed`, 'warn');
+    await refreshSavedAccounts();
+    await refreshStatus();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
 function applyMonitoringUI(on) {
@@ -1377,14 +1459,18 @@ function applyMonitoringUI(on) {
 }
 
 function updateAccountDisplay(acc) {
-  if (!acc) return;
   const el = document.getElementById('conn-account-display');
-  if (el) el.innerHTML = `
+  if (!el) return;
+  if (!acc) {
+    el.innerHTML = '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);">No active account — select one below or add a new account</span>';
+    return;
+  }
+  el.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;">
       ${acc.avatarUrl ? `<img src="${esc(acc.avatarUrl)}" style="width:34px;height:34px;border-radius:50%;border:1px solid rgba(255,255,255,0.18);">` : ''}
       <div>
         <div style="font-weight:600;font-size:13px;">${esc(acc.displayName)}</div>
-        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);">@${esc(acc.username)} · UID ${esc(acc.userId)}</div>
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);">@${esc(acc.username)} · UID ${esc(acc.userId)} <span style="color:rgba(100,255,160,0.7);margin-left:6px;">● ACTIVE</span></div>
       </div>
     </div>`;
 }
@@ -1420,7 +1506,7 @@ let _pollTimer = null;
 
 async function showConnectCode() {
   const box = document.getElementById('connect-code-box');
-  box.style.display = 'block';
+  if (box) box.style.display = 'block';
   if (_codeTimer) clearInterval(_codeTimer);
   if (_pollTimer) clearInterval(_pollTimer);
 
@@ -1446,9 +1532,9 @@ async function showConnectCode() {
           STATE.hasCredential = true;
           document.getElementById('code-expiry-text').textContent = '✓ Extension connected!';
           document.getElementById('connect-code-display').classList.add('connected');
-          document.getElementById('connect-code-section').style.display   = 'none';
           document.getElementById('connected-account-section').style.display = 'block';
           if (status.account) updateAccountDisplay(status.account);
+          await refreshSavedAccounts();
           toast('✓ Extension connected!', 'success');
         }
       } catch {}
@@ -1461,6 +1547,35 @@ async function testConnection() {
     const status = await api('GET', `/api/status?profile_id=${pid()}`);
     toast(status.hasCredential ? `✓ Connected — ${status.account?.displayName}` : 'No credential found', status.hasCredential ? 'success' : 'error');
   } catch(e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+function showManualCookieInput() {
+  document.getElementById('manual-cookie-section').style.display = 'block';
+  document.getElementById('add-account-section').style.display = 'none';
+  document.getElementById('manual-cookie-input').value = '';
+  document.getElementById('manual-cookie-input').focus();
+}
+
+function hideManualCookieInput() {
+  document.getElementById('manual-cookie-section').style.display = 'none';
+  document.getElementById('add-account-section').style.display = 'block';
+}
+
+async function submitManualCookie() {
+  let cookie = document.getElementById('manual-cookie-input').value.trim();
+  if (!cookie) { toast('Paste your cookie first', 'error'); return; }
+  // Strip Roblox warning prefix
+  if (cookie.includes('|_')) cookie = cookie.split('|_').pop();
+  try {
+    const res = await api('POST', '/api/credentials/manual', { profile_id: pid(), cookie });
+    hideManualCookieInput();
+    STATE.hasCredential = true;
+    updateAccountDisplay(res);
+    document.getElementById('connected-account-section').style.display = 'block';
+    await refreshSavedAccounts();
+    await refreshStatus();
+    toast(`✓ Account added: ${res.displayName}`, 'success');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
 // ── GROUPS ────────────────────────────────────────────────────────────────────
@@ -1545,7 +1660,6 @@ async function refreshHistory() {
           [${esc(e.time)}]
           <span style="color:rgba(200,180,255,0.8);">${esc(e.asset_type || 'Asset')}</span>
           "${esc(e.audio_name)}" — <span style="color:rgba(255,255,255,0.7);">${esc(e.display_name||e.username)}</span>
-          · DM: ${dmStatusBadge(e.dm_status)}
           ${e.group_name ? `<span style="color:rgba(255,255,255,0.35);margin-left:6px;">📂 ${esc(e.group_name)}</span>` : ''}
         </div>`).join('');
     }
@@ -1559,10 +1673,8 @@ function filterHistory() { refreshHistory(); }
 function renderHistoryList(items) {
   const list = document.getElementById('history-list');
   if (!list) return;
-  const dmq   = document.getElementById('history-filter-dm')?.value || '';
   const typeq = document.getElementById('history-filter-type')?.value || '';
   let filtered = items;
-  if (dmq)   filtered = filtered.filter(i => i.dm_status === dmq);
   if (typeq) filtered = filtered.filter(i => i.asset_type === typeq);
   if (!filtered.length) {
     list.innerHTML = '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);padding:20px 0;text-align:center;">No history.</div>';
@@ -1583,16 +1695,12 @@ function renderHistoryList(items) {
       </div>
       <div class="history-meta">
         <div class="history-time">${esc(item.time)}</div>
-        ${dmStatusBadge(item.dm_status)}
+
       </div>
     </div>`).join('');
 }
 
-function dmStatusBadge(status) {
-  if (status === 'sent')   return '<span class="badge badge-active">DM Sent</span>';
-  if (status === 'failed') return '<span class="badge badge-inactive">DM Failed</span>';
-  return '<span class="badge badge-info">DM N/A</span>';
-}
+
 
 async function clearHistory() {
   if (!confirm('Clear all history for this profile?')) return;
@@ -1607,9 +1715,19 @@ async function refreshStats() {
   const s = await api('GET', `/api/stats?profile_id=${pid()}`).catch(() => ({}));
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v ?? '0'; };
   set('stat-archived', s.archived);
-  set('stat-dms', s.dms);
   set('stat-groups', s.groups);
   set('stat-whitelisted', s.whitelisted);
+  // Show headless vs extension mode
+  const modeEl = document.getElementById('stat-headless');
+  if (modeEl) {
+    if (STATE.monitoring) {
+      modeEl.textContent = STATE.hasCredential ? 'LIVE' : 'HEADLESS';
+      modeEl.style.color = STATE.monitoring ? 'rgba(100,255,160,0.9)' : '';
+    } else {
+      modeEl.textContent = '—';
+      modeEl.style.color = '';
+    }
+  }
 }
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
@@ -1785,7 +1903,6 @@ async function clearConfig() {
   if (!confirm('Reset config to defaults?')) return;
   await api('POST', '/api/config', { profile_id: pid(), pollingInterval: 60, archiveDelay: 0, whitelist_all: [], assetTypeFilters: ALL_ASSET_TYPES });
   await loadConfigFromApi();
-  await loadNotifFromApi();
   toast('Config reset', 'warn');
 }
 
@@ -1923,23 +2040,23 @@ async function clearAllHistory() {
 }
 
 async function clearCredentials() {
-  if (!confirm('Fully unlink Roblox account? This removes the saved cookie and you will need to reconnect the extension.')) return;
+  if (!confirm('Remove ALL saved Roblox accounts? Monitoring will stop and you will need to re-add accounts.')) return;
   await api('POST', '/api/credentials/clear', { profile_id: pid() });
   STATE.hasCredential = false;
-  document.getElementById('connect-code-section').style.display   = 'block';
   document.getElementById('connected-account-section').style.display = 'none';
-  document.getElementById('conn-account-display').innerHTML = 'No account connected';
+  updateAccountDisplay(null);
+  await refreshSavedAccounts();
   closeSettings();
-  toast('Roblox account fully unlinked', 'warn');
+  toast('All Roblox accounts removed', 'warn');
 }
 
 async function unlinkExtension() {
-  if (!confirm('Unlink the extension session? The saved Roblox credentials stay in the database — the dashboard remains linked. Only the live extension session is dropped.')) return;
+  if (!confirm('Unlink the extension session? Saved credentials stay in the database — you can re-activate any account without the extension. Only the live session is dropped.')) return;
   await api('POST', '/api/extension/unlink', { profile_id: pid() });
   STATE.hasCredential = false;
-  document.getElementById('connect-code-section').style.display   = 'block';
+  updateAccountDisplay(null);
   document.getElementById('connected-account-section').style.display = 'none';
-  document.getElementById('conn-account-display').innerHTML = 'Session unlinked (credentials preserved)';
+  await refreshSavedAccounts();
   closeSettings();
   toast('Extension session unlinked — credentials preserved', 'warn');
 }
