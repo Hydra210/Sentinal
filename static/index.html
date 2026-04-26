@@ -3,9 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SENTINEL — Roblox Asset Moderation Platform</title>
-<meta name="description" content="Sentinel is an automated asset moderation platform for Roblox groups. Monitor, archive, and manage uploaded content across your communities.">
-<meta name="theme-color" content="#0a0a0a">
+<title>SENTINEL — Roblox Asset Moderation</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&family=Outfit:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -463,18 +461,14 @@
   <div class="profile-screen-logo">
     <div class="big-logo">SENTINEL</div>
     <div class="big-sub">ROBLOX ASSET MODERATION — SELECT PROFILE</div>
-    <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);letter-spacing:1px;margin-top:10px;opacity:0.6;">Automated content protection for Roblox creators &amp; communities</div>
   </div>
 
   <div class="profile-grid" id="profile-grid">
     <!-- filled by JS -->
   </div>
 
-  <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);letter-spacing:1px;margin-top:8px;">
+  <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);letter-spacing:1px;">
     Click any profile to sign in with your PIN
-  </div>
-  <div style="position:absolute;bottom:24px;left:0;right:0;text-align:center;font-family:var(--font-mono);font-size:9px;color:var(--text-dimmer);opacity:0.4;letter-spacing:2px;text-transform:uppercase;">
-    SENTINEL · Roblox Asset Moderation System · Invite-Only Access
   </div>
 </div>
 
@@ -546,7 +540,7 @@
   <div class="modal-box" style="max-width:440px;">
     <button class="modal-close" onclick="closeRequestAccess()">✕</button>
     <div style="font-family:var(--font-display);font-size:22px;font-weight:800;letter-spacing:3px;margin-bottom:6px;">REQUEST ACCESS</div>
-    <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);letter-spacing:2px;margin-bottom:24px;">SUBMIT A REQUEST — AN ADMIN WILL REVIEW AND EMAIL YOU</div>
+    <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);letter-spacing:2px;margin-bottom:24px;">AN ADMIN WILL REVIEW YOUR REQUEST</div>
     <div id="request-access-success" style="display:none;text-align:center;padding:20px 0;">
       <div style="font-size:32px;margin-bottom:12px;">✓</div>
       <div style="font-family:var(--font-display);font-size:16px;font-weight:800;color:var(--accent);margin-bottom:8px;">REQUEST SENT</div>
@@ -781,7 +775,7 @@
       </div>
       <div>
         <div class="logo-text">SENTINEL</div>
-        <div class="logo-sub">ASSET MODERATION PLATFORM</div>
+        <div class="logo-sub">ROBLOX ASSET MODERATION</div>
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
@@ -856,15 +850,15 @@
             <!-- Add account options -->
             <div id="add-account-section">
               <div id="connect-code-box" style="display:none;margin-bottom:14px;">
-                <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-dimmer);letter-spacing:2px;text-align:center;margin-bottom:10px;">ENTER THIS CODE IN YOUR SENTINEL EXTENSION</div>
+                <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-dimmer);letter-spacing:2px;text-align:center;margin-bottom:10px;">ENTER IN EXTENSION</div>
                 <div class="connect-code-display" id="connect-code-display">----</div>
                 <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);text-align:center;" id="code-expiry-text">—</div>
               </div>
 
-              <button class="btn btn-primary btn-block" onclick="showConnectCode()" style="margin-bottom:8px;">Connect via Extension</button>
               <a href="/static/sentinel-extension.zip" download style="text-decoration:none;display:block;margin-bottom:8px;">
-                <button class="btn btn-block" style="width:100%;">⬇ Download Extension</button>
+                <button class="btn btn-primary btn-block">⬇ Download Extension + Get Code</button>
               </a>
+              <button class="btn btn-block" onclick="showConnectCode()" style="margin-bottom:8px;">Extension — Get Connect Code</button>
               <button class="btn btn-block" onclick="showManualCookieInput()" style="border-color:rgba(240,192,64,0.3);color:var(--text-dim);font-size:12px;">⚠ Add Account Manually (No Extension)</button>
             </div>
 
@@ -890,6 +884,7 @@
             <!-- Connected actions -->
             <div id="connected-account-section" style="display:none;margin-top:10px;">
               <button class="btn btn-block" onclick="testConnection()">Test Active Connection</button>
+              <button class="btn btn-block btn-sm" onclick="showConnectCode()" style="margin-top:8px;">Re-link Extension</button>
             </div>
           </div>
         </div>
@@ -1124,9 +1119,7 @@ async function loadProfileScreen() {
     const inviteCard = document.createElement('div');
     inviteCard.className = 'profile-card add-card';
     inviteCard.innerHTML = `
-      <div class="profile-card-avatar" style="font-size:18px;color:rgba(255,255,255,0.4);">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-      </div>
+      <div class="profile-card-avatar" style="font-size:24px;color:rgba(255,255,255,0.3);">🔑</div>
       <div class="profile-card-name" style="color:var(--text-dim);">Join</div>
       <div class="profile-card-sub">I have an invite code</div>`;
     inviteCard.onclick = () => document.getElementById('create-profile-modal').classList.add('open');
@@ -1135,11 +1128,9 @@ async function loadProfileScreen() {
     const reqCard = document.createElement('div');
     reqCard.className = 'profile-card add-card';
     reqCard.innerHTML = `
-      <div class="profile-card-avatar" style="font-size:18px;color:rgba(255,255,255,0.4);">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-      </div>
+      <div class="profile-card-avatar" style="font-size:24px;color:rgba(255,255,255,0.3);">✉</div>
       <div class="profile-card-name" style="color:var(--text-dim);">Request Access</div>
-      <div class="profile-card-sub">Apply for an invite</div>`;
+      <div class="profile-card-sub">Ask an admin for access</div>`;
     reqCard.onclick = () => document.getElementById('request-access-modal').classList.add('open');
     grid.appendChild(reqCard);
 
