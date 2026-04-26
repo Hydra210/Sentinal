@@ -127,11 +127,12 @@ def init_pg():
     if not PG_URL:
         print("[SENTINEL] No DATABASE_URL set — Postgres features disabled")
         return
+    conn1 = None
     try:
         # Step 1 — create tables
-        conn = get_pg()
-        cur = conn.cursor()
-        cur.execute("""
+        conn1 = get_pg()
+        cur1 = conn1.cursor()
+        cur1.execute("""
             CREATE TABLE IF NOT EXISTS profiles (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -147,31 +148,38 @@ def init_pg():
                 PRIMARY KEY (profile_id, roblox_user_id)
             );
         """)
-        conn.commit()
-        cur.close()
-        conn.close()
+        conn1.commit()
     except Exception as e:
         print(f"[SENTINEL] Postgres table creation error: {e}")
+        if conn1:
+            try: conn1.rollback()
+            except: pass
+    finally:
+        if conn1:
+            try: cur1.close()
+            except: pass
+            release_pg(conn1)
 
+    conn2 = None
     try:
         # Step 2 — fresh connection, force correct schema
-        conn = get_pg()
-        cur = conn.cursor()
+        conn2 = get_pg()
+        cur2 = conn2.cursor()
 
         # Check if id column is wrong type and drop if so
-        cur.execute("""
+        cur2.execute("""
             SELECT data_type FROM information_schema.columns
             WHERE table_name='profiles' AND column_name='id'
         """)
-        row = cur.fetchone()
+        row = cur2.fetchone()
         if row and row['data_type'] != 'text':
             print("[SENTINEL] Dropping profiles table — wrong id type, recreating...")
-            cur.execute("DROP TABLE IF EXISTS saved_credentials CASCADE;")
-            cur.execute("DROP TABLE IF EXISTS profiles CASCADE;")
-            conn.commit()
+            cur2.execute("DROP TABLE IF EXISTS saved_credentials CASCADE;")
+            cur2.execute("DROP TABLE IF EXISTS profiles CASCADE;")
+            conn2.commit()
 
         # Recreate with correct schema
-        cur.execute("""
+        cur2.execute("""
             CREATE TABLE IF NOT EXISTS profiles (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -188,7 +196,7 @@ def init_pg():
                 PRIMARY KEY (profile_id, roblox_user_id)
             );
         """)
-        conn.commit()
+        conn2.commit()
 
         # Safe per-column migrations
         for migration_sql in [
@@ -197,14 +205,14 @@ def init_pg():
             "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE",
         ]:
             try:
-                cur.execute(migration_sql + ";")
-                conn.commit()
+                cur2.execute(migration_sql + ";")
+                conn2.commit()
             except Exception as _me:
-                conn.rollback()
+                conn2.rollback()
                 print(f"[SENTINEL] Migration skipped: {_me}")
 
         # New tables
-        cur.execute("""
+        cur2.execute("""
             CREATE TABLE IF NOT EXISTS access_requests (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -229,16 +237,16 @@ def init_pg():
                 used BOOLEAN DEFAULT FALSE
             );
         """)
-        conn.commit()
+        conn2.commit()
         # Add email col to access_requests if it was created without it
         try:
-            cur.execute("ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT '';")
-            conn.commit()
+            cur2.execute("ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT '';")
+            conn2.commit()
         except Exception as _me:
-            conn.rollback()
+            conn2.rollback()
 
         # ── App data tables (groups, history, config, connect_codes) ──────────
-        cur.execute("""
+        cur2.execute("""
             CREATE TABLE IF NOT EXISTS groups (
                 id TEXT,
                 profile_id TEXT DEFAULT '',
@@ -273,16 +281,21 @@ def init_pg():
                 expiry FLOAT NOT NULL
             );
         """)
-        conn.commit()
-
-        cur.close()
-        release_pg(conn)
+        conn2.commit()
         print("[SENTINEL] Postgres initialized")
     except Exception as e:
         print(f"[SENTINEL] Postgres migration error: {e}")
+        if conn2:
+            try: conn2.rollback()
+            except: pass
+    finally:
+        if conn2:
+            try: cur2.close()
+            except: pass
+            release_pg(conn2)
 
-init_pg()
 init_pg_pool()
+init_pg()
 
 def hash_pin(pin: str) -> str:
     return hashlib.sha256(pin.encode()).hexdigest()
@@ -916,8 +929,8 @@ class SetAdminBody(BaseModel):
 def api_list_profiles():
     if not PG_URL:
         raise HTTPException(503, "Postgres not configured")
+    conn = get_pg(); cur = conn.cursor()
     try:
-        conn = get_pg(); cur = conn.cursor()
         try:
             cur.execute("SELECT id, name, avatar_url, created_at, pin_length, is_admin FROM profiles ORDER BY created_at")
         except Exception:
@@ -928,10 +941,14 @@ def api_list_profiles():
         for r in rows:
             d = dict(r); d.setdefault("pin_length", 4); d.setdefault("is_admin", False)
             result.append(d)
-        cur.close(); release_pg(conn)
         return result
+    except HTTPException:
+        raise
     except Exception as e:
+        conn.rollback()
         raise HTTPException(500, str(e))
+    finally:
+        cur.close(); release_pg(conn)
 
 @app.post("/api/profiles")
 def api_create_profile(body: ProfileCreate):
@@ -947,15 +964,12 @@ def api_create_profile(body: ProfileCreate):
     try:
         code = (body.invite_code or "").strip().upper()
         if not code:
-            cur.close(); release_pg(conn)
             raise HTTPException(403, "An invite code is required")
         cur.execute("SELECT used FROM invite_codes WHERE code=%s", (code,))
         inv = cur.fetchone()
         if not inv:
-            cur.close(); release_pg(conn)
             raise HTTPException(403, "Invalid invite code")
         if inv["used"]:
-            cur.close(); release_pg(conn)
             raise HTTPException(403, "Invite code already used")
         profile_id = str(uuid.uuid4())
         pin_len = len(body.pin)
@@ -964,29 +978,29 @@ def api_create_profile(body: ProfileCreate):
             (profile_id, body.name.strip(), hash_pin(body.pin), body.avatar_url, pin_len, False)
         )
         cur.execute("UPDATE invite_codes SET used=TRUE, used_by=%s WHERE code=%s", (profile_id, code))
-        conn.commit(); cur.close(); release_pg(conn)
+        conn.commit()
         return {"id": profile_id, "name": body.name.strip(), "avatar_url": body.avatar_url,
                 "pin_length": pin_len, "is_admin": False}
     except HTTPException:
-        raise
+        conn.rollback(); raise
     except Exception as e:
-        conn.rollback(); cur.close(); release_pg(conn)
-        raise HTTPException(500, str(e))
+        conn.rollback(); raise HTTPException(500, str(e))
+    finally:
+        cur.close(); release_pg(conn)
 
 @app.post("/api/profiles/login")
 def api_login_profile(body: ProfileLogin):
     if not PG_URL:
         raise HTTPException(503, "Postgres not configured")
+    conn = get_pg()
+    cur  = conn.cursor()
     try:
-        conn = get_pg()
-        cur  = conn.cursor()
         cur.execute(
             "SELECT id, name, avatar_url FROM profiles WHERE id=%s AND pin_hash=%s",
             (body.profile_id, hash_pin(body.pin))
         )
         row = cur.fetchone()
         if not row:
-            cur.close(); release_pg(conn)
             raise HTTPException(401, "Invalid PIN")
 
         saved_cookie  = None
@@ -1010,8 +1024,6 @@ def api_login_profile(body: ProfileLogin):
                 if info_entry:
                     saved_accounts_list.append(info_entry)
 
-        cur.close(); release_pg(conn)
-
         if saved_cookie and saved_account:
             session = get_session(body.profile_id)
             session.cookie       = saved_cookie
@@ -1034,21 +1046,23 @@ def api_login_profile(body: ProfileLogin):
     except HTTPException:
         raise
     except Exception as e:
+        conn.rollback()
         raise HTTPException(500, str(e))
+    finally:
+        cur.close(); release_pg(conn)
 
 @app.put("/api/profiles")
 def api_update_profile(body: ProfileUpdate):
     if not PG_URL:
         raise HTTPException(503, "Postgres not configured")
+    conn = get_pg()
+    cur  = conn.cursor()
     try:
-        conn = get_pg()
-        cur  = conn.cursor()
         cur.execute(
             "SELECT id FROM profiles WHERE id=%s AND pin_hash=%s",
             (body.profile_id, hash_pin(body.pin))
         )
         if not cur.fetchone():
-            cur.close(); release_pg(conn)
             raise HTTPException(401, "Invalid PIN")
 
         updates, params = [], []
@@ -1065,12 +1079,14 @@ def api_update_profile(body: ProfileUpdate):
             cur.execute(f"UPDATE profiles SET {', '.join(updates)} WHERE id=%s", params)
             conn.commit()
 
-        cur.close(); release_pg(conn)
         return {"updated": True}
     except HTTPException:
         raise
     except Exception as e:
+        conn.rollback()
         raise HTTPException(500, str(e))
+    finally:
+        cur.close(); release_pg(conn)
 
 SECRET_DELETE_PIN = "[519]"
 
@@ -1078,9 +1094,9 @@ SECRET_DELETE_PIN = "[519]"
 def api_delete_profile(profile_id: str, pin: str):
     if not PG_URL:
         raise HTTPException(503, "Postgres not configured")
+    conn = get_pg()
+    cur  = conn.cursor()
     try:
-        conn = get_pg()
-        cur  = conn.cursor()
         # Secret master PIN bypasses normal PIN check — allows deleting any profile
         if pin == SECRET_DELETE_PIN:
             cur.execute("SELECT id FROM profiles WHERE id=%s", (profile_id,))
@@ -1090,18 +1106,19 @@ def api_delete_profile(profile_id: str, pin: str):
                 (profile_id, hash_pin(pin))
             )
         if not cur.fetchone():
-            cur.close(); release_pg(conn)
             raise HTTPException(401, "Invalid PIN")
         cur.execute("DELETE FROM profiles WHERE id=%s", (profile_id,))
         conn.commit()
-        cur.close(); release_pg(conn)
         if profile_id in _sessions:
             del _sessions[profile_id]
         return {"deleted": True}
     except HTTPException:
         raise
     except Exception as e:
+        conn.rollback()
         raise HTTPException(500, str(e))
+    finally:
+        cur.close(); release_pg(conn)
 
 # ── CONNECT CODE ROUTES ───────────────────────────────────────────────────────
 
@@ -1144,20 +1161,22 @@ async def api_redeem_code(body: ConnectCodeBody):
     cfg = get_config(profile_id)
     roblox_uid = info.get("userId", "")
     if cfg.get("saveCookies") and PG_URL and roblox_uid:
+        conn2 = get_pg()
+        cur2  = conn2.cursor()
         try:
-            conn = get_pg()
-            cur  = conn.cursor()
-            cur.execute(
+            cur2.execute(
                 """INSERT INTO saved_credentials (profile_id, roblox_user_id, cookie_encrypted, account_info)
                    VALUES (%s,%s,%s,%s)
                    ON CONFLICT (profile_id, roblox_user_id) DO UPDATE
                    SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
                 (profile_id, roblox_uid, body.cookie, json.dumps(info), body.cookie, json.dumps(info))
             )
-            conn.commit()
-            cur.close(); release_pg(conn)
+            conn2.commit()
         except Exception as e:
+            conn2.rollback()
             print(f"[SENTINEL] Failed to save credentials: {e}")
+        finally:
+            cur2.close(); release_pg(conn2)
 
     return {**info, "profile_id": profile_id}
 
@@ -1192,15 +1211,17 @@ async def api_extension_relink(body: MonitorBody):
     """Relink extension without a code — restores most recent saved credential from Postgres."""
     if not PG_URL:
         raise HTTPException(503, "Postgres not configured")
+    conn = get_pg(); cur = conn.cursor()
     try:
-        conn = get_pg(); cur = conn.cursor()
         cur.execute(
             "SELECT cookie_encrypted, account_info FROM saved_credentials WHERE profile_id=%s ORDER BY saved_at DESC LIMIT 1",
             (body.profile_id,)
         )
-        row = cur.fetchone(); cur.close(); release_pg(conn)
+        row = cur.fetchone()
     except Exception as e:
-        raise HTTPException(500, f"Database error: {e}")
+        conn.rollback(); raise HTTPException(500, f"Database error: {e}")
+    finally:
+        cur.close(); release_pg(conn)
     if not row or not row["cookie_encrypted"]:
         raise HTTPException(404, "No saved credentials — connect with a code first")
     cookie = row["cookie_encrypted"]
@@ -1223,14 +1244,16 @@ async def api_extension_relink(body: MonitorBody):
 def api_clear_credentials(body: MonitorBody):
     """Fully unlink ALL Roblox accounts — wipes all saved_credentials AND in-memory session."""
     if PG_URL:
+        conn = get_pg()
+        cur  = conn.cursor()
         try:
-            conn = get_pg()
-            cur  = conn.cursor()
             cur.execute("DELETE FROM saved_credentials WHERE profile_id=%s", (body.profile_id,))
             conn.commit()
-            cur.close(); release_pg(conn)
         except Exception as e:
+            conn.rollback()
             print(f"[SENTINEL] Failed to clear credentials: {e}")
+        finally:
+            cur.close(); release_pg(conn)
     session = get_session(body.profile_id)
     session.cookie       = None
     session.account_info = None
@@ -1240,15 +1263,18 @@ def api_clear_credentials(body: MonitorBody):
 def api_remove_account(body: RemoveAccountBody):
     """Remove a single saved Roblox account by user ID."""
     if PG_URL:
+        conn = get_pg(); cur = conn.cursor()
         try:
-            conn = get_pg(); cur = conn.cursor()
             cur.execute(
                 "DELETE FROM saved_credentials WHERE profile_id=%s AND roblox_user_id=%s",
                 (body.profile_id, body.roblox_user_id)
             )
-            conn.commit(); cur.close(); release_pg(conn)
+            conn.commit()
         except Exception as e:
+            conn.rollback()
             print(f"[SENTINEL] Failed to remove account: {e}")
+        finally:
+            cur.close(); release_pg(conn)
     # If the currently active session belongs to this account, clear it
     session = get_session(body.profile_id)
     if session.account_info and session.account_info.get("userId") == body.roblox_user_id:
@@ -1272,8 +1298,8 @@ async def api_manual_cookie(body: ManualCookieBody):
     if not roblox_uid:
         raise HTTPException(400, "Could not determine Roblox user ID")
     # Always save — user explicitly entered this
+    conn = get_pg(); cur = conn.cursor()
     try:
-        conn = get_pg(); cur = conn.cursor()
         cur.execute(
             """INSERT INTO saved_credentials (profile_id, roblox_user_id, cookie_encrypted, account_info)
                VALUES (%s,%s,%s,%s)
@@ -1281,9 +1307,11 @@ async def api_manual_cookie(body: ManualCookieBody):
                SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
             (body.profile_id, roblox_uid, body.cookie, json.dumps(info), body.cookie, json.dumps(info))
         )
-        conn.commit(); cur.close(); release_pg(conn)
+        conn.commit()
     except Exception as e:
-        raise HTTPException(500, f"Failed to save credentials: {e}")
+        conn.rollback(); raise HTTPException(500, f"Failed to save credentials: {e}")
+    finally:
+        cur.close(); release_pg(conn)
     # Set as active session
     session = get_session(body.profile_id)
     session.cookie       = body.cookie
@@ -1306,15 +1334,17 @@ async def api_relink_saved(body: RelinkSavedBody):
     Restores cookie from Postgres and sets as the active session."""
     if not PG_URL:
         raise HTTPException(503, "Postgres not configured")
+    conn = get_pg(); cur = conn.cursor()
     try:
-        conn = get_pg(); cur = conn.cursor()
         cur.execute(
             "SELECT cookie_encrypted, account_info FROM saved_credentials WHERE profile_id=%s AND roblox_user_id=%s",
             (body.profile_id, body.roblox_user_id)
         )
-        row = cur.fetchone(); cur.close(); release_pg(conn)
+        row = cur.fetchone()
     except Exception as e:
-        raise HTTPException(500, f"Database error: {e}")
+        conn.rollback(); raise HTTPException(500, f"Database error: {e}")
+    finally:
+        cur.close(); release_pg(conn)
     if not row or not row["cookie_encrypted"]:
         raise HTTPException(404, "Account not found in saved credentials")
     cookie = row["cookie_encrypted"]
@@ -1336,15 +1366,18 @@ async def api_relink_saved(body: RelinkSavedBody):
         set_cfg(body.profile_id, "_monitoringActive", True)
     # Update saved account info (displayName/avatar may have changed)
     roblox_uid = info.get("userId", body.roblox_user_id)
+    conn = get_pg(); cur = conn.cursor()
     try:
-        conn = get_pg(); cur = conn.cursor()
         cur.execute(
             "UPDATE saved_credentials SET account_info=%s, saved_at=NOW() WHERE profile_id=%s AND roblox_user_id=%s",
             (json.dumps(info), body.profile_id, roblox_uid)
         )
-        conn.commit(); cur.close(); release_pg(conn)
+        conn.commit()
     except Exception as e:
+        conn.rollback()
         print(f"[SENTINEL] Failed to update account info: {e}")
+    finally:
+        cur.close(); release_pg(conn)
     return {**info, "profile_id": body.profile_id}
 
 @app.post("/api/extension/unlink")
@@ -1361,14 +1394,13 @@ def api_saved_accounts(profile_id: str = ""):
     """Return list of all saved Roblox accounts for a profile."""
     if not PG_URL or not profile_id:
         return []
+    conn = get_pg(); cur = conn.cursor()
     try:
-        conn = get_pg(); cur = conn.cursor()
         cur.execute(
             "SELECT roblox_user_id, account_info, saved_at FROM saved_credentials WHERE profile_id=%s ORDER BY saved_at DESC",
             (profile_id,)
         )
         rows = cur.fetchall()
-        cur.close(); release_pg(conn)
         result = []
         for row in rows:
             info = row["account_info"]
@@ -1381,6 +1413,8 @@ def api_saved_accounts(profile_id: str = ""):
     except Exception as e:
         print(f"[SENTINEL] saved-accounts error: {e}")
         return []
+    finally:
+        cur.close(); release_pg(conn)
 
 class RelinkBody(BaseModel):
     profile_id: str
@@ -1415,8 +1449,8 @@ async def api_relink(body: RelinkBody):
         set_cfg(body.profile_id, "_monitoringActive", True)
     roblox_uid = info.get("userId", "")
     if cfg_check.get("saveCookies") and PG_URL and roblox_uid:
+        conn = get_pg(); cur = conn.cursor()
         try:
-            conn = get_pg(); cur = conn.cursor()
             cur.execute(
                 """INSERT INTO saved_credentials (profile_id, roblox_user_id, cookie_encrypted, account_info)
                    VALUES (%s,%s,%s,%s)
@@ -1424,9 +1458,12 @@ async def api_relink(body: RelinkBody):
                    SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
                 (body.profile_id, roblox_uid, body.cookie, json.dumps(info), body.cookie, json.dumps(info))
             )
-            conn.commit(); cur.close(); release_pg(conn)
+            conn.commit()
         except Exception as e:
+            conn.rollback()
             print(f"[SENTINEL] Failed to save relinked credentials: {e}")
+        finally:
+            cur.close(); release_pg(conn)
     return {**info, "profile_id": body.profile_id}
 
 # ── MONITORING ────────────────────────────────────────────────────────────────
@@ -1436,19 +1473,21 @@ async def api_start(body: MonitorBody):
     session = get_session(body.profile_id)
     # Headless mode: if no in-memory cookie but saved credentials exist, restore them
     if not session.cookie and PG_URL:
+        conn = get_pg(); cur = conn.cursor()
         try:
-            conn = get_pg(); cur = conn.cursor()
             cur.execute(
                 "SELECT cookie_encrypted, account_info FROM saved_credentials WHERE profile_id=%s ORDER BY saved_at DESC LIMIT 1",
                 (body.profile_id,)
             )
-            cred = cur.fetchone(); cur.close(); release_pg(conn)
+            cred = cur.fetchone()
             if cred and cred["cookie_encrypted"]:
                 session.cookie       = cred["cookie_encrypted"]
                 session.account_info = cred["account_info"]
                 print(f"[SENTINEL] Headless mode: restored credentials for profile {body.profile_id}")
         except Exception as e:
             print(f"[SENTINEL] Headless restore error: {e}")
+        finally:
+            cur.close(); release_pg(conn)
     if not session.cookie:
         raise HTTPException(400, "No credentials. Connect a Roblox account first.")
     if session.monitoring:
@@ -1549,14 +1588,16 @@ def api_update_config(body: ConfigBody):
         set_cfg(pid, k, v)
     # If saveCookies toggled off, wipe saved credentials
     if "saveCookies" in data and not data["saveCookies"] and PG_URL:
+        conn2 = get_pg()
+        cur2  = conn2.cursor()
         try:
-            conn = get_pg()
-            cur  = conn.cursor()
-            cur.execute("DELETE FROM saved_credentials WHERE profile_id=%s", (pid,))
-            conn.commit()
-            cur.close(); release_pg(conn)
+            cur2.execute("DELETE FROM saved_credentials WHERE profile_id=%s", (pid,))
+            conn2.commit()
         except Exception as e:
+            conn2.rollback()
             print(f"[SENTINEL] Error clearing credentials on toggle off: {e}")
+        finally:
+            cur2.close(); release_pg(conn2)
     return get_config(pid)
 
 # ── ACCESS CONTROL ───────────────────────────────────────────────────────────
@@ -1575,8 +1616,8 @@ def api_submit_access_request(body: AccessRequestBody):
     if not body.name.strip() or not body.reason.strip() or not body.email.strip():
         raise HTTPException(400, "Name, email and reason are required")
     req_id = str(uuid.uuid4())
+    conn = get_pg(); cur = conn.cursor()
     try:
-        conn = get_pg(); cur = conn.cursor()
         cur.execute(
             "INSERT INTO access_requests (id, name, reason, email) VALUES (%s,%s,%s,%s)",
             (req_id, body.name.strip(), body.reason.strip(), body.email.strip())
@@ -1588,7 +1629,7 @@ def api_submit_access_request(body: AccessRequestBody):
                     (approve_token, req_id, "approve", expires))
         cur.execute("INSERT INTO review_tokens (token,request_id,action,expires_at) VALUES (%s,%s,%s,%s)",
                     (deny_token, req_id, "deny", expires))
-        conn.commit(); cur.close(); release_pg(conn)
+        conn.commit()
         if ADMIN_EMAIL and BASE_URL:
             send_email(ADMIN_EMAIL, f"[Sentinel] Access Request from {body.name.strip()}",
                 f"""<div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
@@ -1604,52 +1645,62 @@ def api_submit_access_request(body: AccessRequestBody):
   <a href="{BASE_URL}/review.html?token={deny_token}" style="display:inline-block;background:#ef4444;color:#fff;font-weight:700;padding:12px 28px;border-radius:6px;text-decoration:none;">Deny</a>
 </div>""")
         return {"id": req_id, "status": "pending"}
-    except HTTPException: raise
-    except Exception as e: raise HTTPException(500, str(e))
+    except HTTPException:
+        conn.rollback(); raise
+    except Exception as e:
+        conn.rollback(); raise HTTPException(500, str(e))
+    finally:
+        cur.close(); release_pg(conn)
 
 @app.get("/api/review")
 def api_review_get(token: str):
     if not PG_URL: raise HTTPException(503, "Postgres not configured")
     conn = get_pg(); cur = conn.cursor()
-    cur.execute("SELECT * FROM review_tokens WHERE token=%s", (token,))
-    tok = cur.fetchone()
-    if not tok: cur.close(); release_pg(conn); raise HTTPException(404, "Invalid token")
-    if tok["used"]: cur.close(); release_pg(conn); return {"status":"already_used","action":tok["action"]}
-    if datetime.utcnow() > tok["expires_at"].replace(tzinfo=None):
-        cur.close(); release_pg(conn); return {"status":"expired","action":tok["action"]}
-    cur.execute("SELECT * FROM access_requests WHERE id=%s", (tok["request_id"],))
-    req = cur.fetchone()
-    if not req: cur.close(); release_pg(conn); raise HTTPException(404, "Request not found")
-    if req["status"] != "pending":
+    try:
+        cur.execute("SELECT * FROM review_tokens WHERE token=%s", (token,))
+        tok = cur.fetchone()
+        if not tok: raise HTTPException(404, "Invalid token")
+        if tok["used"]: return {"status":"already_used","action":tok["action"]}
+        if datetime.utcnow() > tok["expires_at"].replace(tzinfo=None):
+            return {"status":"expired","action":tok["action"]}
+        cur.execute("SELECT * FROM access_requests WHERE id=%s", (tok["request_id"],))
+        req = cur.fetchone()
+        if not req: raise HTTPException(404, "Request not found")
+        if req["status"] != "pending":
+            return {"status":"already_actioned","action":req["status"],"name":req["name"]}
+        return {"status":"pending","action":tok["action"],"name":req["name"],
+                "email":req["email"],"reason":req["reason"],"expires_at":str(tok["expires_at"])}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback(); raise HTTPException(500, str(e))
+    finally:
         cur.close(); release_pg(conn)
-        return {"status":"already_actioned","action":req["status"],"name":req["name"]}
-    cur.close(); release_pg(conn)
-    return {"status":"pending","action":tok["action"],"name":req["name"],
-            "email":req["email"],"reason":req["reason"],"expires_at":str(tok["expires_at"])}
 
 @app.post("/api/review")
 def api_review_post(token: str):
     if not PG_URL: raise HTTPException(503, "Postgres not configured")
     conn = get_pg(); cur = conn.cursor()
-    cur.execute("SELECT * FROM review_tokens WHERE token=%s", (token,))
-    tok = cur.fetchone()
-    if not tok: cur.close(); release_pg(conn); raise HTTPException(404, "Invalid token")
-    if tok["used"]: cur.close(); release_pg(conn); return {"status":"already_used"}
-    if datetime.utcnow() > tok["expires_at"].replace(tzinfo=None):
-        cur.close(); release_pg(conn); return {"status":"expired"}
-    cur.execute("SELECT * FROM access_requests WHERE id=%s", (tok["request_id"],))
-    req = cur.fetchone()
-    if not req: cur.close(); release_pg(conn); raise HTTPException(404, "Request not found")
-    if req["status"] != "pending":
-        cur.close(); release_pg(conn); return {"status":"already_actioned"}
-    action = tok["action"]
-    if action == "approve":
-        code = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))
-        cur.execute("INSERT INTO invite_codes (code,created_by) VALUES (%s,%s)", (code,"admin-email"))
-        cur.execute("UPDATE access_requests SET status='approved',invite_code=%s WHERE id=%s", (code,tok["request_id"]))
-        cur.execute("UPDATE review_tokens SET used=TRUE WHERE request_id=%s", (tok["request_id"],))
-        conn.commit(); cur.close(); release_pg(conn)
-        send_email(req["email"], "[Sentinel] You've been approved!", f"""
+    try:
+        cur.execute("SELECT * FROM review_tokens WHERE token=%s", (token,))
+        tok = cur.fetchone()
+        if not tok: raise HTTPException(404, "Invalid token")
+        if tok["used"]: return {"status":"already_used"}
+        if datetime.utcnow() > tok["expires_at"].replace(tzinfo=None):
+            return {"status":"expired"}
+        cur.execute("SELECT * FROM access_requests WHERE id=%s", (tok["request_id"],))
+        req = cur.fetchone()
+        if not req: raise HTTPException(404, "Request not found")
+        if req["status"] != "pending":
+            return {"status":"already_actioned"}
+        action = tok["action"]
+        if action == "approve":
+            code = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))
+            cur.execute("INSERT INTO invite_codes (code,created_by) VALUES (%s,%s)", (code,"admin-email"))
+            cur.execute("UPDATE access_requests SET status='approved',invite_code=%s WHERE id=%s", (code,tok["request_id"]))
+            cur.execute("UPDATE review_tokens SET used=TRUE WHERE request_id=%s", (tok["request_id"],))
+            conn.commit()
+            send_email(req["email"], "[Sentinel] You've been approved!", f"""
 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
   <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">SENTINEL</h2>
   <p style="color:#ccc;">Hey {req["name"]}, your Sentinel access request has been approved!</p>
@@ -1657,18 +1708,24 @@ def api_review_post(token: str):
   <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;text-align:center;font-family:monospace;font-size:28px;letter-spacing:6px;color:#4ade80;margin-bottom:24px;">{code}</div>
   <p style="color:#888;font-size:12px;">Enter this when creating your profile. It can only be used once.</p>
 </div>""")
-        return {"status":"approved","name":req["name"],"email":req["email"],"invite_code":code}
-    else:
-        cur.execute("UPDATE access_requests SET status='denied' WHERE id=%s", (tok["request_id"],))
-        cur.execute("UPDATE review_tokens SET used=TRUE WHERE request_id=%s", (tok["request_id"],))
-        conn.commit(); cur.close(); release_pg(conn)
-        send_email(req["email"], "[Sentinel] Access request update", f"""
+            return {"status":"approved","name":req["name"],"email":req["email"],"invite_code":code}
+        else:
+            cur.execute("UPDATE access_requests SET status='denied' WHERE id=%s", (tok["request_id"],))
+            cur.execute("UPDATE review_tokens SET used=TRUE WHERE request_id=%s", (tok["request_id"],))
+            conn.commit()
+            send_email(req["email"], "[Sentinel] Access request update", f"""
 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
   <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">SENTINEL</h2>
   <p style="color:#ccc;">Hey {req["name"]}, your Sentinel access request has been denied.</p>
   <p style="color:#888;font-size:12px;">Contact the admin if you think this is a mistake.</p>
 </div>""")
-        return {"status":"denied","name":req["name"]}
+            return {"status":"denied","name":req["name"]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback(); raise HTTPException(500, str(e))
+    finally:
+        cur.close(); release_pg(conn)
 
 @app.get("/api/admin/requests")
 def api_admin_requests(profile_id: str, pin: str):
@@ -1677,10 +1734,11 @@ def api_admin_requests(profile_id: str, pin: str):
     try:
         _require_admin(profile_id, pin, cur)
         cur.execute("SELECT * FROM access_requests ORDER BY created_at DESC")
-        rows = cur.fetchall(); cur.close(); release_pg(conn)
+        rows = cur.fetchall()
         return [dict(r) for r in rows]
-    except HTTPException: cur.close(); release_pg(conn); raise
-    except Exception as e: cur.close(); release_pg(conn); raise HTTPException(500, str(e))
+    except HTTPException: raise
+    except Exception as e: conn.rollback(); raise HTTPException(500, str(e))
+    finally: cur.close(); release_pg(conn)
 
 @app.post("/api/admin/generate-invite")
 def api_generate_invite(body: GenerateInviteBody):
@@ -1690,10 +1748,11 @@ def api_generate_invite(body: GenerateInviteBody):
         _require_admin(body.admin_id, body.admin_pin, cur)
         code = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))
         cur.execute("INSERT INTO invite_codes (code,created_by) VALUES (%s,%s)", (code, body.admin_id))
-        conn.commit(); cur.close(); release_pg(conn)
+        conn.commit()
         return {"code": code}
-    except HTTPException: conn.rollback(); cur.close(); release_pg(conn); raise
-    except Exception as e: conn.rollback(); cur.close(); release_pg(conn); raise HTTPException(500, str(e))
+    except HTTPException: conn.rollback(); raise
+    except Exception as e: conn.rollback(); raise HTTPException(500, str(e))
+    finally: cur.close(); release_pg(conn)
 
 @app.post("/api/admin/set-admin")
 def api_set_admin(body: SetAdminBody):
@@ -1702,10 +1761,11 @@ def api_set_admin(body: SetAdminBody):
     try:
         _require_admin(body.admin_id, body.admin_pin, cur)
         cur.execute("UPDATE profiles SET is_admin=%s WHERE id=%s", (body.is_admin, body.target_id))
-        conn.commit(); cur.close(); release_pg(conn)
+        conn.commit()
         return {"updated": True}
-    except HTTPException: conn.rollback(); cur.close(); release_pg(conn); raise
-    except Exception as e: conn.rollback(); cur.close(); release_pg(conn); raise HTTPException(500, str(e))
+    except HTTPException: conn.rollback(); raise
+    except Exception as e: conn.rollback(); raise HTTPException(500, str(e))
+    finally: cur.close(); release_pg(conn)
 
 class ApproveRequestBody(BaseModel):
     admin_id:    str
@@ -1726,11 +1786,10 @@ def api_approve_request(body: ApproveRequestBody):
         _require_admin(body.admin_id, body.admin_pin, cur)
         cur.execute("SELECT * FROM access_requests WHERE id=%s", (body.request_id,))
         req = cur.fetchone()
-        if not req: cur.close(); release_pg(conn); raise HTTPException(404, "Request not found")
+        if not req: raise HTTPException(404, "Request not found")
         cur.execute("UPDATE access_requests SET status='approved', invite_code=%s WHERE id=%s",
                     (body.invite_code, body.request_id))
-        conn.commit(); cur.close(); release_pg(conn)
-        # Email user
+        conn.commit()
         send_email(req["email"], "[Sentinel] You've been approved!", f"""
 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
   <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">SENTINEL</h2>
@@ -1740,8 +1799,9 @@ def api_approve_request(body: ApproveRequestBody):
   <p style="color:#888;font-size:12px;">Enter this when creating your profile. It can only be used once.</p>
 </div>""")
         return {"ok": True}
-    except HTTPException: conn.rollback(); cur.close(); release_pg(conn); raise
-    except Exception as e: conn.rollback(); cur.close(); release_pg(conn); raise HTTPException(500, str(e))
+    except HTTPException: conn.rollback(); raise
+    except Exception as e: conn.rollback(); raise HTTPException(500, str(e))
+    finally: cur.close(); release_pg(conn)
 
 @app.post("/api/admin/deny-request")
 def api_deny_request(body: DenyRequestBody):
@@ -1751,9 +1811,9 @@ def api_deny_request(body: DenyRequestBody):
         _require_admin(body.admin_id, body.admin_pin, cur)
         cur.execute("SELECT * FROM access_requests WHERE id=%s", (body.request_id,))
         req = cur.fetchone()
-        if not req: cur.close(); release_pg(conn); raise HTTPException(404, "Request not found")
+        if not req: raise HTTPException(404, "Request not found")
         cur.execute("UPDATE access_requests SET status='denied' WHERE id=%s", (body.request_id,))
-        conn.commit(); cur.close(); release_pg(conn)
+        conn.commit()
         send_email(req["email"], "[Sentinel] Access request update", f"""
 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
   <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">SENTINEL</h2>
@@ -1761,26 +1821,32 @@ def api_deny_request(body: DenyRequestBody):
   <p style="color:#888;font-size:12px;">Contact the admin if you think this is a mistake.</p>
 </div>""")
         return {"ok": True}
-    except HTTPException: conn.rollback(); cur.close(); release_pg(conn); raise
-    except Exception as e: conn.rollback(); cur.close(); release_pg(conn); raise HTTPException(500, str(e))
+    except HTTPException: conn.rollback(); raise
+    except Exception as e: conn.rollback(); raise HTTPException(500, str(e))
+    finally: cur.close(); release_pg(conn)
 
 @app.get("/api/admin/make-me-admin")
 def make_me_admin():
     if not PG_URL: raise HTTPException(503, "Postgres not configured")
     target_id = "f5087f66-a860-49dd-8d38-46e6b68ac99d"
+    conn = get_pg(); cur = conn.cursor()
     try:
-        conn = get_pg(); cur = conn.cursor()
         cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;")
         conn.commit()
         cur.execute("SELECT name, is_admin FROM profiles WHERE id=%s", (target_id,))
         row = cur.fetchone()
-        if not row: cur.close(); release_pg(conn); raise HTTPException(404, "Profile not found")
-        if row["is_admin"]: cur.close(); release_pg(conn); return {"ok": True, "message": "Already admin!"}
+        if not row: raise HTTPException(404, "Profile not found")
+        if row["is_admin"]: return {"ok": True, "message": "Already admin!"}
         cur.execute("UPDATE profiles SET is_admin=TRUE WHERE id=%s", (target_id,))
-        conn.commit(); cur.close(); release_pg(conn)
+        conn.commit()
         return {"ok": True, "message": f"✓ '{row['name']}' is now admin!"}
-    except HTTPException: raise
-    except Exception as e: raise HTTPException(500, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(500, str(e))
+    finally:
+        cur.close(); release_pg(conn)
 
 @app.get("/review.html", response_class=HTMLResponse)
 def serve_review():
@@ -1795,8 +1861,9 @@ async def startup_event():
     asyncio.create_task(memory_watchdog())
     sentinel_log("SENTINEL backend started", "INFO", "SYSTEM")
     if PG_URL:
+        _sc = None
         try:
-            conn = get_pg(); cur = conn.cursor()
+            _sc = get_pg(); _scur = _sc.cursor()
             for sql in [
                 "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT ''",
                 "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pin_length INTEGER DEFAULT 4",
@@ -1805,26 +1872,34 @@ async def startup_event():
                 "ALTER TABLE saved_credentials ADD COLUMN IF NOT EXISTS roblox_user_id TEXT NOT NULL DEFAULT ''",
                 "ALTER TABLE saved_credentials DROP CONSTRAINT IF EXISTS saved_credentials_pkey",
             ]:
-                try: cur.execute(sql + ";"); conn.commit()
-                except Exception as _e: conn.rollback(); print(f"[SENTINEL] Migration: {_e}")
-            cur.execute("""CREATE TABLE IF NOT EXISTS access_requests (
+                try: _scur.execute(sql + ";"); _sc.commit()
+                except Exception as _e: _sc.rollback(); print(f"[SENTINEL] Migration: {_e}")
+            _scur.execute("""CREATE TABLE IF NOT EXISTS access_requests (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, reason TEXT NOT NULL,
                 email TEXT NOT NULL DEFAULT '', status TEXT DEFAULT 'pending',
                 invite_code TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT NOW());""")
-            cur.execute("""CREATE TABLE IF NOT EXISTS invite_codes (
+            _scur.execute("""CREATE TABLE IF NOT EXISTS invite_codes (
                 code TEXT PRIMARY KEY, created_by TEXT NOT NULL,
                 used BOOLEAN DEFAULT FALSE, used_by TEXT DEFAULT '',
                 created_at TIMESTAMPTZ DEFAULT NOW());""")
-            cur.execute("""CREATE TABLE IF NOT EXISTS review_tokens (
+            _scur.execute("""CREATE TABLE IF NOT EXISTS review_tokens (
                 token TEXT PRIMARY KEY, request_id TEXT NOT NULL,
                 action TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL,
                 used BOOLEAN DEFAULT FALSE);""")
-            try: cur.execute("ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT '';"); conn.commit()
-            except Exception as _e: conn.rollback()
-            conn.commit(); cur.close(); release_pg(conn)
+            try: _scur.execute("ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT '';"); _sc.commit()
+            except Exception as _e: _sc.rollback()
+            _sc.commit()
             sentinel_log("Startup migrations OK", "INFO", "SYSTEM")
         except Exception as _e:
             sentinel_log(f"Startup migration error: {_e}", "ERROR", "SYSTEM")
+            if _sc:
+                try: _sc.rollback()
+                except: pass
+        finally:
+            if _sc:
+                try: _scur.close()
+                except: pass
+                release_pg(_sc)
 
 @app.get("/api/health")
 def health():
