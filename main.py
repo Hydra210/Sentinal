@@ -508,6 +508,8 @@ class ProfileSession:
         self.known_assets:        dict           = {}
         self.account_info:        Optional[dict] = None
         self.extension_last_seen: float          = 0.0
+        self.pending_save:        bool           = False
+        self.pending_save_info:   Optional[dict] = None
 
 _sessions: Dict[str, ProfileSession] = {}
 
@@ -547,6 +549,7 @@ DEFAULT_CFG = {
     "archiveDelay":        0,
     "archiveExisting":     False,
     "saveCookies":         False,
+    "cookieSaveMode":      "ask",
     "autoStartMonitoring": False,
     "assetTypeFilters":    ALL_ASSET_TYPES,
     "whitelist_Audio":     [],
@@ -1160,25 +1163,34 @@ async def api_redeem_code(body: ConnectCodeBody):
 
     cfg = get_config(profile_id)
     roblox_uid = info.get("userId", "")
-    if cfg.get("saveCookies") and PG_URL and roblox_uid:
-        conn2 = get_pg()
-        cur2  = conn2.cursor()
-        try:
-            cur2.execute(
-                """INSERT INTO saved_credentials (profile_id, roblox_user_id, cookie_encrypted, account_info)
-                   VALUES (%s,%s,%s,%s)
-                   ON CONFLICT (profile_id, roblox_user_id) DO UPDATE
-                   SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
-                (profile_id, roblox_uid, body.cookie, json.dumps(info), body.cookie, json.dumps(info))
-            )
-            conn2.commit()
-        except Exception as e:
-            conn2.rollback()
-            print(f"[SENTINEL] Failed to save credentials: {e}")
-        finally:
-            cur2.close(); release_pg(conn2)
+    save_mode  = cfg.get("cookieSaveMode", "ask")
+
+    if PG_URL and roblox_uid:
+        if save_mode == "always":
+            conn2 = get_pg(); cur2 = conn2.cursor()
+            try:
+                cur2.execute(
+                    """INSERT INTO saved_credentials (profile_id, roblox_user_id, cookie_encrypted, account_info)
+                       VALUES (%s,%s,%s,%s)
+                       ON CONFLICT (profile_id, roblox_user_id) DO UPDATE
+                       SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
+                    (profile_id, roblox_uid, body.cookie, json.dumps(info), body.cookie, json.dumps(info))
+                )
+                conn2.commit()
+            except Exception as e:
+                conn2.rollback()
+                print(f"[SENTINEL] Failed to auto-save credentials: {e}")
+            finally:
+                cur2.close(); release_pg(conn2)
+            session.pending_save      = False
+            session.pending_save_info = None
+        elif save_mode == "ask":
+            session.pending_save      = True
+            session.pending_save_info = {**info, "_cookie": body.cookie}
+        # save_mode == "never" -> do nothing
 
     return {**info, "profile_id": profile_id}
+
 
 # ── STATUS ────────────────────────────────────────────────────────────────────
 
@@ -1188,12 +1200,61 @@ def api_status(profile_id: str = ""):
         return {"monitoring": False, "hasCredential": False, "account": None, "extensionLinked": False}
     session = get_session(profile_id)
     ext_linked = (time.time() - session.extension_last_seen) < 90
+    pending_info = None
+    if session.pending_save and session.pending_save_info:
+        pending_info = {k: v for k, v in session.pending_save_info.items() if k != "_cookie"}
     return {
         "monitoring":      session.monitoring,
         "account":         session.account_info,
         "hasCredential":   bool(session.cookie),
         "extensionLinked": ext_linked,
+        "pendingSave":     session.pending_save,
+        "pendingSaveAccount": pending_info,
     }
+
+
+@app.post("/api/credentials/save-pending")
+async def api_save_pending(body: MonitorBody):
+    """User clicked YES on the save-account popup — persist pending credentials to Postgres."""
+    if not PG_URL:
+        raise HTTPException(503, "Postgres not configured")
+    session = get_session(body.profile_id)
+    if not session.pending_save or not session.pending_save_info:
+        return {"saved": False, "reason": "no_pending"}
+    info   = session.pending_save_info
+    cookie = info.get("_cookie", "")
+    uid    = info.get("userId", "")
+    if not cookie or not uid:
+        session.pending_save      = False
+        session.pending_save_info = None
+        raise HTTPException(400, "Pending save data is incomplete")
+    clean_info = {k: v for k, v in info.items() if k != "_cookie"}
+    conn = get_pg(); cur = conn.cursor()
+    try:
+        cur.execute(
+            """INSERT INTO saved_credentials (profile_id, roblox_user_id, cookie_encrypted, account_info)
+               VALUES (%s,%s,%s,%s)
+               ON CONFLICT (profile_id, roblox_user_id) DO UPDATE
+               SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
+            (body.profile_id, uid, cookie, json.dumps(clean_info), cookie, json.dumps(clean_info))
+        )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(500, f"Failed to save: {e}")
+    finally:
+        cur.close(); release_pg(conn)
+    session.pending_save      = False
+    session.pending_save_info = None
+    return {"saved": True, "account": clean_info}
+
+@app.post("/api/credentials/dismiss-pending")
+def api_dismiss_pending(body: MonitorBody):
+    """User clicked NO on the save-account popup — clear the pending flag."""
+    session = get_session(body.profile_id)
+    session.pending_save      = False
+    session.pending_save_info = None
+    return {"dismissed": True}
 
 @app.post("/api/extension/heartbeat")
 def api_extension_heartbeat(body: MonitorBody):
@@ -1586,16 +1647,15 @@ def api_update_config(body: ConfigBody):
     pid  = data.pop("profile_id", "")
     for k, v in data.items():
         set_cfg(pid, k, v)
-    # If saveCookies toggled off, wipe saved credentials
-    if "saveCookies" in data and not data["saveCookies"] and PG_URL:
-        conn2 = get_pg()
-        cur2  = conn2.cursor()
+    # If cookieSaveMode changed to "never", wipe saved credentials
+    if data.get("cookieSaveMode") == "never" and PG_URL:
+        conn2 = get_pg(); cur2 = conn2.cursor()
         try:
             cur2.execute("DELETE FROM saved_credentials WHERE profile_id=%s", (pid,))
             conn2.commit()
         except Exception as e:
             conn2.rollback()
-            print(f"[SENTINEL] Error clearing credentials on toggle off: {e}")
+            print(f"[SENTINEL] Error clearing credentials on mode=never: {e}")
         finally:
             cur2.close(); release_pg(conn2)
     return get_config(pid)
