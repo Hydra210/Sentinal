@@ -1186,7 +1186,7 @@ async def api_redeem_code(body: ConnectCodeBody):
                 cur3.execute(
                     """INSERT INTO saved_credentials (profile_id, roblox_user_id, cookie_encrypted, account_info)
                        VALUES (%s,%s,%s,%s)
-                       ON CONFLICT ON CONSTRAINT saved_credentials_uid DO UPDATE
+                       ON CONFLICT (profile_id, roblox_user_id) DO UPDATE
                        SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
                     (profile_id, roblox_uid, body.cookie, json.dumps(info), body.cookie, json.dumps(info))
                 )
@@ -1252,7 +1252,7 @@ async def api_save_pending(body: MonitorBody):
         cur.execute(
             """INSERT INTO saved_credentials (profile_id, roblox_user_id, cookie_encrypted, account_info)
                VALUES (%s,%s,%s,%s)
-               ON CONFLICT ON CONSTRAINT saved_credentials_uid DO UPDATE
+               ON CONFLICT (profile_id, roblox_user_id) DO UPDATE
                SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
             (body.profile_id, uid, cookie, json.dumps(clean_info), cookie, json.dumps(clean_info))
         )
@@ -1382,7 +1382,7 @@ async def api_manual_cookie(body: ManualCookieBody):
         cur.execute(
             """INSERT INTO saved_credentials (profile_id, roblox_user_id, cookie_encrypted, account_info)
                VALUES (%s,%s,%s,%s)
-               ON CONFLICT ON CONSTRAINT saved_credentials_uid DO UPDATE
+               ON CONFLICT (profile_id, roblox_user_id) DO UPDATE
                SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
             (body.profile_id, roblox_uid, body.cookie, json.dumps(info), body.cookie, json.dumps(info))
         )
@@ -1533,7 +1533,7 @@ async def api_relink(body: RelinkBody):
             cur.execute(
                 """INSERT INTO saved_credentials (profile_id, roblox_user_id, cookie_encrypted, account_info)
                    VALUES (%s,%s,%s,%s)
-                   ON CONFLICT ON CONSTRAINT saved_credentials_uid DO UPDATE
+                   ON CONFLICT (profile_id, roblox_user_id) DO UPDATE
                    SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
                 (body.profile_id, roblox_uid, body.cookie, json.dumps(info), body.cookie, json.dumps(info))
             )
