@@ -1492,9 +1492,12 @@ async function refreshStatus() {
     updateAccountDisplay(null);
   }
 
-  // Show save-account popup if backend flagged a pending save
-  if (status.pendingSave && status.pendingSaveAccount && !_popupShowing) {
-    showSaveAccountPopup(status.pendingSaveAccount);
+  // Show popup when backend flags a pending save (new unsaved account connected)
+  if (status.pendingSave && status.pendingSaveAccount) {
+    if (!_popupShowing) showSaveAccountPopup(status.pendingSaveAccount);
+  } else if (!status.pendingSave && _popupShowing) {
+    // Backend cleared the flag (e.g. another tab dismissed) — sync UI
+    hidePopup();
   }
 }
 
