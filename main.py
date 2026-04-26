@@ -889,6 +889,7 @@ class ConfigBody(BaseModel):
     archiveDelay:         Optional[int]       = None
     archiveExisting:      Optional[bool]      = None
     saveCookies:          Optional[bool]      = None
+    cookieSaveMode:       Optional[str]       = None
     autoStartMonitoring:  Optional[bool]      = None
     assetTypeFilters:     Optional[List[str]] = None
     whitelist_Audio:      Optional[List[str]] = None
@@ -1166,7 +1167,7 @@ async def api_redeem_code(body: ConnectCodeBody):
     save_mode  = cfg.get("cookieSaveMode", "ask")
 
     if PG_URL and roblox_uid:
-        # Check if this account is already saved — if so, never show popup again
+        # Check if this account is already saved
         already_saved = False
         conn2 = get_pg(); cur2 = conn2.cursor()
         try:
@@ -1180,7 +1181,25 @@ async def api_redeem_code(body: ConnectCodeBody):
         finally:
             cur2.close(); release_pg(conn2)
 
-        if save_mode == "always":
+        if already_saved:
+            # Account is already in DB — always refresh the cookie silently, never show popup
+            conn3 = get_pg(); cur3 = conn3.cursor()
+            try:
+                cur3.execute(
+                    """UPDATE saved_credentials SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()
+                       WHERE profile_id=%s AND roblox_user_id=%s""",
+                    (body.cookie, json.dumps(info), profile_id, roblox_uid)
+                )
+                conn3.commit()
+            except Exception as e:
+                conn3.rollback()
+                print(f"[SENTINEL] Failed to refresh cookie for saved account: {e}")
+            finally:
+                cur3.close(); release_pg(conn3)
+            session.pending_save      = False
+            session.pending_save_info = None
+        elif save_mode == "always":
+            # New account + always mode — save silently
             conn3 = get_pg(); cur3 = conn3.cursor()
             try:
                 cur3.execute(
@@ -1198,12 +1217,12 @@ async def api_redeem_code(body: ConnectCodeBody):
                 cur3.close(); release_pg(conn3)
             session.pending_save      = False
             session.pending_save_info = None
-        elif save_mode == "ask" and not already_saved:
-            # Only prompt if this account isn't already in the list
+        elif save_mode == "ask":
+            # New account + ask mode — flag for popup
             session.pending_save      = True
             session.pending_save_info = {**info, "_cookie": body.cookie}
         else:
-            # "never" mode, or account already saved — clear any stale prompt
+            # "never" mode — don't save, clear any stale prompt
             session.pending_save      = False
             session.pending_save_info = None
 
@@ -1663,6 +1682,9 @@ def api_get_config(profile_id: str = ""):
 def api_update_config(body: ConfigBody):
     data = body.model_dump(exclude_none=True)
     pid  = data.pop("profile_id", "")
+    # Validate cookieSaveMode
+    if "cookieSaveMode" in data and data["cookieSaveMode"] not in ("ask", "always", "never"):
+        raise HTTPException(400, "cookieSaveMode must be 'ask', 'always', or 'never'")
     for k, v in data.items():
         set_cfg(pid, k, v)
     # If cookieSaveMode changed to "never", wipe saved credentials
