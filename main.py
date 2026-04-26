@@ -1166,28 +1166,46 @@ async def api_redeem_code(body: ConnectCodeBody):
     save_mode  = cfg.get("cookieSaveMode", "ask")
 
     if PG_URL and roblox_uid:
+        # Check if this account is already saved — if so, never show popup again
+        already_saved = False
+        conn2 = get_pg(); cur2 = conn2.cursor()
+        try:
+            cur2.execute(
+                "SELECT 1 FROM saved_credentials WHERE profile_id=%s AND roblox_user_id=%s",
+                (profile_id, roblox_uid)
+            )
+            already_saved = cur2.fetchone() is not None
+        except Exception as e:
+            print(f"[SENTINEL] Error checking saved credentials: {e}")
+        finally:
+            cur2.close(); release_pg(conn2)
+
         if save_mode == "always":
-            conn2 = get_pg(); cur2 = conn2.cursor()
+            conn3 = get_pg(); cur3 = conn3.cursor()
             try:
-                cur2.execute(
+                cur3.execute(
                     """INSERT INTO saved_credentials (profile_id, roblox_user_id, cookie_encrypted, account_info)
                        VALUES (%s,%s,%s,%s)
-                       ON CONFLICT (profile_id, roblox_user_id) DO UPDATE
+                       ON CONFLICT ON CONSTRAINT saved_credentials_uid DO UPDATE
                        SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
                     (profile_id, roblox_uid, body.cookie, json.dumps(info), body.cookie, json.dumps(info))
                 )
-                conn2.commit()
+                conn3.commit()
             except Exception as e:
-                conn2.rollback()
+                conn3.rollback()
                 print(f"[SENTINEL] Failed to auto-save credentials: {e}")
             finally:
-                cur2.close(); release_pg(conn2)
+                cur3.close(); release_pg(conn3)
             session.pending_save      = False
             session.pending_save_info = None
-        elif save_mode == "ask":
+        elif save_mode == "ask" and not already_saved:
+            # Only prompt if this account isn't already in the list
             session.pending_save      = True
             session.pending_save_info = {**info, "_cookie": body.cookie}
-        # save_mode == "never" -> do nothing
+        else:
+            # "never" mode, or account already saved — clear any stale prompt
+            session.pending_save      = False
+            session.pending_save_info = None
 
     return {**info, "profile_id": profile_id}
 
@@ -1234,7 +1252,7 @@ async def api_save_pending(body: MonitorBody):
         cur.execute(
             """INSERT INTO saved_credentials (profile_id, roblox_user_id, cookie_encrypted, account_info)
                VALUES (%s,%s,%s,%s)
-               ON CONFLICT (profile_id, roblox_user_id) DO UPDATE
+               ON CONFLICT ON CONSTRAINT saved_credentials_uid DO UPDATE
                SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
             (body.profile_id, uid, cookie, json.dumps(clean_info), cookie, json.dumps(clean_info))
         )
@@ -1364,7 +1382,7 @@ async def api_manual_cookie(body: ManualCookieBody):
         cur.execute(
             """INSERT INTO saved_credentials (profile_id, roblox_user_id, cookie_encrypted, account_info)
                VALUES (%s,%s,%s,%s)
-               ON CONFLICT (profile_id, roblox_user_id) DO UPDATE
+               ON CONFLICT ON CONSTRAINT saved_credentials_uid DO UPDATE
                SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
             (body.profile_id, roblox_uid, body.cookie, json.dumps(info), body.cookie, json.dumps(info))
         )
@@ -1515,7 +1533,7 @@ async def api_relink(body: RelinkBody):
             cur.execute(
                 """INSERT INTO saved_credentials (profile_id, roblox_user_id, cookie_encrypted, account_info)
                    VALUES (%s,%s,%s,%s)
-                   ON CONFLICT (profile_id, roblox_user_id) DO UPDATE
+                   ON CONFLICT ON CONSTRAINT saved_credentials_uid DO UPDATE
                    SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
                 (body.profile_id, roblox_uid, body.cookie, json.dumps(info), body.cookie, json.dumps(info))
             )
@@ -1928,9 +1946,12 @@ async def startup_event():
                 "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT ''",
                 "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pin_length INTEGER DEFAULT 4",
                 "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE",
-                # Multi-account credential migration
+                # Multi-account credential migration — drop old single-row PK, add roblox_user_id col
                 "ALTER TABLE saved_credentials ADD COLUMN IF NOT EXISTS roblox_user_id TEXT NOT NULL DEFAULT ''",
                 "ALTER TABLE saved_credentials DROP CONSTRAINT IF EXISTS saved_credentials_pkey",
+                # Re-add composite PK now that roblox_user_id exists
+                # (IF NOT EXISTS not available for ADD CONSTRAINT, handled via unique index instead)
+                "CREATE UNIQUE INDEX IF NOT EXISTS saved_credentials_uid ON saved_credentials(profile_id, roblox_user_id)",
             ]:
                 try: _scur.execute(sql + ";"); _sc.commit()
                 except Exception as _e: _sc.rollback(); print(f"[SENTINEL] Migration: {_e}")
