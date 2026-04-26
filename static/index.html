@@ -369,6 +369,85 @@
     font-family: var(--font-mono); font-size: 10px;
     padding: 8px;
   }
+
+  /* ── SAVE-ACCOUNT POPUP ── */
+  #save-account-popup {
+    position: fixed; bottom: 28px; right: 28px; z-index: 1200;
+    width: 320px;
+    background: var(--surface); border: 1px solid var(--border-bright);
+    border-radius: 12px; box-shadow: 0 8px 40px rgba(0,0,0,0.7);
+    padding: 18px 20px 16px;
+    transform: translateY(20px); opacity: 0;
+    transition: transform 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.28s ease;
+    pointer-events: none;
+  }
+  #save-account-popup.visible {
+    transform: translateY(0); opacity: 1; pointer-events: all;
+  }
+  .save-popup-header {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+  }
+  .save-popup-avatar {
+    width: 38px; height: 38px; border-radius: 50%;
+    border: 1px solid var(--border-bright); overflow: hidden;
+    background: var(--surface3); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-display); font-weight: 800; font-size: 14px;
+    color: rgba(255,255,255,0.5);
+  }
+  .save-popup-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .save-popup-title {
+    font-family: var(--font-display); font-size: 13px;
+    font-weight: 700; letter-spacing: 1px; color: #fff;
+  }
+  .save-popup-sub {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--text-dimmer); margin-top: 2px;
+  }
+  .save-popup-question {
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--text-dim); margin-bottom: 14px; line-height: 1.6;
+  }
+  .save-popup-btns {
+    display: flex; gap: 8px;
+  }
+  .save-popup-btns .btn {
+    flex: 1; padding: 8px 0; font-size: 12px; justify-content: center;
+  }
+
+  /* ── COOKIE SAVE MODE SELECTOR (Settings) ── */
+  .save-mode-options {
+    display: flex; flex-direction: column; gap: 8px; margin-top: 10px;
+  }
+  .save-mode-option {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 10px 12px; border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface2); cursor: pointer;
+    transition: border-color 0.18s, background 0.18s;
+  }
+  .save-mode-option:hover { border-color: rgba(255,255,255,0.18); }
+  .save-mode-option.active {
+    border-color: rgba(255,255,255,0.5);
+    background: rgba(255,255,255,0.05);
+  }
+  .save-mode-dot {
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.25);
+    flex-shrink: 0; margin-top: 1px;
+    display: flex; align-items: center; justify-content: center;
+    transition: border-color 0.18s;
+  }
+  .save-mode-option.active .save-mode-dot {
+    border-color: #fff;
+  }
+  .save-mode-dot::after {
+    content: ''; width: 7px; height: 7px; border-radius: 50%;
+    background: #fff; display: none;
+  }
+  .save-mode-option.active .save-mode-dot::after { display: block; }
+  .save-mode-label { font-size: 13px; font-weight: 600; color: var(--text); }
+  .save-mode-desc  { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); margin-top: 2px; line-height: 1.5; }
 </style>
 </head>
 <body>
@@ -523,15 +602,33 @@
       </div>
 
       <div style="margin-top:16px;">
-        <div class="toggle-row">
-          <div>
-            <div class="toggle-label" style="font-size:13px;">Save Credentials to Database</div>
-            <div class="toggle-desc">Cookie stored in Postgres — survives server restarts</div>
+        <div class="toggle-label" style="font-size:13px;margin-bottom:4px;">Account Save Mode</div>
+        <div class="toggle-desc" style="margin-bottom:10px;">Controls whether Roblox session tokens are saved to Postgres when you connect via extension</div>
+        <div class="save-mode-options" id="save-mode-options">
+          <div class="save-mode-option active" id="smode-ask" onclick="setCookieSaveMode('ask')">
+            <div class="save-mode-dot"></div>
+            <div>
+              <div class="save-mode-label">Ask each time</div>
+              <div class="save-mode-desc">A popup appears when a new account connects — you choose whether to save it</div>
+            </div>
           </div>
-          <div class="toggle-sw" id="save-cookies-toggle" onclick="toggleSaveCookies(this)"></div>
+          <div class="save-mode-option" id="smode-always" onclick="setCookieSaveMode('always')">
+            <div class="save-mode-dot"></div>
+            <div>
+              <div class="save-mode-label">Always save</div>
+              <div class="save-mode-desc">Silently saves every account to the database on connect — no popup shown</div>
+            </div>
+          </div>
+          <div class="save-mode-option" id="smode-never" onclick="setCookieSaveMode('never')">
+            <div class="save-mode-dot"></div>
+            <div>
+              <div class="save-mode-label">Never save</div>
+              <div class="save-mode-desc">Accounts are never stored in Postgres — existing saved accounts will be removed</div>
+            </div>
+          </div>
         </div>
-        <div class="info-box warn-box" style="margin-top:8px;margin-bottom:0;">
-          Only enable if you trust this server. Cookie grants full Roblox account access.
+        <div class="info-box warn-box" style="margin-top:10px;margin-bottom:0;">
+          Saved tokens grant full Roblox account access. Only enable if you trust this server.
         </div>
       </div>
     </div>
@@ -1394,6 +1491,11 @@ async function refreshStatus() {
     if (connectedSection) connectedSection.style.display = 'none';
     updateAccountDisplay(null);
   }
+
+  // Show save-account popup if backend flagged a pending save
+  if (status.pendingSave && status.pendingSaveAccount && !_popupShowing) {
+    showSaveAccountPopup(status.pendingSaveAccount);
+  }
 }
 
 async function refreshSavedAccounts() {
@@ -1750,8 +1852,7 @@ async function loadConfigFromApi() {
   const ast = document.getElementById('auto-start-toggle');
   if (ast) ast.className = 'toggle-sw' + (_cfg.autoStartMonitoring ? ' on' : '');
 
-  const sc = document.getElementById('save-cookies-toggle');
-  if (sc) sc.className = 'toggle-sw' + (_cfg.saveCookies ? ' on' : '');
+  syncSaveModeUI(_cfg.cookieSaveMode || 'ask');
 
   // Update polling slider min based on fast poll setting
   if (poll) poll.min = _cfg.allowFastPolling ? '5' : '30';
@@ -1840,18 +1941,78 @@ function toggleFastPoll(el) {
   if (!on) document.getElementById('fast-poll-warning').style.display = 'none';
 }
 
-async function toggleSaveCookies(el) {
+function syncSaveModeUI(mode) {
+  ['ask','always','never'].forEach(m => {
+    const el = document.getElementById('smode-' + m);
+    if (el) el.classList.toggle('active', m === mode);
+  });
+}
+
+async function setCookieSaveMode(mode) {
   if (!pid()) { toast('No profile active', 'error'); return; }
-  el.classList.toggle('on');
-  const on = el.classList.contains('on');
+  syncSaveModeUI(mode);
   try {
-    await api('POST', '/api/config', { profile_id: pid(), saveCookies: on });
-    toast(on ? 'Credentials will now be saved' : 'Credentials cleared from database', on ? 'success' : 'warn');
+    const confirmed = mode === 'never'
+      ? confirm('Setting to "Never save" will delete all saved accounts from the database. Continue?')
+      : true;
+    if (!confirmed) { syncSaveModeUI(_cfg.cookieSaveMode || 'ask'); return; }
+    await api('POST', '/api/config', { profile_id: pid(), cookieSaveMode: mode });
+    _cfg.cookieSaveMode = mode;
+    const labels = { ask: 'Will ask before saving', always: 'Always saving accounts', never: 'Never saving accounts' };
+    toast(labels[mode], mode === 'never' ? 'warn' : 'success');
+    if (mode === 'never') await refreshSavedAccounts();
   } catch(e) {
-    // Revert toggle on error
-    el.classList.toggle('on');
+    syncSaveModeUI(_cfg.cookieSaveMode || 'ask');
     toast('Error: ' + e.message, 'error');
   }
+}
+
+// ── SAVE ACCOUNT POPUP ────────────────────────────────────────────────────────
+let _popupShowing = false;
+
+function showSaveAccountPopup(account) {
+  if (_popupShowing) return;
+  _popupShowing = true;
+  const popup = document.getElementById('save-account-popup');
+  const avatarEl = document.getElementById('save-popup-avatar');
+  const nameEl   = document.getElementById('save-popup-name');
+  const subEl    = document.getElementById('save-popup-username');
+  if (!popup) return;
+  if (account.avatarUrl) {
+    avatarEl.innerHTML = `<img src="${esc(account.avatarUrl)}">`;
+  } else {
+    avatarEl.textContent = (account.displayName || '?').charAt(0).toUpperCase();
+  }
+  nameEl.textContent = account.displayName || account.username || 'Roblox Account';
+  subEl.textContent  = '@' + (account.username || '') + ' · UID ' + (account.userId || '');
+  popup.classList.add('visible');
+}
+
+function hidePopup() {
+  const popup = document.getElementById('save-account-popup');
+  if (popup) popup.classList.remove('visible');
+  _popupShowing = false;
+}
+
+async function savePendingAccount() {
+  try {
+    const res = await api('POST', '/api/credentials/save-pending', { profile_id: pid() });
+    hidePopup();
+    if (res.saved) {
+      toast('Account saved to dashboard ✓', 'success');
+      await refreshSavedAccounts();
+    }
+  } catch(e) {
+    hidePopup();
+    toast('Error saving: ' + e.message, 'error');
+  }
+}
+
+async function dismissSavePrompt() {
+  try {
+    await api('POST', '/api/credentials/dismiss-pending', { profile_id: pid() });
+  } catch(_) {}
+  hidePopup();
 }
 
 async function saveConfig() {
@@ -1915,8 +2076,7 @@ function openSettings() {
   document.getElementById('settings-modal').classList.add('open');
   const info = document.getElementById('settings-profile-info');
   if (info) info.textContent = `Signed in as: ${STATE.profileName || '—'} (ID: ${STATE.profileId || '—'})`;
-  const sc = document.getElementById('save-cookies-toggle');
-  if (_cfg && sc) sc.className = 'toggle-sw' + (_cfg.saveCookies ? ' on' : '');
+  if (_cfg) syncSaveModeUI(_cfg.cookieSaveMode || 'ask');
 
   // Populate avatar preview
   const ap = document.getElementById('settings-avatar-preview');
@@ -2272,5 +2432,21 @@ async function forceGC() {
 // ── BOOT ──────────────────────────────────────────────────────────────────────
 loadProfileScreen();
 </script>
+
+<!-- ── SAVE ACCOUNT POPUP ── -->
+<div id="save-account-popup">
+  <div class="save-popup-header">
+    <div class="save-popup-avatar" id="save-popup-avatar"></div>
+    <div>
+      <div class="save-popup-title" id="save-popup-name">Roblox Account</div>
+      <div class="save-popup-sub" id="save-popup-username"></div>
+    </div>
+  </div>
+  <div class="save-popup-question">Save this account to your dashboard?<br>You can switch between saved accounts any time.</div>
+  <div class="save-popup-btns">
+    <button class="btn btn-primary" onclick="savePendingAccount()">Yes, Save</button>
+    <button class="btn" onclick="dismissSavePrompt()">No Thanks</button>
+  </div>
+</div>
 </body>
 </html>
