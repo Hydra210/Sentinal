@@ -1051,9 +1051,17 @@ let STATE = {
 async function api(method, path, body) {
   const opts = { method, headers: {} };
   if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
-  const r = await fetch(path, opts);
-  const data = await r.json().catch(() => ({ detail: r.statusText }));
-  if (!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+  let r;
+  try { r = await fetch(path, opts); }
+  catch(e) { throw new Error('Network error — check your connection'); }
+  // Try to parse JSON; if it fails (e.g. Render cold-start HTML page), give a clear message
+  let data;
+  try { data = await r.json(); }
+  catch(e) {
+    if (!r.ok) throw new Error(`Server error ${r.status} — the service may be starting up`);
+    throw new Error(`Unexpected non-JSON response from server (${r.status})`);
+  }
+  if (!r.ok) throw new Error(data.detail || data.error || `HTTP ${r.status}`);
   return data;
 }
 
@@ -1084,13 +1092,20 @@ function showTab(name) {
 // ── PROFILE SCREEN ────────────────────────────────────────────────────────────
 async function loadProfileScreen() {
   const grid = document.getElementById('profile-grid');
-  grid.innerHTML = '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);">Loading...</div>';
+  if (!grid) return;
+  grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);padding:20px 0;">Loading profiles…</div>';
   try {
-    const profiles = await api('GET', '/api/profiles');
+    const raw = await api('GET', '/api/profiles');
+
+    // Guard: FastAPI should return an array — if it doesn't, surface the real error
+    if (!Array.isArray(raw)) {
+      const msg = raw?.detail || raw?.error || JSON.stringify(raw);
+      throw new Error('Unexpected response from server: ' + msg);
+    }
+    const profiles = raw;
     grid.innerHTML = '';
 
     if (!profiles.length) {
-      // No profiles yet — show a friendly message
       const msg = document.createElement('div');
       msg.style.cssText = 'grid-column:1/-1;text-align:center;font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);letter-spacing:1px;padding:20px 0;';
       msg.textContent = 'No profiles yet — create one to get started';
@@ -1100,7 +1115,7 @@ async function loadProfileScreen() {
     profiles.forEach(p => {
       const card = document.createElement('div');
       card.className = 'profile-card';
-      const initials = p.name.slice(0,2).toUpperCase();
+      const initials = (p.name || '?').slice(0,2).toUpperCase();
       card.innerHTML = `
         <button class="profile-delete-btn" title="Delete profile">✕</button>
         <div class="profile-card-avatar">
@@ -1119,7 +1134,9 @@ async function loadProfileScreen() {
     const inviteCard = document.createElement('div');
     inviteCard.className = 'profile-card add-card';
     inviteCard.innerHTML = `
-      <div class="profile-card-avatar" style="font-size:24px;color:rgba(255,255,255,0.3);">🔑</div>
+      <div class="profile-card-avatar" style="font-size:24px;color:rgba(255,255,255,0.3);">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </div>
       <div class="profile-card-name" style="color:var(--text-dim);">Join</div>
       <div class="profile-card-sub">I have an invite code</div>`;
     inviteCard.onclick = () => document.getElementById('create-profile-modal').classList.add('open');
@@ -1128,14 +1145,22 @@ async function loadProfileScreen() {
     const reqCard = document.createElement('div');
     reqCard.className = 'profile-card add-card';
     reqCard.innerHTML = `
-      <div class="profile-card-avatar" style="font-size:24px;color:rgba(255,255,255,0.3);">✉</div>
+      <div class="profile-card-avatar" style="font-size:24px;color:rgba(255,255,255,0.3);">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+      </div>
       <div class="profile-card-name" style="color:var(--text-dim);">Request Access</div>
-      <div class="profile-card-sub">Ask an admin for access</div>`;
+      <div class="profile-card-sub">Apply for an invite</div>`;
     reqCard.onclick = () => document.getElementById('request-access-modal').classList.add('open');
     grid.appendChild(reqCard);
 
   } catch(e) {
-    grid.innerHTML = `<div style="grid-column:1/-1;font-family:var(--font-mono);font-size:11px;color:#ff6b6b;padding:10px 0;text-align:center;">Could not load profiles: ${esc(e.message)}</div>`;
+    console.error('[SENTINEL] loadProfileScreen error:', e);
+    grid.innerHTML = `
+      <div style="grid-column:1/-1;font-family:var(--font-mono);font-size:11px;color:#ff6b6b;padding:16px;text-align:center;border:1px solid rgba(255,59,59,0.2);border-radius:8px;background:rgba(255,59,59,0.04);">
+        <div style="font-size:13px;margin-bottom:6px;">⚠ Could not load profiles</div>
+        <div style="color:rgba(255,100,100,0.7);font-size:10px;">${esc(e.message)}</div>
+        <button onclick="loadProfileScreen()" style="margin-top:10px;padding:5px 14px;border:1px solid rgba(255,59,59,0.3);border-radius:5px;background:transparent;color:#ff6b6b;cursor:pointer;font-family:var(--font-mono);font-size:10px;">Retry</button>
+      </div>`;
   }
 }
 
@@ -2594,7 +2619,19 @@ async function forceGC() {
 }
 
 // ── BOOT ──────────────────────────────────────────────────────────────────────
-loadProfileScreen();
+(async function boot() {
+  try {
+    await loadProfileScreen();
+  } catch(e) {
+    // If something totally unexpected happened, show a retry in the grid
+    const grid = document.getElementById('profile-grid');
+    if (grid) grid.innerHTML = `
+      <div style="grid-column:1/-1;font-family:var(--font-mono);font-size:11px;color:#ff6b6b;padding:16px;text-align:center;">
+        <div>Failed to start: ${esc(e.message)}</div>
+        <button onclick="loadProfileScreen()" style="margin-top:10px;padding:5px 14px;border:1px solid rgba(255,59,59,0.3);border-radius:5px;background:transparent;color:#ff6b6b;cursor:pointer;font-family:var(--font-mono);font-size:10px;">Retry</button>
+      </div>`;
+  }
+})();
 </script>
 
 <!-- ── ADD ANOTHER ACCOUNT MODAL ── -->
