@@ -1817,6 +1817,8 @@ async function disconnectExtension() {
     if (btn) { btn.textContent = 'Signal sent…'; btn.disabled = true; }
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
+
+async function confirmAddAnother() {
   if (!_addAnotherDetectedInfo) return;
   const doneBtn = document.getElementById('add-another-done-btn');
   if (doneBtn) { doneBtn.disabled = true; doneBtn.textContent = 'Saving…'; }
@@ -1825,7 +1827,6 @@ async function disconnectExtension() {
     await refreshSavedAccounts();
     closeAddAnotherModal();
     toast('✓ Account added successfully', 'success');
-    // Immediately refresh status so saved accounts list updates
     await refreshStatus();
   } catch(e) {
     toast('Error saving account: ' + e.message, 'error');
