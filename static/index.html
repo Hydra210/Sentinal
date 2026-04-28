@@ -785,9 +785,9 @@
         <span id="mem-mb-text" style="color:var(--text-dimmer);">0MB</span>
         <span class="degraded-tag" id="degraded-tag" style="display:none;">DEGRADED</span>
       </div>
-      <div class="status-pill">
+      <div class="status-pill" id="main-status-pill">
         <div class="status-dot" id="main-status-dot"></div>
-        <span id="main-status-text">OFFLINE</span>
+        <span id="main-status-text">INACTIVE</span>
       </div>
       <div class="profile-pill" onclick="openSettings()">
         <div class="profile-pill-avatar" id="topbar-avatar"></div>
@@ -836,7 +836,7 @@
           </div>
 
           <div class="card">
-            <div class="section-title">Roblox Accounts</div>
+            <div class="section-title">Roblox Account</div>
 
             <!-- Active account display -->
             <div id="conn-account-display" style="font-size:13px;color:var(--text-dim);margin-bottom:14px;">No account active</div>
@@ -847,14 +847,13 @@
               <div id="saved-accounts-list"></div>
             </div>
 
-            <!-- Add account options -->
+            <!-- Initial connect options (shown when NO account active) -->
             <div id="add-account-section">
               <div id="connect-code-box" style="display:none;margin-bottom:14px;">
                 <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-dimmer);letter-spacing:2px;text-align:center;margin-bottom:10px;">ENTER THIS CODE IN YOUR SENTINEL EXTENSION</div>
                 <div class="connect-code-display" id="connect-code-display">----</div>
                 <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);text-align:center;" id="code-expiry-text">—</div>
               </div>
-
               <button class="btn btn-primary btn-block" onclick="showConnectCode()" style="margin-bottom:8px;">Connect via Extension</button>
               <a href="/static/sentinel-extension.zip" download style="text-decoration:none;display:block;margin-bottom:8px;">
                 <button class="btn btn-block" style="width:100%;">⬇ Download Extension</button>
@@ -868,7 +867,7 @@
                 <div style="color:var(--warn);font-family:var(--font-mono);font-size:10px;font-weight:700;margin-bottom:6px;">⚠ Security Warning</div>
                 <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim);line-height:1.7;">
                   Your cookie grants <b>full access</b> to this Roblox account.<br>
-                  It will be <b>saved to Postgres</b> regardless of your "Save Credentials" setting.<br>
+                  It will be <b>saved to Postgres</b> regardless of your Save Mode setting.<br>
                   You can remove it later from the account list above.<br>
                   <b>Only use a dedicated bot/mod account — never your main.</b>
                 </div>
@@ -881,9 +880,10 @@
               </div>
             </div>
 
-            <!-- Connected actions -->
+            <!-- Connected actions (shown when account IS active) -->
             <div id="connected-account-section" style="display:none;margin-top:10px;">
-              <button class="btn btn-block" onclick="testConnection()">Test Active Connection</button>
+              <button class="btn btn-block" onclick="testConnection()" style="margin-bottom:6px;">Test Active Connection</button>
+              <button class="btn btn-block btn-primary" onclick="openAddAnotherModal()" style="margin-bottom:0;">+ Add Another Account via Extension</button>
             </div>
           </div>
         </div>
@@ -1478,24 +1478,33 @@ function startLiveUpdates() {
 // ── STATUS ────────────────────────────────────────────────────────────────────
 async function refreshStatus() {
   const status = await api('GET', `/api/status?profile_id=${pid()}`);
-  STATE.monitoring    = status.monitoring;
-  STATE.hasCredential = status.hasCredential;
-  applyMonitoringUI(status.monitoring);
+  applyStatusPill(status);
+
   if (status.account) updateAccountDisplay(status.account);
 
   const connectedSection = document.getElementById('connected-account-section');
+  const addSection       = document.getElementById('add-account-section');
   if (status.hasCredential) {
     if (connectedSection) connectedSection.style.display = 'block';
+    if (addSection) addSection.style.display = 'none';
   } else {
     if (connectedSection) connectedSection.style.display = 'none';
+    if (addSection) addSection.style.display = 'block';
     updateAccountDisplay(null);
   }
 
-  // Show popup when backend flags a pending save (new unsaved account connected)
+  // If monitoring is on but no credential, stop it
+  if (status.monitoring && !status.hasCredential) {
+    try { await api('POST', '/api/monitoring/stop', { profile_id: pid() }); } catch(_) {}
+    STATE.monitoring = false;
+  }
+
+  // Save prompt popup
   if (status.pendingSave && status.pendingSaveAccount) {
     if (!_popupShowing) showSaveAccountPopup(status.pendingSaveAccount);
+    // Also update add-another modal if open
+    updateAddAnotherDetected(status.pendingSaveAccount);
   } else if (!status.pendingSave && _popupShowing) {
-    // Backend cleared the flag (e.g. another tab dismissed) — sync UI
     hidePopup();
   }
 }
@@ -1553,13 +1562,50 @@ async function removeAccount(userId, name) {
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
-function applyMonitoringUI(on) {
+function applyStatusPill(status) {
   const dot    = document.getElementById('main-status-dot');
   const txt    = document.getElementById('main-status-text');
   const toggle = document.getElementById('monitor-toggle');
-  dot.className = 'status-dot ' + (on ? 'online' : 'error');
-  txt.textContent = on ? 'MONITORING' : 'OFFLINE';
+  const pill   = document.getElementById('main-status-pill');
+
+  const extLinked   = status.extensionLinked;
+  const hasCred     = status.hasCredential;
+  const monitoring  = status.monitoring;
+
+  // Determine mode label + dot style
+  let label, dotClass;
+  if (!hasCred && !extLinked) {
+    label = 'INACTIVE'; dotClass = '';
+  } else if (extLinked && !hasCred) {
+    label = 'NO ACCOUNT'; dotClass = 'error';
+  } else if (hasCred && !extLinked) {
+    label = 'HEADLESS'; dotClass = monitoring ? 'online' : 'error';
+  } else {
+    label = monitoring ? 'LIVE' : 'IDLE'; dotClass = monitoring ? 'online' : '';
+  }
+
+  if (dot)  dot.className  = 'status-dot ' + dotClass;
+  if (txt)  txt.textContent = label;
+  if (pill) pill.title = extLinked ? 'Extension connected' : 'Extension not connected';
+  if (toggle) toggle.classList.toggle('on', monitoring);
+
+  // Disable monitor toggle if no credential
+  if (toggle) {
+    toggle.style.opacity = hasCred ? '' : '0.35';
+    toggle.style.pointerEvents = hasCred ? '' : 'none';
+  }
+
+  STATE.monitoring    = monitoring;
+  STATE.hasCredential = hasCred;
+  STATE.extensionLinked = extLinked;
+}
+
+function applyMonitoringUI(on) {
+  // Legacy shim — just update toggle and dot for monitoring state
+  const dot    = document.getElementById('main-status-dot');
+  const toggle = document.getElementById('monitor-toggle');
   if (toggle) toggle.classList.toggle('on', on);
+  STATE.monitoring = on;
 }
 
 function updateAccountDisplay(acc) {
@@ -1581,6 +1627,10 @@ function updateAccountDisplay(acc) {
 
 // ── MONITORING ────────────────────────────────────────────────────────────────
 async function toggleMonitor(el) {
+  if (!STATE.hasCredential) {
+    toast('⚠ No Roblox account connected — cannot start monitoring', 'warn');
+    return;
+  }
   const turningOn = !el.classList.contains('on');
   try {
     if (turningOn) {
@@ -1637,6 +1687,7 @@ async function showConnectCode() {
           document.getElementById('code-expiry-text').textContent = '✓ Extension connected!';
           document.getElementById('connect-code-display').classList.add('connected');
           document.getElementById('connected-account-section').style.display = 'block';
+          document.getElementById('add-account-section').style.display = 'none';
           if (status.account) updateAccountDisplay(status.account);
           await refreshSavedAccounts();
           toast('✓ Extension connected!', 'success');
@@ -1644,6 +1695,100 @@ async function showConnectCode() {
       } catch {}
     }, 3000);
   } catch(e) { toast('Could not generate code: ' + e.message, 'error'); }
+}
+
+// ── ADD ANOTHER ACCOUNT MODAL ─────────────────────────────────────────────────
+
+let _addAnotherPollTimer = null;
+let _addAnotherDetectedInfo = null;
+
+function openAddAnotherModal() {
+  _addAnotherDetectedInfo = null;
+  const modal = document.getElementById('add-another-modal');
+  if (modal) modal.classList.add('open');
+
+  // Reset UI state
+  const waiting  = document.getElementById('add-another-waiting');
+  const detected = document.getElementById('add-another-detected');
+  const doneBtn  = document.getElementById('add-another-done-btn');
+  const dot      = document.getElementById('add-another-dot');
+  const statusTx = document.getElementById('add-another-status-text');
+  if (waiting)  waiting.style.display  = 'flex';
+  if (detected) detected.style.display = 'none';
+  if (doneBtn)  { doneBtn.disabled = true; doneBtn.textContent = 'Done — Account Added'; }
+  if (dot)      dot.style.background   = 'var(--text-dimmer)';
+  if (statusTx) statusTx.textContent   = 'Waiting for extension…';
+
+  // Poll for pendingSave from a new account
+  if (_addAnotherPollTimer) clearInterval(_addAnotherPollTimer);
+  _addAnotherPollTimer = setInterval(async () => {
+    try {
+      const status = await api('GET', `/api/status?profile_id=${pid()}`);
+      if (status.pendingSave && status.pendingSaveAccount) {
+        updateAddAnotherDetected(status.pendingSaveAccount);
+      }
+    } catch {}
+  }, 2000);
+}
+
+function closeAddAnotherModal() {
+  if (_addAnotherPollTimer) { clearInterval(_addAnotherPollTimer); _addAnotherPollTimer = null; }
+  _addAnotherDetectedInfo = null;
+  const modal = document.getElementById('add-another-modal');
+  if (modal) modal.classList.remove('open');
+  // Cancel the pending save on backend so it doesn't show the popup
+  api('POST', '/api/credentials/dismiss-pending', { profile_id: pid() }).catch(() => {});
+}
+
+function updateAddAnotherDetected(account) {
+  // Only trigger once per account to avoid flicker
+  if (_addAnotherDetectedInfo && _addAnotherDetectedInfo.userId === account.userId) return;
+  _addAnotherDetectedInfo = account;
+
+  const modal = document.getElementById('add-another-modal');
+  if (!modal || !modal.classList.contains('open')) return;
+
+  const waiting   = document.getElementById('add-another-waiting');
+  const detected  = document.getElementById('add-another-detected');
+  const doneBtn   = document.getElementById('add-another-done-btn');
+  const dot       = document.getElementById('add-another-dot');
+  const statusTx  = document.getElementById('add-another-status-text');
+  const nameEl    = document.getElementById('add-another-name');
+  const userEl    = document.getElementById('add-another-user');
+  const avatarEl  = document.getElementById('add-another-avatar');
+
+  // Update dot to green-ish
+  if (dot)      dot.style.background = 'rgba(100,255,160,0.8)';
+  if (statusTx) statusTx.textContent = '✓ Account detected — review below';
+
+  if (nameEl)   nameEl.textContent = account.displayName || account.username || '—';
+  if (userEl)   userEl.textContent = '@' + (account.username || '—') + ' · ' + (account.userId || '—');
+  if (avatarEl) {
+    avatarEl.innerHTML = account.avatarUrl
+      ? `<img src="${account.avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`
+      : (account.displayName || '?')[0];
+  }
+
+  if (waiting)  waiting.style.display  = 'flex';
+  if (detected) detected.style.display = 'block';
+  if (doneBtn)  doneBtn.disabled = false;
+}
+
+async function confirmAddAnother() {
+  if (!_addAnotherDetectedInfo) return;
+  const doneBtn = document.getElementById('add-another-done-btn');
+  if (doneBtn) { doneBtn.disabled = true; doneBtn.textContent = 'Saving…'; }
+  try {
+    await api('POST', '/api/credentials/save-pending', { profile_id: pid() });
+    await refreshSavedAccounts();
+    closeAddAnotherModal();
+    toast('✓ Account added successfully', 'success');
+    // Immediately refresh status so saved accounts list updates
+    await refreshStatus();
+  } catch(e) {
+    toast('Error saving account: ' + e.message, 'error');
+    if (doneBtn) { doneBtn.disabled = false; doneBtn.textContent = 'Done — Account Added'; }
+  }
 }
 
 async function testConnection() {
@@ -2434,6 +2579,65 @@ async function forceGC() {
 // ── BOOT ──────────────────────────────────────────────────────────────────────
 loadProfileScreen();
 </script>
+
+<!-- ── ADD ANOTHER ACCOUNT MODAL ── -->
+<div class="modal-overlay" id="add-another-modal">
+  <div class="modal-box" style="max-width:460px;">
+    <button class="modal-close" onclick="closeAddAnotherModal()">✕</button>
+    <div style="font-family:var(--font-display);font-size:20px;font-weight:800;letter-spacing:3px;margin-bottom:6px;">ADD ANOTHER ACCOUNT</div>
+    <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);letter-spacing:2px;margin-bottom:20px;">NO CODE NEEDED — USES YOUR EXTENSION</div>
+
+    <!-- Step instructions -->
+    <div id="add-another-steps">
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px;">
+        <div style="display:flex;gap:12px;align-items:flex-start;">
+          <div style="width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:10px;color:rgba(255,255,255,0.6);flex-shrink:0;margin-top:1px;">1</div>
+          <div>
+            <div style="font-size:13px;font-weight:600;margin-bottom:2px;">Log into a different Roblox account</div>
+            <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);line-height:1.6;">Open roblox.com in your browser and sign into the account you want to add.</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:flex-start;">
+          <div style="width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:10px;color:rgba(255,255,255,0.6);flex-shrink:0;margin-top:1px;">2</div>
+          <div>
+            <div style="font-size:13px;font-weight:600;margin-bottom:2px;">Open the Sentinel extension</div>
+            <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);line-height:1.6;">Click the Sentinel icon in your browser toolbar.</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:flex-start;">
+          <div style="width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:10px;color:rgba(255,255,255,0.6);flex-shrink:0;margin-top:1px;">3</div>
+          <div>
+            <div style="font-size:13px;font-weight:600;margin-bottom:2px;">Click "+ Add Current Roblox Account"</div>
+            <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);line-height:1.6;">The extension will detect the new account and send it to your dashboard automatically.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Waiting indicator -->
+      <div id="add-another-waiting" style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:16px;">
+        <div style="width:8px;height:8px;border-radius:50%;background:var(--text-dimmer);animation:pulse-dot 1.5s infinite;flex-shrink:0;" id="add-another-dot"></div>
+        <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);" id="add-another-status-text">Waiting for extension…</span>
+      </div>
+
+      <!-- Detected account preview (hidden until detected) -->
+      <div id="add-another-detected" style="display:none;padding:12px 14px;background:rgba(100,255,160,0.04);border:1px solid rgba(100,255,160,0.2);border-radius:8px;margin-bottom:16px;">
+        <div style="font-family:var(--font-mono);font-size:9px;color:rgba(100,255,160,0.7);letter-spacing:2px;margin-bottom:8px;">ACCOUNT DETECTED</div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div id="add-another-avatar" style="width:34px;height:34px;border-radius:50%;background:var(--surface3);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:700;font-size:13px;color:rgba(255,255,255,0.5);overflow:hidden;flex-shrink:0;"></div>
+          <div>
+            <div style="font-weight:600;font-size:13px;" id="add-another-name">—</div>
+            <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);" id="add-another-user">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-primary" style="flex:1;" id="add-another-done-btn" onclick="confirmAddAnother()" disabled>Done — Account Added</button>
+        <button class="btn" onclick="closeAddAnotherModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- ── SAVE ACCOUNT POPUP ── -->
 <div id="save-account-popup">
