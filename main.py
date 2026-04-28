@@ -508,9 +508,12 @@ class ProfileSession:
         self.known_assets:        dict           = {}
         self.account_info:        Optional[dict] = None
         self.extension_last_seen: float          = 0.0
+        self.extension_token:     Optional[str]  = None   # shared secret issued at connect
+        self.extension_token_valid: bool         = False  # True only when token matched recently
+        self.pending_commands:    list           = []     # commands queued for extension to pick up
         self.pending_save:        bool           = False
         self.pending_save_info:   Optional[dict] = None
-        self.add_account_mode:    bool           = False   # True = next extension connect adds without switching active
+        self.add_account_mode:    bool           = False
 
 _sessions: Dict[str, ProfileSession] = {}
 
@@ -1165,6 +1168,11 @@ async def api_redeem_code(body: ConnectCodeBody):
         session.cookie              = body.cookie
         session.account_info        = info
         session.extension_last_seen = time.time()
+        # Issue a fresh session token so this extension instance is uniquely identified
+        ext_token = secrets.token_hex(32)
+        session.extension_token       = ext_token
+        session.extension_token_valid = True
+        session.pending_commands      = []   # clear any stale commands
 
         # Auto-restart monitoring if it was active, OR if autoStartMonitoring is enabled
         cfg_check = get_config(profile_id)
@@ -1239,7 +1247,7 @@ async def api_redeem_code(body: ConnectCodeBody):
             session.pending_save      = False
             session.pending_save_info = None
 
-    return {**info, "profile_id": profile_id}
+    return {**info, "profile_id": profile_id, "ext_token": ext_token}
 
 
 # ── STATUS ────────────────────────────────────────────────────────────────────
@@ -1248,8 +1256,9 @@ async def api_redeem_code(body: ConnectCodeBody):
 def api_status(profile_id: str = ""):
     if not profile_id:
         return {"monitoring": False, "hasCredential": False, "account": None, "extensionLinked": False}
-    session = get_session(profile_id)
-    ext_linked = (time.time() - session.extension_last_seen) < 75
+    session    = get_session(profile_id)
+    time_ok    = (time.time() - session.extension_last_seen) < 75
+    ext_linked = time_ok and session.extension_token_valid
     pending_info = None
     if session.pending_save and session.pending_save_info:
         pending_info = {k: v for k, v in session.pending_save_info.items() if k != "_cookie"}
@@ -1307,18 +1316,52 @@ def api_dismiss_pending(body: MonitorBody):
     session.pending_save_info = None
     return {"dismissed": True}
 
+class HeartbeatBody(BaseModel):
+    profile_id: str
+    token:      Optional[str] = None   # ext_session_token issued at connect
+
 @app.post("/api/extension/heartbeat")
-def api_extension_heartbeat(body: MonitorBody):
-    """Called by extension every ~30s to signal it is active."""
+def api_extension_heartbeat(body: HeartbeatBody):
+    """Called by extension every ~30s (background) or every 3s (popup open).
+    Token validation is the authoritative proof that THIS extension instance is connected."""
     session = get_session(body.profile_id)
-    session.extension_last_seen = time.time()
+
+    token_valid = bool(
+        body.token
+        and session.extension_token
+        and secrets.compare_digest(body.token, session.extension_token)
+    )
+    session.extension_last_seen   = time.time()
+    session.extension_token_valid = token_valid
+
+    # Drain pending commands so extension can act on them
+    cmds = list(session.pending_commands)
+    session.pending_commands = []
+
     return {
         "monitoring":    session.monitoring,
         "hasCredential": bool(session.cookie),
         "account":       session.account_info,
+        "tokenValid":    token_valid,
+        "commands":      cmds,
     }
 
-@app.post("/api/extension/relink")
+class ExtCommandBody(BaseModel):
+    profile_id: str
+    command:    str          # "disconnect", "relink", "refresh_cookie"
+    payload:    Optional[dict] = None
+
+@app.post("/api/extension/command")
+def api_extension_command(body: ExtCommandBody):
+    """Queue a command for the extension to pick up on its next heartbeat."""
+    VALID_COMMANDS = {"disconnect", "relink", "refresh_cookie"}
+    if body.command not in VALID_COMMANDS:
+        raise HTTPException(400, f"Unknown command. Valid: {VALID_COMMANDS}")
+    session = get_session(body.profile_id)
+    session.pending_commands.append({"cmd": body.command, "payload": body.payload or {}})
+    return {"queued": True, "command": body.command}
+
+
 async def api_extension_relink(body: MonitorBody):
     """Relink extension without a code — restores most recent saved credential from Postgres."""
     if not PG_URL:
