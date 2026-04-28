@@ -510,6 +510,7 @@ class ProfileSession:
         self.extension_last_seen: float          = 0.0
         self.pending_save:        bool           = False
         self.pending_save_info:   Optional[dict] = None
+        self.add_account_mode:    bool           = False   # True = next extension connect adds without switching active
 
 _sessions: Dict[str, ProfileSession] = {}
 
@@ -1131,6 +1132,23 @@ def api_generate_code(body: GenerateCodeBody):
     code = generate_connect_code(body.profile_id)
     return {"code": code, "expiresIn": 300}
 
+@app.post("/api/connect-code/generate-add-account")
+def api_generate_add_account_code(body: GenerateCodeBody):
+    """Generate a code in 'add account' mode — next redeem won't switch the active session."""
+    session = get_session(body.profile_id)
+    session.add_account_mode = True
+    code = generate_connect_code(body.profile_id)
+    return {"code": code, "expiresIn": 300}
+
+@app.post("/api/connect-code/cancel-add-account")
+def api_cancel_add_account(body: GenerateCodeBody):
+    """Cancel add-account mode."""
+    session = get_session(body.profile_id)
+    session.add_account_mode = False
+    session.pending_save      = False
+    session.pending_save_info = None
+    return {"ok": True}
+
 @app.post("/api/connect-code/redeem")
 async def api_redeem_code(body: ConnectCodeBody):
     try:
@@ -1167,7 +1185,7 @@ async def api_redeem_code(body: ConnectCodeBody):
     save_mode  = cfg.get("cookieSaveMode", "ask")
 
     if PG_URL and roblox_uid:
-        # Check if this account is already saved
+        # Check if this account is already saved — if so, never show popup again
         already_saved = False
         conn2 = get_pg(); cur2 = conn2.cursor()
         try:
@@ -1182,24 +1200,21 @@ async def api_redeem_code(body: ConnectCodeBody):
             cur2.close(); release_pg(conn2)
 
         if already_saved:
-            # Account is already in DB — always refresh the cookie silently, never show popup
+            # Refresh cookie silently, no popup
             conn3 = get_pg(); cur3 = conn3.cursor()
             try:
                 cur3.execute(
-                    """UPDATE saved_credentials SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()
-                       WHERE profile_id=%s AND roblox_user_id=%s""",
+                    "UPDATE saved_credentials SET cookie_encrypted=%s, account_info=%s, saved_at=NOW() WHERE profile_id=%s AND roblox_user_id=%s",
                     (body.cookie, json.dumps(info), profile_id, roblox_uid)
                 )
                 conn3.commit()
             except Exception as e:
                 conn3.rollback()
-                print(f"[SENTINEL] Failed to refresh cookie for saved account: {e}")
             finally:
                 cur3.close(); release_pg(conn3)
             session.pending_save      = False
             session.pending_save_info = None
         elif save_mode == "always":
-            # New account + always mode — save silently
             conn3 = get_pg(); cur3 = conn3.cursor()
             try:
                 cur3.execute(
@@ -1218,11 +1233,9 @@ async def api_redeem_code(body: ConnectCodeBody):
             session.pending_save      = False
             session.pending_save_info = None
         elif save_mode == "ask":
-            # New account + ask mode — flag for popup
             session.pending_save      = True
             session.pending_save_info = {**info, "_cookie": body.cookie}
         else:
-            # "never" mode — don't save, clear any stale prompt
             session.pending_save      = False
             session.pending_save_info = None
 
@@ -1236,7 +1249,7 @@ def api_status(profile_id: str = ""):
     if not profile_id:
         return {"monitoring": False, "hasCredential": False, "account": None, "extensionLinked": False}
     session = get_session(profile_id)
-    ext_linked = (time.time() - session.extension_last_seen) < 90
+    ext_linked = (time.time() - session.extension_last_seen) < 75
     pending_info = None
     if session.pending_save and session.pending_save_info:
         pending_info = {k: v for k, v in session.pending_save_info.items() if k != "_cookie"}
@@ -1247,6 +1260,7 @@ def api_status(profile_id: str = ""):
         "extensionLinked": ext_linked,
         "pendingSave":     session.pending_save,
         "pendingSaveAccount": pending_info,
+        "addAccountMode":  session.add_account_mode,
     }
 
 
@@ -1528,40 +1542,113 @@ class RemoveAccountBody(BaseModel):
 
 @app.post("/api/credentials/relink")
 async def api_relink(body: RelinkBody):
-    """Relink using a saved or provided cookie directly — no connect code needed.
-    Used by the extension when switching back to a saved account."""
+    """Relink using a provided cookie.
+    If a different account is already active and save mode is ask/always,
+    the new account goes to pending_save without displacing the active session."""
     try:
         info = await validate_cookie(body.cookie)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(500, f"Could not verify Roblox session: {e}")
-    session = get_session(body.profile_id)
-    session.cookie       = body.cookie
-    session.account_info = info
-    cfg_check = get_config(body.profile_id)
-    should_start = cfg_check.get("_monitoringActive") or cfg_check.get("autoStartMonitoring")
-    if should_start and not session.monitoring:
-        session.monitoring   = True
-        session.monitor_task = asyncio.create_task(monitor_loop(body.profile_id))
-        set_cfg(body.profile_id, "_monitoringActive", True)
+
+    session    = get_session(body.profile_id)
+    cfg        = get_config(body.profile_id)
     roblox_uid = info.get("userId", "")
-    if cfg_check.get("saveCookies") and PG_URL and roblox_uid:
-        conn = get_pg(); cur = conn.cursor()
+    save_mode  = cfg.get("cookieSaveMode", "ask")
+
+    # Determine if this is a brand-new account being added or just a re-auth
+    current_uid    = (session.account_info or {}).get("userId", "")
+    is_new_account = bool(current_uid and roblox_uid and roblox_uid != current_uid)
+
+    if PG_URL and roblox_uid:
+        already_saved = False
+        conn2 = get_pg(); cur2 = conn2.cursor()
         try:
-            cur.execute(
-                """INSERT INTO saved_credentials (profile_id, roblox_user_id, cookie_encrypted, account_info)
-                   VALUES (%s,%s,%s,%s)
-                   ON CONFLICT (profile_id, roblox_user_id) DO UPDATE
-                   SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
-                (body.profile_id, roblox_uid, body.cookie, json.dumps(info), body.cookie, json.dumps(info))
+            cur2.execute(
+                "SELECT 1 FROM saved_credentials WHERE profile_id=%s AND roblox_user_id=%s",
+                (body.profile_id, roblox_uid)
             )
-            conn.commit()
+            already_saved = cur2.fetchone() is not None
         except Exception as e:
-            conn.rollback()
-            print(f"[SENTINEL] Failed to save relinked credentials: {e}")
+            print(f"[SENTINEL] Error checking saved credentials: {e}")
         finally:
-            cur.close(); release_pg(conn)
+            cur2.close(); release_pg(conn2)
+
+        if is_new_account and save_mode in ("ask", "always"):
+            # Don't switch active session — queue as pending so dashboard can handle it
+            if save_mode == "always":
+                conn3 = get_pg(); cur3 = conn3.cursor()
+                try:
+                    cur3.execute(
+                        """INSERT INTO saved_credentials (profile_id, roblox_user_id, cookie_encrypted, account_info)
+                           VALUES (%s,%s,%s,%s)
+                           ON CONFLICT (profile_id, roblox_user_id) DO UPDATE
+                           SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
+                        (body.profile_id, roblox_uid, body.cookie, json.dumps(info),
+                         body.cookie, json.dumps(info))
+                    )
+                    conn3.commit()
+                except Exception as e:
+                    conn3.rollback()
+                    print(f"[SENTINEL] Failed to auto-save new account: {e}")
+                finally:
+                    cur3.close(); release_pg(conn3)
+                session.pending_save      = False
+                session.pending_save_info = None
+            else:
+                # ask — flag for popup, don't switch active session
+                session.pending_save      = True
+                session.pending_save_info = {**info, "_cookie": body.cookie}
+            return {**info, "profile_id": body.profile_id}
+
+        # Same account re-auth or no active account — switch normally
+        session.cookie       = body.cookie
+        session.account_info = info
+        session.extension_last_seen = time.time()
+        should_start = cfg.get("_monitoringActive") or cfg.get("autoStartMonitoring")
+        if should_start and not session.monitoring:
+            session.monitoring   = True
+            session.monitor_task = asyncio.create_task(monitor_loop(body.profile_id))
+            set_cfg(body.profile_id, "_monitoringActive", True)
+
+        if already_saved:
+            conn3 = get_pg(); cur3 = conn3.cursor()
+            try:
+                cur3.execute(
+                    "UPDATE saved_credentials SET cookie_encrypted=%s, account_info=%s, saved_at=NOW() WHERE profile_id=%s AND roblox_user_id=%s",
+                    (body.cookie, json.dumps(info), body.profile_id, roblox_uid)
+                )
+                conn3.commit()
+            except Exception as e:
+                conn3.rollback()
+            finally:
+                cur3.close(); release_pg(conn3)
+        elif save_mode == "always":
+            conn3 = get_pg(); cur3 = conn3.cursor()
+            try:
+                cur3.execute(
+                    """INSERT INTO saved_credentials (profile_id, roblox_user_id, cookie_encrypted, account_info)
+                       VALUES (%s,%s,%s,%s)
+                       ON CONFLICT (profile_id, roblox_user_id) DO UPDATE
+                       SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
+                    (body.profile_id, roblox_uid, body.cookie, json.dumps(info),
+                     body.cookie, json.dumps(info))
+                )
+                conn3.commit()
+            except Exception as e:
+                conn3.rollback()
+            finally:
+                cur3.close(); release_pg(conn3)
+        elif save_mode == "ask" and not already_saved and not is_new_account:
+            session.pending_save      = True
+            session.pending_save_info = {**info, "_cookie": body.cookie}
+    else:
+        # No PG or no uid — just switch session
+        session.cookie       = body.cookie
+        session.account_info = info
+        session.extension_last_seen = time.time()
+
     return {**info, "profile_id": body.profile_id}
 
 # ── MONITORING ────────────────────────────────────────────────────────────────
@@ -1682,7 +1769,6 @@ def api_get_config(profile_id: str = ""):
 def api_update_config(body: ConfigBody):
     data = body.model_dump(exclude_none=True)
     pid  = data.pop("profile_id", "")
-    # Validate cookieSaveMode
     if "cookieSaveMode" in data and data["cookieSaveMode"] not in ("ask", "always", "never"):
         raise HTTPException(400, "cookieSaveMode must be 'ask', 'always', or 'never'")
     for k, v in data.items():
