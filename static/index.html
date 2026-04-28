@@ -883,7 +883,8 @@
             <!-- Connected actions (shown when account IS active) -->
             <div id="connected-account-section" style="display:none;margin-top:10px;">
               <button class="btn btn-block" onclick="testConnection()" style="margin-bottom:6px;">Test Active Connection</button>
-              <button class="btn btn-block btn-primary" onclick="openAddAnotherModal()" style="margin-bottom:0;">+ Add Another Account via Extension</button>
+              <button class="btn btn-block btn-primary" onclick="openAddAnotherModal()" style="margin-bottom:6px;">+ Add Another Account via Extension</button>
+              <button class="btn btn-block" onclick="disconnectExtension()" style="border-color:rgba(255,59,59,0.25);color:rgba(255,100,100,0.7);font-size:11px;" id="disconnect-ext-btn">Disconnect Extension</button>
             </div>
           </div>
         </div>
@@ -1586,8 +1587,16 @@ function applyStatusPill(status) {
 
   if (dot)  dot.className  = 'status-dot ' + dotClass;
   if (txt)  txt.textContent = label;
-  if (pill) pill.title = extLinked ? 'Extension connected' : 'Extension not connected';
+  if (pill) pill.title = extLinked ? 'Extension connected (verified)' : 'Extension not connected';
   if (toggle) toggle.classList.toggle('on', monitoring);
+
+  // Show/hide disconnect button based on whether extension is actually linked
+  const discBtn = document.getElementById('disconnect-ext-btn');
+  if (discBtn) {
+    discBtn.style.display = extLinked ? 'block' : 'none';
+    discBtn.disabled = false;
+    discBtn.textContent = 'Disconnect Extension';
+  }
 
   // Disable monitor toggle if no credential
   if (toggle) {
@@ -1774,7 +1783,15 @@ function updateAddAnotherDetected(account) {
   if (doneBtn)  doneBtn.disabled = false;
 }
 
-async function confirmAddAnother() {
+async function disconnectExtension() {
+  try {
+    await api('POST', '/api/extension/command', { profile_id: pid(), command: 'disconnect' });
+    toast('Disconnect signal sent to extension', 'success');
+    // Update button state — it'll go grey when next status poll sees extensionLinked = false
+    const btn = document.getElementById('disconnect-ext-btn');
+    if (btn) { btn.textContent = 'Signal sent…'; btn.disabled = true; }
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
   if (!_addAnotherDetectedInfo) return;
   const doneBtn = document.getElementById('add-another-done-btn');
   if (doneBtn) { doneBtn.disabled = true; doneBtn.textContent = 'Saving…'; }
