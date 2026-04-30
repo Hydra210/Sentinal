@@ -789,6 +789,10 @@
         <div class="status-dot" id="main-status-dot"></div>
         <span id="main-status-text">INACTIVE</span>
       </div>
+      <div class="status-pill" id="ext-status-pill" title="Extension connection status" style="cursor:default;">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" id="ext-status-icon" style="color:var(--text-dimmer);flex-shrink:0;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <span id="ext-status-text" style="font-size:10px;">EXT OFFLINE</span>
+      </div>
       <div class="profile-pill" onclick="openSettings()">
         <div class="profile-pill-avatar" id="topbar-avatar"></div>
         <span class="profile-pill-name" id="topbar-profile-name">—</span>
@@ -1054,14 +1058,22 @@ async function api(method, path, body) {
   let r;
   try { r = await fetch(path, opts); }
   catch(e) { throw new Error('Network error — check your connection'); }
-  // Try to parse JSON; if it fails (e.g. Render cold-start HTML page), give a clear message
   let data;
   try { data = await r.json(); }
   catch(e) {
     if (!r.ok) throw new Error(`Server error ${r.status} — the service may be starting up`);
     throw new Error(`Unexpected non-JSON response from server (${r.status})`);
   }
-  if (!r.ok) throw new Error(data.detail || data.error || `HTTP ${r.status}`);
+  if (!r.ok) {
+    // FastAPI validation errors come as {detail: [{loc, msg, type}...]} — flatten to readable string
+    const det = data.detail;
+    let msg;
+    if (typeof det === 'string') msg = det;
+    else if (Array.isArray(det)) msg = det.map(e => `${e.loc?.join('.')}: ${e.msg}`).join('; ');
+    else if (det) msg = JSON.stringify(det);
+    else msg = data.error || `HTTP ${r.status}`;
+    throw new Error(msg);
+  }
   return data;
 }
 
@@ -1598,7 +1610,7 @@ function applyStatusPill(status) {
   const hasCred     = status.hasCredential;
   const monitoring  = status.monitoring;
 
-  // Determine mode label + dot style
+  // ── Main status pill ──────────────────────────────────────────────────────
   let label, dotClass;
   if (!hasCred && !extLinked) {
     label = 'INACTIVE'; dotClass = '';
@@ -1609,28 +1621,46 @@ function applyStatusPill(status) {
   } else {
     label = monitoring ? 'LIVE' : 'IDLE'; dotClass = monitoring ? 'online' : '';
   }
-
-  if (dot)  dot.className  = 'status-dot ' + dotClass;
+  if (dot)  dot.className   = 'status-dot ' + dotClass;
   if (txt)  txt.textContent = label;
-  if (pill) pill.title = extLinked ? 'Extension connected (verified)' : 'Extension not connected';
   if (toggle) toggle.classList.toggle('on', monitoring);
 
-  // Show/hide disconnect button based on whether extension is actually linked
+  // ── Extension indicator pill ──────────────────────────────────────────────
+  const extPill = document.getElementById('ext-status-pill');
+  const extIcon = document.getElementById('ext-status-icon');
+  const extTxt  = document.getElementById('ext-status-text');
+  if (extPill && extIcon && extTxt) {
+    if (extLinked) {
+      extTxt.textContent = 'EXT ONLINE';
+      extIcon.style.color = 'rgba(100,255,160,0.8)';
+      extPill.style.borderColor = 'rgba(100,255,160,0.25)';
+      extPill.style.background  = 'rgba(100,255,160,0.04)';
+      extPill.title = 'Extension is connected and sending verified heartbeats';
+    } else {
+      extTxt.textContent = 'EXT OFFLINE';
+      extIcon.style.color = 'var(--text-dimmer)';
+      extPill.style.borderColor = '';
+      extPill.style.background  = '';
+      extPill.title = 'Extension not connected — open the Sentinel extension to connect';
+    }
+  }
+
+  // ── Disconnect button visibility ──────────────────────────────────────────
   const discBtn = document.getElementById('disconnect-ext-btn');
   if (discBtn) {
     discBtn.style.display = extLinked ? 'block' : 'none';
-    discBtn.disabled = false;
-    discBtn.textContent = 'Disconnect Extension';
+    if (extLinked) { discBtn.disabled = false; discBtn.textContent = 'Disconnect Extension'; }
   }
 
-  // Disable monitor toggle if no credential
+  // ── Monitor toggle guard ──────────────────────────────────────────────────
   if (toggle) {
-    toggle.style.opacity = hasCred ? '' : '0.35';
+    toggle.style.opacity       = hasCred ? '' : '0.35';
     toggle.style.pointerEvents = hasCred ? '' : 'none';
+    toggle.title = hasCred ? '' : 'No Roblox account connected — cannot monitor';
   }
 
-  STATE.monitoring    = monitoring;
-  STATE.hasCredential = hasCred;
+  STATE.monitoring      = monitoring;
+  STATE.hasCredential   = hasCred;
   STATE.extensionLinked = extLinked;
 }
 
