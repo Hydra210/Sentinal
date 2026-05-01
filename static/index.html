@@ -593,13 +593,57 @@
       <div class="section-title" style="color:var(--accent3);">Danger Zone</div>
       <div class="btn-group">
         <button class="btn btn-danger btn-sm" onclick="clearAllHistory()">Clear History</button>
-        <button class="btn btn-danger btn-sm" onclick="clearCredentials()">Unlink Roblox Account</button>
-        <button class="btn btn-sm" style="border-color:rgba(240,192,64,0.35);color:var(--warn);" onclick="unlinkExtension()">Unlink Extension Only</button>
+        <button class="btn btn-danger btn-sm" onclick="clearCredentials()">Unlink All Accounts</button>
       </div>
       <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);margin-top:8px;line-height:1.7;">
-        <b style="color:rgba(255,255,255,0.5);">Unlink Roblox</b> — removes the saved cookie everywhere.<br>
-        <b style="color:rgba(255,255,255,0.5);">Unlink Extension Only</b> — drops the live session but keeps saved credentials, so the dashboard stays linked.
+        <b style="color:rgba(255,255,255,0.5);">Unlink All Accounts</b> — removes all saved cookies and clears the active session everywhere.
       </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Extension connection management -->
+    <div style="margin-bottom:0;">
+      <div class="section-title" style="margin-bottom:12px;">Extension Connection</div>
+
+      <!-- Status row -->
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:8px;height:8px;border-radius:50%;flex-shrink:0;" id="settings-ext-dot"></div>
+          <div>
+            <div style="font-size:13px;font-weight:600;" id="settings-ext-label">Checking…</div>
+            <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-dimmer);" id="settings-ext-sub">—</div>
+          </div>
+        </div>
+        <!-- Unlink button — only shown when extension IS connected -->
+        <button class="btn btn-sm" id="settings-unlink-ext-btn"
+          style="display:none;border-color:rgba(240,192,64,0.35);color:var(--warn);font-size:10px;"
+          onclick="unlinkExtension()">Unlink</button>
+      </div>
+
+      <!-- Link Extension dropdown — shown when extension is NOT connected but account IS -->
+      <div id="settings-link-ext-section" style="display:none;">
+        <button class="btn btn-block btn-primary" onclick="toggleSettingsCodeDropdown()" style="margin-bottom:0;display:flex;align-items:center;justify-content:space-between;">
+          <span>Link Extension</span>
+          <span id="settings-code-chevron" style="font-size:10px;transition:transform .2s;">▼</span>
+        </button>
+        <div id="settings-code-dropdown" style="display:none;margin-top:8px;padding:14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;">
+          <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-dimmer);letter-spacing:2px;text-align:center;margin-bottom:10px;">ENTER THIS CODE IN YOUR SENTINEL EXTENSION</div>
+          <div class="connect-code-display" id="settings-connect-code-display" style="font-size:36px;letter-spacing:12px;text-align:center;padding:14px 0;font-family:var(--font-display);font-weight:800;color:#fff;">----</div>
+          <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);text-align:center;margin-bottom:12px;" id="settings-code-expiry">—</div>
+          <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);line-height:1.7;text-align:center;">
+            Open the Sentinel extension → enter this code → your session will resume instantly.
+          </div>
+        </div>
+      </div>
+
+      <!-- Connect section — shown when no account at all -->
+      <div id="settings-no-account-section" style="display:none;">
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);padding:10px 0;line-height:1.7;">
+          No Roblox account connected. Go to the <b style="color:rgba(255,255,255,0.5);">Dashboard</b> tab to add one via the extension.
+        </div>
+      </div>
+    </div>
 
       <div style="margin-top:16px;">
         <div class="toggle-label" style="font-size:13px;margin-bottom:4px;">Account Save Mode</div>
@@ -815,6 +859,19 @@
     <!-- ── DASHBOARD ── -->
     <div class="tab-panel active" id="tab-dashboard">
       <div style="max-width:1200px;margin:0 auto;">
+
+        <!-- Headless mode banner — shown when account connected but extension offline -->
+        <div id="headless-banner" style="display:none;margin-bottom:16px;padding:12px 16px;background:rgba(240,192,64,0.06);border:1px solid rgba(240,192,64,0.25);border-radius:8px;display:none;align-items:center;justify-content:space-between;gap:12px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:8px;height:8px;border-radius:50%;background:rgba(240,192,64,0.8);flex-shrink:0;animation:pulse-dot 1.5s infinite;"></div>
+            <div>
+              <div style="font-weight:600;font-size:13px;color:var(--warn);">HEADLESS MODE</div>
+              <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);margin-top:1px;">Account connected · Extension offline · Monitoring may be limited</div>
+            </div>
+          </div>
+          <button class="btn btn-sm" onclick="openSettings()" style="border-color:rgba(240,192,64,0.35);color:var(--warn);white-space:nowrap;flex-shrink:0;">Link Extension →</button>
+        </div>
+
         <div class="grid-4 mb-20">
           <div class="stat-card"><div class="stat-value" id="stat-archived">0</div><div class="stat-label">Assets Archived</div></div>
           <div class="stat-card"><div class="stat-value" id="stat-groups">0</div><div class="stat-label">Groups Monitored</div></div>
@@ -1652,6 +1709,13 @@ function applyStatusPill(status) {
     if (extLinked) { discBtn.disabled = false; discBtn.textContent = 'Disconnect Extension'; }
   }
 
+  // ── Headless banner ───────────────────────────────────────────────────────
+  const headlessBanner = document.getElementById('headless-banner');
+  if (headlessBanner) {
+    const showBanner = hasCred && !extLinked;
+    headlessBanner.style.display = showBanner ? 'flex' : 'none';
+  }
+
   // ── Monitor toggle guard ──────────────────────────────────────────────────
   if (toggle) {
     toggle.style.opacity       = hasCred ? '' : '0.35';
@@ -1662,6 +1726,11 @@ function applyStatusPill(status) {
   STATE.monitoring      = monitoring;
   STATE.hasCredential   = hasCred;
   STATE.extensionLinked = extLinked;
+
+  // Keep settings modal in sync if it's open
+  if (document.getElementById('settings-modal')?.classList.contains('open')) {
+    updateSettingsExtSection();
+  }
 }
 
 function applyMonitoringUI(on) {
@@ -2312,6 +2381,17 @@ function openSettings() {
   const saveBtn = document.getElementById('settings-avatar-save-btn');
   if (saveBtn) saveBtn.style.display = 'none';
 
+  // Reset extension dropdown state
+  _settingsCodeOpen = false;
+  const dropdown = document.getElementById('settings-code-dropdown');
+  if (dropdown) dropdown.style.display = 'none';
+  const chevron = document.getElementById('settings-code-chevron');
+  if (chevron) chevron.style.transform = '';
+  if (_settingsCodeTimer) { clearInterval(_settingsCodeTimer); _settingsCodeTimer = null; }
+
+  // Update extension section with current state
+  updateSettingsExtSection();
+
   // sync debug toggle + panel state
   const toggle = document.getElementById('debug-mode-toggle');
   if (toggle) toggle.className = 'toggle-sw' + (_debugMode ? ' on' : '');
@@ -2320,7 +2400,11 @@ function openSettings() {
   if (_debugMode) { refreshDebugStats(); renderSettingsLogs(); }
 }
 
-function closeSettings() { document.getElementById('settings-modal').classList.remove('open'); }
+function closeSettings() {
+  document.getElementById('settings-modal').classList.remove('open');
+  if (_settingsCodeTimer) { clearInterval(_settingsCodeTimer); _settingsCodeTimer = null; }
+  _settingsCodeOpen = false;
+}
 
 function openChangePinModal() {
   closeSettings();
@@ -2431,14 +2515,109 @@ async function clearCredentials() {
 }
 
 async function unlinkExtension() {
-  if (!confirm('Unlink the extension session? Saved credentials stay in the database — you can re-activate any account without the extension. Only the live session is dropped.')) return;
-  await api('POST', '/api/extension/unlink', { profile_id: pid() });
-  STATE.hasCredential = false;
-  updateAccountDisplay(null);
-  document.getElementById('connected-account-section').style.display = 'none';
-  await refreshSavedAccounts();
-  closeSettings();
-  toast('Extension session unlinked — credentials preserved', 'warn');
+  if (!confirm('Disconnect the extension? Your saved accounts stay in the database. You can relink anytime using a new code.')) return;
+  try {
+    await api('POST', '/api/extension/command', { profile_id: pid(), command: 'disconnect' });
+    await api('POST', '/api/extension/unlink',  { profile_id: pid() });
+    STATE.extensionLinked = false;
+    updateSettingsExtSection();
+    toast('Extension disconnected — saved accounts preserved', 'warn');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+let _settingsCodeTimer = null;
+let _settingsCodeOpen  = false;
+
+function updateSettingsExtSection() {
+  const ext   = STATE.extensionLinked;
+  const cred  = STATE.hasCredential;
+
+  const dot       = document.getElementById('settings-ext-dot');
+  const label     = document.getElementById('settings-ext-label');
+  const sub       = document.getElementById('settings-ext-sub');
+  const unlinkBtn = document.getElementById('settings-unlink-ext-btn');
+  const linkSec   = document.getElementById('settings-link-ext-section');
+  const noAccSec  = document.getElementById('settings-no-account-section');
+
+  if (!dot) return;
+
+  if (ext && cred) {
+    dot.style.background = 'rgba(100,255,160,0.8)';
+    label.textContent    = 'Extension Connected';
+    sub.textContent      = 'Live session active — heartbeat verified';
+    unlinkBtn.style.display = 'inline-flex';
+    linkSec.style.display   = 'none';
+    noAccSec.style.display  = 'none';
+  } else if (!ext && cred) {
+    dot.style.background = 'rgba(240,192,64,0.8)';
+    label.textContent    = 'Headless Mode';
+    sub.textContent      = 'Account connected but extension offline — link to go live';
+    unlinkBtn.style.display = 'none';
+    linkSec.style.display   = 'block';
+    noAccSec.style.display  = 'none';
+  } else if (ext && !cred) {
+    dot.style.background = 'rgba(255,100,100,0.8)';
+    label.textContent    = 'Extension Online — No Account';
+    sub.textContent      = 'Extension connected but no Roblox account added';
+    unlinkBtn.style.display = 'inline-flex';
+    linkSec.style.display   = 'none';
+    noAccSec.style.display  = 'none';
+  } else {
+    dot.style.background = 'var(--text-dimmer)';
+    label.textContent    = 'Not Connected';
+    sub.textContent      = 'No extension, no account';
+    unlinkBtn.style.display = 'none';
+    linkSec.style.display   = 'none';
+    noAccSec.style.display  = 'block';
+  }
+}
+
+async function toggleSettingsCodeDropdown() {
+  const dropdown = document.getElementById('settings-code-dropdown');
+  const chevron  = document.getElementById('settings-code-chevron');
+  if (!dropdown) return;
+
+  _settingsCodeOpen = !_settingsCodeOpen;
+  dropdown.style.display = _settingsCodeOpen ? 'block' : 'none';
+  if (chevron) chevron.style.transform = _settingsCodeOpen ? 'rotate(180deg)' : '';
+
+  if (_settingsCodeOpen) {
+    // Generate a fresh code
+    if (_settingsCodeTimer) clearInterval(_settingsCodeTimer);
+    try {
+      const res = await api('POST', '/api/connect-code/generate', { profile_id: pid() });
+      document.getElementById('settings-connect-code-display').textContent = res.code;
+      let secs = 300;
+      _settingsCodeTimer = setInterval(async () => {
+        secs--;
+        const m = Math.floor(secs / 60), s = String(secs % 60).padStart(2, '0');
+        const expEl = document.getElementById('settings-code-expiry');
+        if (expEl) expEl.textContent = `Expires in ${m}:${s}`;
+        if (secs <= 0) {
+          clearInterval(_settingsCodeTimer);
+          // Auto-refresh code
+          if (_settingsCodeOpen) {
+            const r2 = await api('POST', '/api/connect-code/generate', { profile_id: pid() });
+            document.getElementById('settings-connect-code-display').textContent = r2.code;
+            secs = 300;
+          }
+        }
+        // Check if extension connected
+        const status = await api('GET', `/api/status?profile_id=${pid()}`).catch(() => null);
+        if (status && status.extensionLinked) {
+          clearInterval(_settingsCodeTimer);
+          _settingsCodeOpen = false;
+          dropdown.style.display = 'none';
+          if (chevron) chevron.style.transform = '';
+          STATE.extensionLinked = true;
+          updateSettingsExtSection();
+          toast('✓ Extension linked!', 'success');
+        }
+      }, 3000);
+    } catch(e) { toast('Could not generate code: ' + e.message, 'error'); }
+  } else {
+    if (_settingsCodeTimer) { clearInterval(_settingsCodeTimer); _settingsCodeTimer = null; }
+  }
 }
 
 async function toggleAutoStart(el) {
