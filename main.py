@@ -1417,25 +1417,31 @@ def api_clear_credentials(body: MonitorBody):
 @app.post("/api/credentials/remove-account")
 def api_remove_account(body: RemoveAccountBody):
     """Remove a single saved Roblox account by user ID."""
+    uid = str(body.roblox_user_id).strip()
+    if not uid:
+        raise HTTPException(400, "roblox_user_id is required")
     if PG_URL:
         conn = get_pg(); cur = conn.cursor()
         try:
             cur.execute(
                 "DELETE FROM saved_credentials WHERE profile_id=%s AND roblox_user_id=%s",
-                (body.profile_id, body.roblox_user_id)
+                (body.profile_id, uid)
             )
+            deleted = cur.rowcount
             conn.commit()
+            print(f"[SENTINEL] Removed account uid={uid} profile={body.profile_id} rows_deleted={deleted}")
         except Exception as e:
             conn.rollback()
             print(f"[SENTINEL] Failed to remove account: {e}")
+            raise HTTPException(500, f"Database error while removing account: {e}")
         finally:
             cur.close(); release_pg(conn)
     # If the currently active session belongs to this account, clear it
     session = get_session(body.profile_id)
-    if session.account_info and session.account_info.get("userId") == body.roblox_user_id:
-        session.cookie = None
+    if session.account_info and str(session.account_info.get("userId", "")) == uid:
+        session.cookie       = None
         session.account_info = None
-    return {"removed": True}
+    return {"removed": True, "userId": uid}
 
 @app.post("/api/credentials/manual")
 async def api_manual_cookie(body: ManualCookieBody):
@@ -1562,8 +1568,11 @@ def api_saved_accounts(profile_id: str = ""):
             if isinstance(info, str):
                 try: info = json.loads(info)
                 except: info = {}
-            if info:
-                result.append({**info, "saved_at": str(row.get("saved_at", ""))})
+            elif isinstance(info, dict):
+                pass  # already parsed by psycopg2
+            if info and isinstance(info, dict):
+                saved_at = row["saved_at"] if "saved_at" in row.keys() else None
+                result.append({**info, "saved_at": str(saved_at or "")})
         return result
     except Exception as e:
         print(f"[SENTINEL] saved-accounts error: {e}")
