@@ -3486,7 +3486,7 @@ async function forceGC() {
   </div>
 </div>
 <!-- ══════════════════════════════════════════════════
-     SENTINEL ANIMATION ENGINE
+     SENTINEL ANIMATION ENGINE — optimized
 ══════════════════════════════════════════════════ -->
 <script>
 (function() {
@@ -3501,31 +3501,24 @@ const bootMessages = [
   'CALIBRATING MODERATION ENGINE...',
   'SENTINEL ONLINE.',
 ];
-
-let bootPct = 0;
-const fill = document.getElementById('boot-progress-fill');
+let bootPct = 0, msgIdx = 0;
+const fill    = document.getElementById('boot-progress-fill');
 const statusEl = document.getElementById('boot-status-text');
 const bootLogo = document.getElementById('boot-logo-text');
-const splash = document.getElementById('boot-splash');
+const splash   = document.getElementById('boot-splash');
 
-// Glitch logo during boot
-setTimeout(() => {
-  bootLogo.classList.add('glitching');
-  setTimeout(() => bootLogo.classList.remove('glitching'), 280);
-}, 600);
-setTimeout(() => {
-  bootLogo.classList.add('glitching');
-  setTimeout(() => bootLogo.classList.remove('glitching'), 180);
-}, 1200);
+function glitch(el, dur) {
+  el.classList.add('glitching');
+  setTimeout(() => el.classList.remove('glitching'), dur);
+}
+setTimeout(() => glitch(bootLogo, 260), 600);
+setTimeout(() => glitch(bootLogo, 160), 1200);
 
-let msgIdx = 0;
 const bootInterval = setInterval(() => {
   bootPct += Math.random() * 22 + 8;
   if (bootPct >= 100) { bootPct = 100; clearInterval(bootInterval); }
   fill.style.width = bootPct + '%';
-  if (msgIdx < bootMessages.length) {
-    statusEl.textContent = bootMessages[msgIdx++];
-  }
+  if (msgIdx < bootMessages.length) statusEl.textContent = bootMessages[msgIdx++];
 }, 160);
 
 setTimeout(() => {
@@ -3539,162 +3532,130 @@ setTimeout(() => {
 }, 1400);
 
 /* ── CUSTOM CURSOR ── */
-const dot = document.getElementById('cursor-dot');
+const dot  = document.getElementById('cursor-dot');
 const ring = document.getElementById('cursor-ring');
 let mx = -100, my = -100, rx = -100, ry = -100;
 
-document.addEventListener('mousemove', e => {
-  mx = e.clientX; my = e.clientY;
-  dot.style.left = mx + 'px'; dot.style.top = my + 'px';
-});
+document.addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; });
 
-// Smooth ring follow
 (function animateRing() {
   rx += (mx - rx) * 0.14;
   ry += (my - ry) * 0.14;
-  ring.style.left = rx + 'px'; ring.style.top = ry + 'px';
+  ring.style.left = rx + 'px';
+  ring.style.top  = ry + 'px';
+  dot.style.left  = mx + 'px';
+  dot.style.top   = my + 'px';
   requestAnimationFrame(animateRing);
 })();
 
-// Hover expand for interactive elements
-document.addEventListener('mouseover', e => {
-  if (e.target.closest('button, a, .btn, .nav-tab, .profile-card, .card, .toggle-sw, .pin-key, .asset-chip, .wl-tab, .history-item')) {
-    ring.classList.add('hovering');
-  }
-}, true);
-document.addEventListener('mouseout', e => {
-  if (e.target.closest('button, a, .btn, .nav-tab, .profile-card, .card, .toggle-sw, .pin-key, .asset-chip, .wl-tab, .history-item')) {
-    ring.classList.remove('hovering');
-  }
-}, true);
+const hoverSel = 'button,a,.btn,.nav-tab,.profile-card,.card,.toggle-sw,.pin-key,.asset-chip,.wl-tab,.history-item';
+document.addEventListener('mouseover', e => { if (e.target.closest(hoverSel)) ring.classList.add('hovering'); }, true);
+document.addEventListener('mouseout',  e => { if (e.target.closest(hoverSel)) ring.classList.remove('hovering'); }, true);
+document.addEventListener('mousedown', () => { dot.style.transform = 'translate(-50%,-50%) scale(0.6)'; });
+document.addEventListener('mouseup',   () => { dot.style.transform = 'translate(-50%,-50%) scale(1)'; });
 
-document.addEventListener('mousedown', () => {
-  dot.style.transform = 'translate(-50%,-50%) scale(0.6)';
-});
-document.addEventListener('mouseup', () => {
-  dot.style.transform = 'translate(-50%,-50%) scale(1)';
-});
+/* ── GRID GLOW CANVAS — only redraws on mousemove ── */
+const gCanvas = document.getElementById('grid-glow-canvas');
+const gCtx    = gCanvas.getContext('2d');
+const GRID    = 56;
+let gmx = -999, gmy = -999, gridDirty = false;
 
-/* ── PARTICLE FIELD ── */
-const pCanvas = document.getElementById('particle-canvas');
-const pCtx = pCanvas.getContext('2d');
-
-function resizeCanvases() {
-  pCanvas.width = window.innerWidth;
-  pCanvas.height = window.innerHeight;
-  gCanvas.width = window.innerWidth;
+function resizeGrid() {
+  gCanvas.width  = window.innerWidth;
   gCanvas.height = window.innerHeight;
+  gridDirty = true;
 }
+resizeGrid();
+window.addEventListener('resize', resizeGrid);
 
-const PARTICLE_COUNT = 55;
-const particles = [];
+document.addEventListener('mousemove', e => {
+  gmx = e.clientX; gmy = e.clientY; gridDirty = true;
+});
 
-function mkParticle() {
-  return {
-    x: Math.random() * window.innerWidth,
-    y: Math.random() * window.innerHeight,
-    vx: (Math.random() - 0.5) * 0.25,
-    vy: (Math.random() - 0.5) * 0.25,
-    size: Math.random() * 1.4 + 0.3,
-    opacity: Math.random() * 0.4 + 0.05,
-    pulse: Math.random() * Math.PI * 2,
-    pulseSpeed: Math.random() * 0.015 + 0.005,
-  };
-}
-for (let i = 0; i < PARTICLE_COUNT; i++) particles.push(mkParticle());
+function drawGridGlow() {
+  if (gridDirty) {
+    gridDirty = false;
+    gCtx.clearRect(0, 0, gCanvas.width, gCanvas.height);
+    const radius = 200;
+    // Single radial gradient blob — no per-dot gradients (too expensive)
+    const grad = gCtx.createRadialGradient(gmx, gmy, 0, gmx, gmy, radius);
+    grad.addColorStop(0,   'rgba(255,255,255,0.07)');
+    grad.addColorStop(0.5, 'rgba(255,255,255,0.02)');
+    grad.addColorStop(1,   'rgba(255,255,255,0)');
+    gCtx.fillStyle = grad;
+    gCtx.fillRect(0, 0, gCanvas.width, gCanvas.height);
 
-function drawParticles(ts) {
-  pCtx.clearRect(0, 0, pCanvas.width, pCanvas.height);
-  for (const p of particles) {
-    p.x += p.vx; p.y += p.vy; p.pulse += p.pulseSpeed;
-    if (p.x < -10) p.x = pCanvas.width + 10;
-    if (p.x > pCanvas.width + 10) p.x = -10;
-    if (p.y < -10) p.y = pCanvas.height + 10;
-    if (p.y > pCanvas.height + 10) p.y = -10;
-
-    const alpha = p.opacity * (0.7 + 0.3 * Math.sin(p.pulse));
-    // connection lines
-    for (const q of particles) {
-      const dx = p.x - q.x, dy = p.y - q.y;
-      const dist = Math.sqrt(dx*dx + dy*dy);
-      if (dist < 110 && dist > 0) {
-        pCtx.beginPath();
-        pCtx.strokeStyle = `rgba(255,255,255,${(1 - dist/110) * 0.06})`;
-        pCtx.lineWidth = 0.5;
-        pCtx.moveTo(p.x, p.y);
-        pCtx.lineTo(q.x, q.y);
-        pCtx.stroke();
+    // Dot highlights — fixed-size, no per-dot createRadialGradient
+    const r2 = radius * radius;
+    const startX = Math.floor((gmx - radius) / GRID) * GRID;
+    const startY = Math.floor((gmy - radius) / GRID) * GRID;
+    const endX   = Math.ceil((gmx + radius) / GRID) * GRID;
+    const endY   = Math.ceil((gmy + radius) / GRID) * GRID;
+    for (let gx = startX; gx <= endX; gx += GRID) {
+      for (let gy = startY; gy <= endY; gy += GRID) {
+        const dx = gx - gmx, dy = gy - gmy;
+        const d2 = dx*dx + dy*dy;
+        if (d2 < r2) {
+          const strength = Math.pow(1 - Math.sqrt(d2) / radius, 2);
+          gCtx.beginPath();
+          gCtx.arc(gx, gy, 2.5, 0, Math.PI * 2);
+          gCtx.fillStyle = `rgba(255,255,255,${(strength * 0.7).toFixed(3)})`;
+          gCtx.fill();
+        }
       }
     }
+  }
+  requestAnimationFrame(drawGridGlow);
+}
+requestAnimationFrame(drawGridGlow);
+
+/* ── PARTICLES — no connection lines, GPU-friendly ── */
+const pCanvas = document.getElementById('particle-canvas');
+const pCtx    = pCanvas.getContext('2d');
+
+function resizeParticles() {
+  pCanvas.width  = window.innerWidth;
+  pCanvas.height = window.innerHeight;
+}
+resizeParticles();
+window.addEventListener('resize', resizeParticles);
+
+const PARTICLE_COUNT = 28; // reduced count, no O(n²) lines
+const particles = Array.from({ length: PARTICLE_COUNT }, () => ({
+  x: Math.random() * window.innerWidth,
+  y: Math.random() * window.innerHeight,
+  vx: (Math.random() - 0.5) * 0.2,
+  vy: (Math.random() - 0.5) * 0.2,
+  size: Math.random() * 1.2 + 0.4,
+  alpha: Math.random() * 0.3 + 0.05,
+  phase: Math.random() * Math.PI * 2,
+}));
+
+let lastParticleFrame = 0;
+function drawParticles(ts) {
+  // Throttle to ~30fps for particles — plenty smooth, way cheaper
+  if (ts - lastParticleFrame < 33) { requestAnimationFrame(drawParticles); return; }
+  lastParticleFrame = ts;
+  pCtx.clearRect(0, 0, pCanvas.width, pCanvas.height);
+  for (const p of particles) {
+    p.x += p.vx; p.y += p.vy; p.phase += 0.008;
+    if (p.x < -5) p.x = pCanvas.width + 5;
+    if (p.x > pCanvas.width + 5) p.x = -5;
+    if (p.y < -5) p.y = pCanvas.height + 5;
+    if (p.y > pCanvas.height + 5) p.y = -5;
+    const a = p.alpha * (0.75 + 0.25 * Math.sin(p.phase));
     pCtx.beginPath();
     pCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-    pCtx.fillStyle = `rgba(255,255,255,${alpha})`;
+    pCtx.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`;
     pCtx.fill();
   }
   requestAnimationFrame(drawParticles);
 }
-
-/* ── MOUSE-REACTIVE GRID GLOW ── */
-const gCanvas = document.getElementById('grid-glow-canvas');
-const gCtx = gCanvas.getContext('2d');
-const GRID = 56;
-let gmx = -999, gmy = -999;
-
-document.addEventListener('mousemove', e => { gmx = e.clientX; gmy = e.clientY; });
-
-function drawGridGlow() {
-  gCtx.clearRect(0, 0, gCanvas.width, gCanvas.height);
-  const radius = 220;
-
-  // Radial glow blob following cursor
-  const grad = gCtx.createRadialGradient(gmx, gmy, 0, gmx, gmy, radius);
-  grad.addColorStop(0,   'rgba(255,255,255,0.055)');
-  grad.addColorStop(0.4, 'rgba(255,255,255,0.018)');
-  grad.addColorStop(1,   'rgba(255,255,255,0)');
-  gCtx.fillStyle = grad;
-  gCtx.fillRect(0, 0, gCanvas.width, gCanvas.height);
-
-  // Highlight grid intersections near cursor
-  const startX = Math.floor((gmx - radius) / GRID) * GRID;
-  const startY = Math.floor((gmy - radius) / GRID) * GRID;
-  const endX = Math.ceil((gmx + radius) / GRID) * GRID;
-  const endY = Math.ceil((gmy + radius) / GRID) * GRID;
-
-  for (let gx = startX; gx <= endX; gx += GRID) {
-    for (let gy = startY; gy <= endY; gy += GRID) {
-      const dx = gx - gmx, dy = gy - gmy;
-      const dist = Math.sqrt(dx*dx + dy*dy);
-      if (dist < radius) {
-        const strength = Math.pow(1 - dist/radius, 2.2);
-        const dotGrad = gCtx.createRadialGradient(gx, gy, 0, gx, gy, 18 * strength + 4);
-        dotGrad.addColorStop(0, `rgba(255,255,255,${strength * 0.65})`);
-        dotGrad.addColorStop(1, 'rgba(255,255,255,0)');
-        gCtx.fillStyle = dotGrad;
-        gCtx.fillRect(gx - 18, gy - 18, 36, 36);
-      }
-    }
-  }
-
-  // Subtle line brightening near cursor
-  gCtx.save();
-  const lineGrad = gCtx.createRadialGradient(gmx, gmy, 0, gmx, gmy, radius * 0.7);
-  lineGrad.addColorStop(0, 'rgba(255,255,255,0.04)');
-  lineGrad.addColorStop(1, 'rgba(255,255,255,0)');
-  gCtx.fillStyle = lineGrad;
-  gCtx.fillRect(0, 0, gCanvas.width, gCanvas.height);
-  gCtx.restore();
-
-  requestAnimationFrame(drawGridGlow);
-}
-
-resizeCanvases();
-window.addEventListener('resize', resizeCanvases);
 requestAnimationFrame(drawParticles);
-requestAnimationFrame(drawGridGlow);
 
 /* ── BUTTON RIPPLE ── */
 document.addEventListener('click', e => {
-  const btn = e.target.closest('.btn, .pin-key, .profile-card, .nav-tab');
+  const btn = e.target.closest('.btn,.pin-key,.nav-tab');
   if (!btn) return;
   const rect = btn.getBoundingClientRect();
   const size = Math.max(rect.width, rect.height) * 1.5;
@@ -3705,209 +3666,134 @@ document.addEventListener('click', e => {
   setTimeout(() => r.remove(), 600);
 }, true);
 
-/* ── CARD 3D TILT ── */
+/* ── CARD 3D TILT — only on the hovered card, not all cards ── */
+let tiltTarget = null;
+document.addEventListener('mouseover', e => {
+  tiltTarget = e.target.closest('.card,.stat-card');
+}, true);
 document.addEventListener('mousemove', e => {
-  document.querySelectorAll('.card, .stat-card').forEach(card => {
-    const rect = card.getBoundingClientRect();
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    const dx = (e.clientX - cx) / rect.width;
-    const dy = (e.clientY - cy) / rect.height;
-    const dist = Math.sqrt(dx*dx + dy*dy);
-    if (dist < 0.85) {
-      const intensity = Math.max(0, 1 - dist / 0.85);
-      const rx = -dy * 5 * intensity;
-      const ry = dx * 5 * intensity;
-      card.style.transform = `perspective(600px) rotateX(${rx}deg) rotateY(${ry}deg) translateY(-2px)`;
-    } else {
-      card.style.transform = '';
-    }
-  });
+  if (!tiltTarget) return;
+  const rect = tiltTarget.getBoundingClientRect();
+  const dx = (e.clientX - (rect.left + rect.width/2))  / (rect.width/2);
+  const dy = (e.clientY - (rect.top  + rect.height/2)) / (rect.height/2);
+  tiltTarget.style.transform = `perspective(700px) rotateX(${-dy*4}deg) rotateY(${dx*4}deg) translateY(-2px)`;
 });
-
-document.addEventListener('mouseleave', () => {
-  document.querySelectorAll('.card, .stat-card').forEach(c => c.style.transform = '');
-});
+document.addEventListener('mouseout', e => {
+  const left = e.target.closest('.card,.stat-card');
+  if (left) { left.style.transform = ''; tiltTarget = null; }
+}, true);
 
 /* ── NAV INDICATOR ── */
-function updateNavIndicator(tab) {
+function updateNavIndicator(tabName) {
   const indicator = document.getElementById('nav-indicator');
   if (!indicator) return;
-  const activeBtn = document.querySelector(`.nav-tab[onclick*="${tab}"]`) ||
-                    document.querySelector('.nav-tab.active');
-  if (!activeBtn) return;
-  const nav = document.getElementById('nav');
-  const navRect = nav.getBoundingClientRect();
-  const btnRect = activeBtn.getBoundingClientRect();
-  indicator.style.left = (btnRect.left - navRect.left) + 'px';
+  const btn = tabName
+    ? document.querySelector(`.nav-tab[onclick*="${tabName}"]`)
+    : document.querySelector('.nav-tab.active');
+  if (!btn) return;
+  const navRect = document.getElementById('nav').getBoundingClientRect();
+  const btnRect = btn.getBoundingClientRect();
+  indicator.style.left  = (btnRect.left - navRect.left) + 'px';
   indicator.style.width = btnRect.width + 'px';
 }
+setTimeout(() => updateNavIndicator(''), 400);
 
-// Patch showTab to trigger tab animation + indicator
-const _origShowTab = window.showTab;
+/* ── PATCH showTab FOR TRANSITIONS + INDICATOR ── */
+const _orig = window.showTab;
 window.showTab = function(tab) {
   const prev = document.querySelector('.tab-panel.active');
   if (prev && !prev.id.includes(tab)) {
     prev.classList.add('tab-exit');
     setTimeout(() => prev.classList.remove('tab-exit'), 260);
   }
-  if (_origShowTab) _origShowTab.call(window, tab);
-  else {
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-    document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-    const panel = document.getElementById('tab-' + tab);
-    const btn = document.querySelector(`.nav-tab[onclick*="${tab}"]`);
-    if (panel) { panel.classList.add('active'); panel.classList.add('tab-enter'); setTimeout(() => panel.classList.remove('tab-enter'), 320); }
-    if (btn) btn.classList.add('active');
+  if (_orig) _orig.call(window, tab);
+  const panel = document.getElementById('tab-' + tab);
+  if (panel) {
+    panel.classList.remove('tab-enter');
+    void panel.offsetWidth;
+    panel.classList.add('tab-enter');
+    setTimeout(() => panel.classList.remove('tab-enter'), 350);
   }
   setTimeout(() => updateNavIndicator(tab), 20);
 };
 
-setTimeout(() => updateNavIndicator('dashboard'), 300);
-
-// Re-sync indicator on existing showTab override
-const origShowTabRef = window.showTab;
-window.addEventListener('click', e => {
-  const tab = e.target.closest('.nav-tab');
-  if (tab) setTimeout(() => updateNavIndicator(''), 30);
-}, true);
-
 /* ── PROFILE CARD STAGGER ── */
 function animateProfileCards() {
-  const cards = document.querySelectorAll('#profile-grid .profile-card');
-  cards.forEach((c, i) => {
+  document.querySelectorAll('#profile-grid .profile-card').forEach((c, i) => {
     c.style.animationDelay = (0.08 + i * 0.07) + 's';
   });
 }
-
-// Watch for profile grid population
-const profileObs = new MutationObserver(() => animateProfileCards());
 const profileGrid = document.getElementById('profile-grid');
-if (profileGrid) profileObs.observe(profileGrid, { childList: true });
+if (profileGrid) new MutationObserver(animateProfileCards).observe(profileGrid, { childList: true });
 animateProfileCards();
 
-/* ── LOGO PERIODIC GLITCH ── */
+/* ── PERIODIC LOGO GLITCH ── */
 function scheduleGlitch(el) {
   if (!el) return;
-  const delay = 4000 + Math.random() * 8000;
   setTimeout(() => {
-    el.classList.add('glitching');
-    setTimeout(() => el.classList.remove('glitching'), 180 + Math.random() * 120);
-    setTimeout(() => {
-      el.classList.add('glitching');
-      setTimeout(() => el.classList.remove('glitching'), 100);
-    }, 220);
+    glitch(el, 160 + Math.random() * 100);
+    setTimeout(() => glitch(el, 90), 220);
     scheduleGlitch(el);
-  }, delay);
+  }, 5000 + Math.random() * 9000);
 }
 scheduleGlitch(document.querySelector('.big-logo'));
 
-/* ── CORNER DECOR PULSE ── */
+/* ── CORNER PULSE ── */
 function pulseCorners() {
   document.querySelectorAll('.corner-decor').forEach(c => {
     c.classList.add('corner-decor-pulse');
     setTimeout(() => c.classList.remove('corner-decor-pulse'), 400);
   });
-  setTimeout(pulseCorners, 6000 + Math.random() * 4000);
+  setTimeout(pulseCorners, 7000 + Math.random() * 4000);
 }
-setTimeout(pulseCorners, 3000);
+setTimeout(pulseCorners, 3500);
 
-/* ── WELCOME TOAST ON PROFILE LOAD ── */
-function showWelcomeToast(profileName) {
+/* ── WELCOME TOAST ── */
+window._sentinelShowWelcome = function(profileName) {
   const wt = document.getElementById('welcome-toast');
   const nameEl = document.getElementById('welcome-toast-name');
   if (!wt) return;
   nameEl.textContent = profileName ? `WELCOME BACK, ${profileName.toUpperCase()}` : 'WELCOME BACK';
   wt.classList.add('show');
   setTimeout(() => wt.classList.remove('show'), 3200);
-}
-window._sentinelShowWelcome = showWelcomeToast;
+};
 
-/* ── STAT NUMBER COUNT-UP ── */
+/* ── STAT COUNT-UP ── */
 function animateCounter(el, target) {
-  if (!el || isNaN(target)) return;
-  const dur = 900, start = performance.now();
   const from = parseInt(el.textContent) || 0;
-  const diff = target - from;
+  if (from === target) return;
+  const dur = 800, start = performance.now(), diff = target - from;
   function step(now) {
     const t = Math.min((now - start) / dur, 1);
-    const ease = 1 - Math.pow(1 - t, 3);
-    el.textContent = Math.round(from + diff * ease);
+    el.textContent = Math.round(from + diff * (1 - Math.pow(1 - t, 3)));
     if (t < 1) requestAnimationFrame(step);
   }
   requestAnimationFrame(step);
 }
-
-// Intercept stat updates
-const statIds = ['stat-archived', 'stat-groups', 'stat-whitelisted'];
-statIds.forEach(id => {
+['stat-archived','stat-groups','stat-whitelisted'].forEach(id => {
   const el = document.getElementById(id);
   if (!el) return;
-  const orig = Object.getOwnPropertyDescriptor(Element.prototype, 'textContent') ||
-               Object.getOwnPropertyDescriptor(Node.prototype, 'textContent');
-  // Use MutationObserver for stat changes
-  new MutationObserver(muts => {
-    for (const m of muts) {
-      const val = parseInt(el.textContent);
-      if (!isNaN(val) && val !== 0) animateCounter(el, val);
-    }
+  new MutationObserver(() => {
+    const v = parseInt(el.textContent);
+    if (!isNaN(v)) animateCounter(el, v);
   }).observe(el, { childList: true, characterData: true, subtree: true });
 });
 
-/* ── HISTORY ITEMS STAGGER ── */
-function staggerHistoryItems() {
-  document.querySelectorAll('.history-item').forEach((item, i) => {
-    item.style.animationDelay = (i * 0.04) + 's';
-  });
-}
-const histPanel = document.getElementById('tab-history');
-if (histPanel) {
-  new MutationObserver(staggerHistoryItems).observe(histPanel, { childList: true, subtree: true });
-}
-
-/* ── TAB PANEL ENTER CLASS FIX ── */
-// Patch the existing showTab to also add enter animation
-(function patchShowTab() {
-  const orig = window.showTab;
-  if (!orig) return;
-  window.showTab = function(tab) {
-    orig.call(window, tab);
-    const panel = document.getElementById('tab-' + tab);
-    if (panel) {
-      panel.classList.remove('tab-enter');
-      void panel.offsetWidth; // reflow
-      panel.classList.add('tab-enter');
-      setTimeout(() => panel.classList.remove('tab-enter'), 350);
-    }
-    setTimeout(() => updateNavIndicator(tab), 20);
-  };
-})();
-
-/* ── PROFILE SCREEN SHOW — hook into existing logic ── */
-// If profile screen gets unhidden, animate cards
-const psObs = new MutationObserver(() => {
-  const ps = document.getElementById('profile-screen');
-  if (ps && !ps.classList.contains('hidden')) {
-    setTimeout(animateProfileCards, 50);
-  }
-});
-const ps = document.getElementById('profile-screen');
-if (ps) psObs.observe(ps, { attributes: true, attributeFilter: ['class'] });
-
-/* ── AMBIENT MOUSE GLOW on profile screen ── */
+/* ── PROFILE SCREEN GRID — CSS-only ambient glow via throttled background update ── */
+let gridMoveTimer = null;
 document.addEventListener('mousemove', e => {
-  const ps = document.getElementById('profile-screen');
-  if (!ps || ps.classList.contains('hidden')) return;
-  const gb = ps.querySelector('#grid-bg');
-  if (!gb) return;
-  const pct_x = (e.clientX / window.innerWidth * 100).toFixed(1);
-  const pct_y = (e.clientY / window.innerHeight * 100).toFixed(1);
-  gb.style.backgroundImage = `
-    radial-gradient(ellipse 600px 400px at ${pct_x}% ${pct_y}%, rgba(255,255,255,0.025) 0%, transparent 70%),
-    linear-gradient(rgba(255,255,255,0.025) 1px,transparent 1px),
-    linear-gradient(90deg,rgba(255,255,255,0.025) 1px,transparent 1px)
-  `;
-  gb.style.backgroundSize = '100% 100%, 56px 56px, 56px 56px';
+  if (gridMoveTimer) return;
+  gridMoveTimer = setTimeout(() => {
+    gridMoveTimer = null;
+    const ps = document.getElementById('profile-screen');
+    if (!ps || ps.classList.contains('hidden')) return;
+    const gb = ps.querySelector('#grid-bg');
+    if (!gb) return;
+    const px = (e.clientX / window.innerWidth  * 100).toFixed(1);
+    const py = (e.clientY / window.innerHeight * 100).toFixed(1);
+    gb.style.backgroundImage = `radial-gradient(ellipse 500px 350px at ${px}% ${py}%,rgba(255,255,255,0.022) 0%,transparent 70%),linear-gradient(rgba(255,255,255,0.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.025) 1px,transparent 1px)`;
+    gb.style.backgroundSize = '100% 100%,56px 56px,56px 56px';
+  }, 40); // throttle to 25fps max
 });
 
 })();
