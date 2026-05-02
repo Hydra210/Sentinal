@@ -944,7 +944,7 @@
             <!-- Connected actions (shown when account IS active) -->
             <div id="connected-account-section" style="display:none;margin-top:10px;">
               <button class="btn btn-block" onclick="testConnection()" style="margin-bottom:6px;">Test Active Connection</button>
-              <button class="btn btn-block btn-primary" onclick="openAddAnotherModal()" style="margin-bottom:6px;">+ Add Another Account via Extension</button>
+              <button class="btn btn-block btn-primary" onclick="openAddAnotherModal()" style="margin-bottom:6px;">+ Add Another Account</button>
               <button class="btn btn-block" onclick="disconnectExtension()" style="border-color:rgba(255,59,59,0.25);color:rgba(255,100,100,0.7);font-size:11px;" id="disconnect-ext-btn">Disconnect Extension</button>
             </div>
           </div>
@@ -1850,29 +1850,73 @@ function openAddAnotherModal() {
   _addAnotherDetectedInfo = null;
   const modal = document.getElementById('add-another-modal');
   if (modal) modal.classList.add('open');
+  backToAddPicker(); // always start at picker
+  if (_addAnotherPollTimer) { clearInterval(_addAnotherPollTimer); _addAnotherPollTimer = null; }
+}
 
-  // Reset UI state
-  const waiting  = document.getElementById('add-another-waiting');
-  const detected = document.getElementById('add-another-detected');
-  const doneBtn  = document.getElementById('add-another-done-btn');
-  const dot      = document.getElementById('add-another-dot');
-  const statusTx = document.getElementById('add-another-status-text');
-  if (waiting)  waiting.style.display  = 'flex';
-  if (detected) detected.style.display = 'none';
-  if (doneBtn)  { doneBtn.disabled = true; doneBtn.textContent = 'Done — Account Added'; }
-  if (dot)      dot.style.background   = 'var(--text-dimmer)';
-  if (statusTx) statusTx.textContent   = 'Waiting for extension…';
+function backToAddPicker() {
+  // Reset all flows, show picker
+  _addAnotherDetectedInfo = null;
+  if (_addAnotherPollTimer) { clearInterval(_addAnotherPollTimer); _addAnotherPollTimer = null; }
+  document.getElementById('add-another-picker').style.display      = 'block';
+  document.getElementById('add-another-ext-flow').style.display    = 'none';
+  document.getElementById('add-another-cookie-flow').style.display = 'none';
+  // Reset card hover states
+  ['add-via-ext-card','add-via-cookie-card'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.borderColor = '';
+  });
+}
 
-  // Poll for pendingSave from a new account
-  if (_addAnotherPollTimer) clearInterval(_addAnotherPollTimer);
-  _addAnotherPollTimer = setInterval(async () => {
-    try {
-      const status = await api('GET', `/api/status?profile_id=${pid()}`);
-      if (status.pendingSave && status.pendingSaveAccount) {
-        updateAddAnotherDetected(status.pendingSaveAccount);
-      }
-    } catch {}
-  }, 2000);
+function selectAddMethod(method) {
+  document.getElementById('add-another-picker').style.display = 'none';
+  if (method === 'extension') {
+    document.getElementById('add-another-ext-flow').style.display = 'block';
+    // Reset extension flow state
+    const dot = document.getElementById('add-another-dot');
+    const statusTx = document.getElementById('add-another-status-text');
+    const detected = document.getElementById('add-another-detected');
+    const doneBtn  = document.getElementById('add-another-done-btn');
+    if (dot)      dot.style.background = 'var(--text-dimmer)';
+    if (statusTx) statusTx.textContent = 'Waiting for extension…';
+    if (detected) detected.style.display = 'none';
+    if (doneBtn)  { doneBtn.disabled = true; doneBtn.textContent = 'Confirm & Save Account'; }
+    // Start polling for pending save
+    _addAnotherPollTimer = setInterval(async () => {
+      try {
+        const status = await api('GET', `/api/status?profile_id=${pid()}`);
+        if (status.pendingSave && status.pendingSaveAccount) {
+          updateAddAnotherDetected(status.pendingSaveAccount);
+        }
+      } catch {}
+    }, 2000);
+  } else {
+    document.getElementById('add-another-cookie-flow').style.display = 'block';
+    const inp = document.getElementById('add-another-cookie-input');
+    if (inp) { inp.value = ''; inp.focus(); }
+  }
+}
+
+async function submitAddAnotherCookie() {
+  let cookie = (document.getElementById('add-another-cookie-input')?.value || '').trim();
+  if (!cookie) { toast('Paste your cookie first', 'error'); return; }
+  // Strip Roblox warning prefix
+  if (cookie.includes('|_')) cookie = cookie.split('|_').pop().trim();
+  cookie = cookie.replace(/^[|_]+/, '').replace(/[|_]+$/, '').trim();
+  if (!cookie) { toast('Could not extract cookie — paste the full .ROBLOSECURITY value', 'error'); return; }
+  const btn = document.getElementById('add-another-cookie-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Verifying…'; }
+  try {
+    await api('POST', '/api/credentials/manual', { profile_id: pid(), cookie });
+    closeAddAnotherModal();
+    await refreshSavedAccounts();
+    await refreshStatus();
+    toast('✓ Account added successfully', 'success');
+  } catch(e) {
+    toast('Failed: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Add Account'; }
+  }
 }
 
 function closeAddAnotherModal() {
@@ -2879,54 +2923,84 @@ async function forceGC() {
   <div class="modal-box" style="max-width:460px;">
     <button class="modal-close" onclick="closeAddAnotherModal()">✕</button>
     <div style="font-family:var(--font-display);font-size:20px;font-weight:800;letter-spacing:3px;margin-bottom:6px;">ADD ANOTHER ACCOUNT</div>
-    <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);letter-spacing:2px;margin-bottom:20px;">NO CODE NEEDED — USES YOUR EXTENSION</div>
+    <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);letter-spacing:2px;margin-bottom:24px;">CHOOSE HOW YOU WANT TO ADD YOUR ACCOUNT</div>
 
-    <!-- Step instructions -->
-    <div id="add-another-steps">
-      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px;">
+    <!-- Method picker — shown first -->
+    <div id="add-another-picker">
+      <!-- Option 1: Extension -->
+      <div id="add-via-ext-card" onclick="selectAddMethod('extension')"
+        style="padding:16px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:10px;cursor:pointer;transition:border-color .2s;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="width:38px;height:38px;border-radius:8px;background:rgba(255,255,255,0.05);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <div style="flex:1;">
+            <div style="font-weight:600;font-size:14px;margin-bottom:3px;">Via Extension <span style="font-family:var(--font-mono);font-size:9px;color:rgba(100,255,160,0.7);letter-spacing:1px;background:rgba(100,255,160,0.08);border:1px solid rgba(100,255,160,0.2);border-radius:4px;padding:1px 6px;margin-left:6px;">RECOMMENDED</span></div>
+            <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);line-height:1.6;">Log into Roblox in your browser, open the Sentinel extension, and click "+ Add Current Account". No code needed.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Option 2: Manual cookie -->
+      <div id="add-via-cookie-card" onclick="selectAddMethod('cookie')"
+        style="padding:16px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:border-color .2s;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="width:38px;height:38px;border-radius:8px;background:rgba(240,192,64,0.06);border:1px solid rgba(240,192,64,0.2);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(240,192,64,0.7)" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </div>
+          <div style="flex:1;">
+            <div style="font-weight:600;font-size:14px;margin-bottom:3px;">Manual Cookie <span style="font-family:var(--font-mono);font-size:9px;color:var(--warn);letter-spacing:1px;background:rgba(240,192,64,0.06);border:1px solid rgba(240,192,64,0.2);border-radius:4px;padding:1px 6px;margin-left:6px;">ADVANCED</span></div>
+            <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);line-height:1.6;">Paste your .ROBLOSECURITY cookie directly. Only use a dedicated bot account — never your main.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Extension flow — shown after picking extension -->
+    <div id="add-another-ext-flow" style="display:none;">
+      <button onclick="backToAddPicker()" style="background:none;border:none;color:var(--text-dimmer);font-family:var(--font-mono);font-size:10px;cursor:pointer;padding:0;margin-bottom:16px;">← Back</button>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:18px;">
         <div style="display:flex;gap:12px;align-items:flex-start;">
           <div style="width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:10px;color:rgba(255,255,255,0.6);flex-shrink:0;margin-top:1px;">1</div>
-          <div>
-            <div style="font-size:13px;font-weight:600;margin-bottom:2px;">Log into a different Roblox account</div>
-            <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);line-height:1.6;">Open roblox.com in your browser and sign into the account you want to add.</div>
-          </div>
+          <div><div style="font-size:13px;font-weight:600;margin-bottom:2px;">Log into a different Roblox account</div><div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);line-height:1.6;">Open roblox.com and sign into the account you want to add.</div></div>
         </div>
         <div style="display:flex;gap:12px;align-items:flex-start;">
           <div style="width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:10px;color:rgba(255,255,255,0.6);flex-shrink:0;margin-top:1px;">2</div>
-          <div>
-            <div style="font-size:13px;font-weight:600;margin-bottom:2px;">Open the Sentinel extension</div>
-            <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);line-height:1.6;">Click the Sentinel icon in your browser toolbar.</div>
-          </div>
+          <div><div style="font-size:13px;font-weight:600;margin-bottom:2px;">Open the Sentinel extension</div><div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);line-height:1.6;">Click the Sentinel icon in your browser toolbar.</div></div>
         </div>
         <div style="display:flex;gap:12px;align-items:flex-start;">
           <div style="width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:10px;color:rgba(255,255,255,0.6);flex-shrink:0;margin-top:1px;">3</div>
-          <div>
-            <div style="font-size:13px;font-weight:600;margin-bottom:2px;">Click "+ Add Current Roblox Account"</div>
-            <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);line-height:1.6;">The extension will detect the new account and send it to your dashboard automatically.</div>
-          </div>
+          <div><div style="font-size:13px;font-weight:600;margin-bottom:2px;">Click "+ Add Current Roblox Account"</div><div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);line-height:1.6;">The extension sends the cookie here automatically — no code needed.</div></div>
         </div>
       </div>
-
-      <!-- Waiting indicator -->
-      <div id="add-another-waiting" style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:16px;">
+      <div id="add-another-waiting" style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:14px;">
         <div style="width:8px;height:8px;border-radius:50%;background:var(--text-dimmer);animation:pulse-dot 1.5s infinite;flex-shrink:0;" id="add-another-dot"></div>
         <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);" id="add-another-status-text">Waiting for extension…</span>
       </div>
-
-      <!-- Detected account preview (hidden until detected) -->
-      <div id="add-another-detected" style="display:none;padding:12px 14px;background:rgba(100,255,160,0.04);border:1px solid rgba(100,255,160,0.2);border-radius:8px;margin-bottom:16px;">
+      <div id="add-another-detected" style="display:none;padding:12px 14px;background:rgba(100,255,160,0.04);border:1px solid rgba(100,255,160,0.2);border-radius:8px;margin-bottom:14px;">
         <div style="font-family:var(--font-mono);font-size:9px;color:rgba(100,255,160,0.7);letter-spacing:2px;margin-bottom:8px;">ACCOUNT DETECTED</div>
         <div style="display:flex;align-items:center;gap:10px;">
           <div id="add-another-avatar" style="width:34px;height:34px;border-radius:50%;background:var(--surface3);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:700;font-size:13px;color:rgba(255,255,255,0.5);overflow:hidden;flex-shrink:0;"></div>
-          <div>
-            <div style="font-weight:600;font-size:13px;" id="add-another-name">—</div>
-            <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);" id="add-another-user">—</div>
-          </div>
+          <div><div style="font-weight:600;font-size:13px;" id="add-another-name">—</div><div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);" id="add-another-user">—</div></div>
         </div>
       </div>
-
       <div style="display:flex;gap:10px;">
-        <button class="btn btn-primary" style="flex:1;" id="add-another-done-btn" onclick="confirmAddAnother()" disabled>Done — Account Added</button>
+        <button class="btn btn-primary" style="flex:1;" id="add-another-done-btn" onclick="confirmAddAnother()" disabled>Confirm &amp; Save Account</button>
+        <button class="btn" onclick="closeAddAnotherModal()">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Manual cookie flow — shown after picking cookie -->
+    <div id="add-another-cookie-flow" style="display:none;">
+      <button onclick="backToAddPicker()" style="background:none;border:none;color:var(--text-dimmer);font-family:var(--font-mono);font-size:10px;cursor:pointer;padding:0;margin-bottom:16px;">← Back</button>
+      <div style="padding:12px 14px;background:rgba(240,192,64,0.06);border:1px solid rgba(240,192,64,0.2);border-radius:8px;margin-bottom:14px;">
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--warn);font-weight:700;margin-bottom:4px;">⚠ Security Notice</div>
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim);line-height:1.7;">Your cookie grants full access to this Roblox account. Only use a dedicated bot/mod account — never your main account.</div>
+      </div>
+      <label style="font-family:var(--font-mono);font-size:9px;color:var(--text-dimmer);letter-spacing:2px;text-transform:uppercase;display:block;margin-bottom:6px;">.ROBLOSECURITY Cookie</label>
+      <textarea id="add-another-cookie-input" placeholder="Paste your .ROBLOSECURITY value here..." style="width:100%;min-height:80px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:10px;font-family:var(--font-mono);font-size:10px;word-break:break-all;resize:vertical;outline:none;margin-bottom:12px;"></textarea>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-primary" style="flex:1;" id="add-another-cookie-btn" onclick="submitAddAnotherCookie()">Add Account</button>
         <button class="btn" onclick="closeAddAnotherModal()">Cancel</button>
       </div>
     </div>
