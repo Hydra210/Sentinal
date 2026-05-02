@@ -1414,6 +1414,10 @@ def api_clear_credentials(body: MonitorBody):
     session.account_info = None
     return {"cleared": True}
 
+class RemoveAccountBody(BaseModel):
+    profile_id:     str
+    roblox_user_id: str
+
 @app.post("/api/credentials/remove-account")
 def api_remove_account(body: RemoveAccountBody):
     """Remove a single saved Roblox account by user ID."""
@@ -1600,10 +1604,6 @@ class RelinkBody(BaseModel):
 class ManualCookieBody(BaseModel):
     profile_id: str
     cookie:     str
-
-class RemoveAccountBody(BaseModel):
-    profile_id:     str
-    roblox_user_id: str
 
 @app.post("/api/credentials/relink")
 async def api_relink(body: RelinkBody):
