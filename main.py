@@ -1132,8 +1132,7 @@ def api_delete_profile(profile_id: str, pin: str):
 
 @app.post("/api/connect-code/generate")
 def api_generate_code(body: GenerateCodeBody):
-    code = generate_connect_code(body.profile_id)
-    return {"code": code, "expiresIn": 300}
+    raise HTTPException(503, "Extension connectivity is temporarily unavailable for maintenance. Check back soon.")
 
 @app.post("/api/connect-code/generate-add-account")
 def api_generate_add_account_code(body: GenerateCodeBody):
@@ -1154,103 +1153,7 @@ def api_cancel_add_account(body: GenerateCodeBody):
 
 @app.post("/api/connect-code/redeem")
 async def api_redeem_code(body: ConnectCodeBody):
-    try:
-        profile_id = validate_connect_code(body.code)
-        if not profile_id:
-            raise HTTPException(400, "Invalid or expired code — generate a fresh one from the dashboard")
-        try:
-            info = await validate_cookie(body.cookie)
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(500, f"Could not verify Roblox session: {e}")
-        session = get_session(profile_id)
-        session.cookie              = body.cookie
-        session.account_info        = info
-        session.extension_last_seen = time.time()
-        # Issue a fresh session token so this extension instance is uniquely identified
-        ext_token = secrets.token_hex(32)
-        session.extension_token       = ext_token
-        session.extension_token_valid = True
-        session.pending_commands      = []   # clear any stale commands
-
-        # Auto-restart monitoring if it was active, OR if autoStartMonitoring is enabled
-        cfg_check = get_config(profile_id)
-        should_start = cfg_check.get("_monitoringActive") or cfg_check.get("autoStartMonitoring")
-        if should_start and not session.monitoring:
-            session.monitoring   = True
-            session.monitor_task = asyncio.create_task(monitor_loop(profile_id))
-            set_cfg(profile_id, "_monitoringActive", True)
-            print(f"[SENTINEL] Auto-started monitoring for profile {profile_id}")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(500, str(e))
-
-    cfg = get_config(profile_id)
-    roblox_uid = info.get("userId", "")
-    save_mode  = cfg.get("cookieSaveMode", "ask")
-
-    if PG_URL and roblox_uid:
-        # Check if this account is already saved — if so, never show popup again
-        already_saved = False
-        conn2 = get_pg(); cur2 = conn2.cursor()
-        try:
-            cur2.execute(
-                "SELECT 1 FROM saved_credentials WHERE profile_id=%s AND roblox_user_id=%s",
-                (profile_id, roblox_uid)
-            )
-            already_saved = cur2.fetchone() is not None
-        except Exception as e:
-            print(f"[SENTINEL] Error checking saved credentials: {e}")
-        finally:
-            cur2.close(); release_pg(conn2)
-
-        if already_saved:
-            # Refresh cookie silently, no popup
-            conn3 = get_pg(); cur3 = conn3.cursor()
-            try:
-                cur3.execute(
-                    "UPDATE saved_credentials SET cookie_encrypted=%s, account_info=%s, saved_at=NOW() WHERE profile_id=%s AND roblox_user_id=%s",
-                    (body.cookie, json.dumps(info), profile_id, roblox_uid)
-                )
-                conn3.commit()
-            except Exception as e:
-                conn3.rollback()
-            finally:
-                cur3.close(); release_pg(conn3)
-            session.pending_save      = False
-            session.pending_save_info = None
-        elif save_mode == "always":
-            conn3 = get_pg(); cur3 = conn3.cursor()
-            try:
-                cur3.execute(
-                    """INSERT INTO saved_credentials (profile_id, roblox_user_id, cookie_encrypted, account_info)
-                       VALUES (%s,%s,%s,%s)
-                       ON CONFLICT (profile_id, roblox_user_id) DO UPDATE
-                       SET cookie_encrypted=%s, account_info=%s, saved_at=NOW()""",
-                    (profile_id, roblox_uid, body.cookie, json.dumps(info), body.cookie, json.dumps(info))
-                )
-                conn3.commit()
-            except Exception as e:
-                conn3.rollback()
-                print(f"[SENTINEL] Failed to auto-save credentials: {e}")
-            finally:
-                cur3.close(); release_pg(conn3)
-            session.pending_save      = False
-            session.pending_save_info = None
-        elif save_mode == "ask":
-            session.pending_save      = True
-            session.pending_save_info = {**info, "_cookie": body.cookie}
-        else:
-            session.pending_save      = False
-            session.pending_save_info = None
-
-    return {**info, "profile_id": profile_id, "ext_token": ext_token}
-
-
-# ── STATUS ────────────────────────────────────────────────────────────────────
+    raise HTTPException(503, "Extension connectivity is temporarily unavailable for maintenance. Check back soon.")
 
 @app.get("/api/status")
 def api_status(profile_id: str = ""):
