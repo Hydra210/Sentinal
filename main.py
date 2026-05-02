@@ -1420,22 +1420,35 @@ def api_remove_account(body: RemoveAccountBody):
     uid = str(body.roblox_user_id).strip()
     if not uid:
         raise HTTPException(400, "roblox_user_id is required")
-    if PG_URL:
-        conn = get_pg(); cur = conn.cursor()
-        try:
+    if not PG_URL:
+        raise HTTPException(503, "Postgres not configured")
+    conn = get_pg(); cur = conn.cursor()
+    try:
+        # Match on roblox_user_id column (stored as text)
+        cur.execute(
+            "DELETE FROM saved_credentials WHERE profile_id=%s AND roblox_user_id=%s",
+            (body.profile_id, uid)
+        )
+        deleted = cur.rowcount
+        if deleted == 0:
+            # Fallback: try matching userId field inside the account_info JSON
             cur.execute(
-                "DELETE FROM saved_credentials WHERE profile_id=%s AND roblox_user_id=%s",
+                "DELETE FROM saved_credentials WHERE profile_id=%s AND account_info->>'userId'=%s",
                 (body.profile_id, uid)
             )
             deleted = cur.rowcount
-            conn.commit()
-            print(f"[SENTINEL] Removed account uid={uid} profile={body.profile_id} rows_deleted={deleted}")
-        except Exception as e:
-            conn.rollback()
-            print(f"[SENTINEL] Failed to remove account: {e}")
-            raise HTTPException(500, f"Database error while removing account: {e}")
-        finally:
-            cur.close(); release_pg(conn)
+        conn.commit()
+        print(f"[SENTINEL] remove-account uid={uid} profile={body.profile_id} deleted={deleted}")
+        if deleted == 0:
+            raise HTTPException(404, f"Account {uid} not found in saved credentials")
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        print(f"[SENTINEL] Failed to remove account: {e}")
+        raise HTTPException(500, f"Database error: {e}")
+    finally:
+        cur.close(); release_pg(conn)
     # If the currently active session belongs to this account, clear it
     session = get_session(body.profile_id)
     if session.account_info and str(session.account_info.get("userId", "")) == uid:
