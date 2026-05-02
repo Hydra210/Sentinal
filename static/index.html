@@ -623,8 +623,8 @@
 
       <!-- Link Extension dropdown — shown when extension is NOT connected but account IS -->
       <div id="settings-link-ext-section" style="display:none;">
-        <button class="btn btn-block btn-primary" onclick="toggleSettingsCodeDropdown()" style="margin-bottom:0;display:flex;align-items:center;justify-content:space-between;">
-          <span>Link Extension</span>
+        <button class="btn btn-block btn-primary" onclick="toggleSettingsCodeDropdown()" style="margin-bottom:0;display:flex;align-items:center;justify-content:space-between;opacity:0.38;pointer-events:none;cursor:not-allowed;" title="🔧 Extension features are under maintenance">
+          <span>🔧 Extension — Under Maintenance</span>
           <span id="settings-code-chevron" style="font-size:10px;transition:transform .2s;">▼</span>
         </button>
         <div id="settings-code-dropdown" style="display:none;margin-top:8px;padding:14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;">
@@ -915,7 +915,7 @@
                 <div class="connect-code-display" id="connect-code-display">----</div>
                 <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);text-align:center;" id="code-expiry-text">—</div>
               </div>
-              <button class="btn btn-primary btn-block" onclick="showConnectCode()" style="margin-bottom:8px;">Connect via Extension</button>
+              <button class="btn btn-primary btn-block" onclick="showConnectCode()" style="margin-bottom:8px;opacity:0.38;pointer-events:none;cursor:not-allowed;" title="🔧 Extension features are under maintenance">🔧 Extension — Under Maintenance</button>
               <a href="/static/sentinel-extension.zip" download style="text-decoration:none;display:block;margin-bottom:8px;">
                 <button class="btn btn-block" style="width:100%;">⬇ Download Extension</button>
               </a>
@@ -1107,6 +1107,103 @@ let STATE = {
   isAdmin:        false,
   _lastPin:       null,
 };
+
+// ── EXTENSION MAINTENANCE MODE ────────────────────────────────────────────────
+// Set to true to disable all extension connectivity in the UI.
+// All code is preserved — this only disables the UI surface.
+const EXT_MAINTENANCE = true;
+const EXT_MAINTENANCE_MSG = 'Extension connectivity is temporarily unavailable for maintenance. Your accounts and data are safe. Check back soon.';
+
+function extBlocked() {
+  toast('🔧 Extension features are under maintenance — ' + EXT_MAINTENANCE_MSG, 'warn');
+}
+
+function applyExtMaintenance() {
+  if (!EXT_MAINTENANCE) return;
+
+  // All selectors that should be greyed out / disabled
+  const blockSelectors = [
+    '#connect-code-box',
+    '[onclick="showConnectCode()"]',
+    '[onclick="disconnectExtension()"]',
+    '[onclick="unlinkExtension()"]',
+    '[onclick="toggleSettingsCodeDropdown()"]',
+    '#settings-unlink-ext-btn',
+    '#settings-link-ext-section',
+    '#disconnect-ext-btn',
+    '#add-via-ext-card',
+    '#headless-banner button',
+  ];
+
+  blockSelectors.forEach(sel => {
+    document.querySelectorAll(sel).forEach(el => {
+      el.style.opacity       = '0.38';
+      el.style.pointerEvents = 'none';
+      el.style.cursor        = 'not-allowed';
+      el.title               = '🔧 Under maintenance';
+    });
+  });
+
+  // Replace "Connect via Extension" button text and disable it
+  document.querySelectorAll('[onclick="showConnectCode()"]').forEach(btn => {
+    btn.textContent = '🔧 Extension — Under Maintenance';
+    btn.style.opacity = '0.38';
+    btn.style.pointerEvents = 'none';
+  });
+
+  // Replace "Link Extension →" button in headless banner
+  document.querySelectorAll('#headless-banner button').forEach(btn => {
+    btn.textContent = '🔧 Maintenance';
+    btn.style.opacity = '0.38';
+    btn.style.pointerEvents = 'none';
+  });
+
+  // Grey out the extension picker card and show maintenance badge
+  const extCard = document.getElementById('add-via-ext-card');
+  if (extCard) {
+    extCard.style.opacity       = '0.38';
+    extCard.style.pointerEvents = 'none';
+    extCard.style.cursor        = 'not-allowed';
+    extCard.title               = '🔧 Under maintenance';
+    // Add maintenance badge next to title
+    const title = extCard.querySelector('[style*="font-weight:600"]');
+    if (title && !title.querySelector('.maint-badge')) {
+      const badge = document.createElement('span');
+      badge.className = 'maint-badge';
+      badge.style.cssText = 'font-family:var(--font-mono);font-size:9px;color:rgba(255,160,60,0.9);letter-spacing:1px;background:rgba(255,160,60,0.1);border:1px solid rgba(255,160,60,0.25);border-radius:4px;padding:1px 7px;margin-left:8px;';
+      badge.textContent = '🔧 MAINTENANCE';
+      title.appendChild(badge);
+    }
+  }
+
+  // Add a maintenance notice to the ext-status-pill in topbar
+  const extTxt = document.getElementById('ext-status-text');
+  if (extTxt) extTxt.textContent = 'EXT MAINTENANCE';
+  const extIcon = document.getElementById('ext-status-icon');
+  if (extIcon) extIcon.style.color = 'rgba(255,160,60,0.7)';
+  const extPill = document.getElementById('ext-status-pill');
+  if (extPill) {
+    extPill.style.borderColor = 'rgba(255,160,60,0.25)';
+    extPill.style.background  = 'rgba(255,160,60,0.06)';
+    extPill.title             = '🔧 Extension maintenance: ' + EXT_MAINTENANCE_MSG;
+  }
+
+  // Add a banner below the topbar if we're on the dashboard
+  const existing = document.getElementById('ext-maintenance-banner');
+  if (!existing) {
+    const banner = document.createElement('div');
+    banner.id = 'ext-maintenance-banner';
+    banner.style.cssText = 'background:rgba(255,160,60,0.07);border-bottom:1px solid rgba(255,160,60,0.2);padding:9px 24px;display:flex;align-items:center;gap:10px;font-family:var(--font-mono);font-size:10px;color:rgba(255,160,60,0.85);letter-spacing:0.5px;';
+    banner.innerHTML = '<span style="flex-shrink:0;">🔧</span><span><b style="color:rgba(255,160,60,1);">EXTENSION MAINTENANCE</b> — ' + EXT_MAINTENANCE_MSG + '</span>';
+    // Insert after the topbar
+    const topbar = document.querySelector('.topbar') || document.querySelector('header') || document.querySelector('.navbar');
+    if (topbar && topbar.parentNode) {
+      topbar.parentNode.insertBefore(banner, topbar.nextSibling);
+    } else {
+      document.body.insertBefore(banner, document.body.firstChild);
+    }
+  }
+}
 
 // ── API ───────────────────────────────────────────────────────────────────────
 async function api(method, path, body) {
@@ -1537,6 +1634,7 @@ async function loginToProfile(profileData) {
 
   await initApp();
   await refreshSavedAccounts();
+  applyExtMaintenance();
   toast(`Welcome, ${profileData.name}!`, 'success');
 }
 
@@ -1803,7 +1901,7 @@ let _codeTimer = null;
 let _pollTimer = null;
 
 async function showConnectCode() {
-  const box = document.getElementById('connect-code-box');
+  if (EXT_MAINTENANCE) { extBlocked(); return; }
   if (box) box.style.display = 'block';
   if (_codeTimer) clearInterval(_codeTimer);
   if (_pollTimer) clearInterval(_pollTimer);
@@ -1869,7 +1967,7 @@ function backToAddPicker() {
 }
 
 function selectAddMethod(method) {
-  document.getElementById('add-another-picker').style.display = 'none';
+  if (EXT_MAINTENANCE && method === 'extension') { extBlocked(); return; }
   if (method === 'extension') {
     document.getElementById('add-another-ext-flow').style.display = 'block';
     // Reset extension flow state
@@ -1963,8 +2061,8 @@ function updateAddAnotherDetected(account) {
 }
 
 async function disconnectExtension() {
+  if (EXT_MAINTENANCE) { extBlocked(); return; }
   try {
-    await api('POST', '/api/extension/command', { profile_id: pid(), command: 'disconnect' });
     toast('Disconnect signal sent to extension', 'success');
     // Update button state — it'll go grey when next status poll sees extensionLinked = false
     const btn = document.getElementById('disconnect-ext-btn');
@@ -2589,6 +2687,7 @@ async function clearCredentials() {
 }
 
 async function unlinkExtension() {
+  if (EXT_MAINTENANCE) { extBlocked(); return; }
   if (!confirm('Disconnect the extension? Your saved accounts stay in the database. You can relink anytime using a new code.')) return;
   try {
     await api('POST', '/api/extension/command', { profile_id: pid(), command: 'disconnect' });
@@ -2647,7 +2746,7 @@ function updateSettingsExtSection() {
 }
 
 async function toggleSettingsCodeDropdown() {
-  const dropdown = document.getElementById('settings-code-dropdown');
+  if (EXT_MAINTENANCE) { extBlocked(); return; }
   const chevron  = document.getElementById('settings-code-chevron');
   if (!dropdown) return;
 
@@ -2904,6 +3003,7 @@ async function forceGC() {
 
 // ── BOOT ──────────────────────────────────────────────────────────────────────
 (async function boot() {
+  applyExtMaintenance();
   try {
     await loadProfileScreen();
   } catch(e) {
