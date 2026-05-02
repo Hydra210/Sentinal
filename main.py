@@ -1363,6 +1363,10 @@ def api_remove_account(body: RemoveAccountBody):
         session.account_info = None
     return {"removed": True, "userId": uid}
 
+class ManualCookieBody(BaseModel):
+    profile_id: str
+    cookie:     str
+
 @app.post("/api/credentials/manual")
 async def api_manual_cookie(body: ManualCookieBody):
     """Add a Roblox account via manually entered cookie.
@@ -1501,10 +1505,6 @@ def api_saved_accounts(profile_id: str = ""):
         cur.close(); release_pg(conn)
 
 class RelinkBody(BaseModel):
-    profile_id: str
-    cookie:     str
-
-class ManualCookieBody(BaseModel):
     profile_id: str
     cookie:     str
 
