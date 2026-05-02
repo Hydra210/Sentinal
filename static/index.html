@@ -1610,28 +1610,39 @@ async function refreshSavedAccounts() {
   if (!list || !section) return;
   try {
     const accounts = await api('GET', `/api/saved-accounts?profile_id=${pid()}`);
-    if (!accounts.length) {
+    if (!accounts || !accounts.length) {
       section.style.display = 'none';
       list.innerHTML = '';
       return;
     }
     section.style.display = 'block';
-    list.innerHTML = accounts.map(a => `
-      <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;">
+    list.innerHTML = '';
+    accounts.forEach(a => {
+      const uid  = String(a.userId  || a.roblox_user_id || '');
+      const name = String(a.displayName || a.username || 'Unknown');
+      const user = String(a.username || '');
+      const row  = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;';
+      row.innerHTML = `
         <div style="width:32px;height:32px;border-radius:50%;overflow:hidden;border:1px solid var(--border);flex-shrink:0;background:var(--surface3);display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:700;font-size:12px;color:rgba(255,255,255,0.5);">
-          ${a.avatarUrl ? `<img src="${esc(a.avatarUrl)}" style="width:100%;height:100%;object-fit:cover;">` : esc((a.displayName||'?').charAt(0))}
+          ${a.avatarUrl ? `<img src="${esc(a.avatarUrl)}" style="width:100%;height:100%;object-fit:cover;">` : esc(name.charAt(0))}
         </div>
         <div style="flex:1;min-width:0;">
-          <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(a.displayName||a.username)}</div>
-          <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);">@${esc(a.username)} · UID ${esc(a.userId)}</div>
+          <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(name)}</div>
+          <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);">@${esc(user)} · UID ${esc(uid)}</div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0;">
-          <button class="btn btn-sm btn-primary" style="font-size:10px;padding:4px 10px;" onclick="activateAccount('${esc(a.userId)}')">Use</button>
-          <button class="btn btn-sm btn-danger" style="font-size:10px;padding:4px 8px;" onclick="removeAccount('${esc(a.userId)}','${esc(a.displayName||a.username)}')">✕</button>
-        </div>
-      </div>`).join('');
+          <button class="btn btn-sm btn-primary use-btn" style="font-size:10px;padding:4px 10px;">Use</button>
+          <button class="btn btn-sm btn-danger remove-btn" style="font-size:10px;padding:4px 8px;">✕</button>
+        </div>`;
+      // Attach listeners safely — no string interpolation into onclick
+      row.querySelector('.use-btn').addEventListener('click', () => activateAccount(uid));
+      row.querySelector('.remove-btn').addEventListener('click', () => removeAccount(uid, name));
+      list.appendChild(row);
+    });
   } catch(e) {
     section.style.display = 'none';
+    console.error('[SENTINEL] refreshSavedAccounts error:', e);
   }
 }
 
@@ -1955,18 +1966,37 @@ function hideManualCookieInput() {
 async function submitManualCookie() {
   let cookie = document.getElementById('manual-cookie-input').value.trim();
   if (!cookie) { toast('Paste your cookie first', 'error'); return; }
-  // Strip Roblox warning prefix
-  if (cookie.includes('|_')) cookie = cookie.split('|_').pop();
+
+  // Strip Roblox warning prefix — cookie format is:
+  // _|WARNING:-DO-NOT-SHARE-THIS...|_ACTUAL_COOKIE_VALUE
+  // Split on |_ and take everything after the last occurrence
+  if (cookie.includes('|_')) {
+    const parts = cookie.split('|_');
+    cookie = parts[parts.length - 1].trim();
+  }
+  // Also strip leading/trailing underscores or pipes left over
+  cookie = cookie.replace(/^[|_]+/, '').replace(/[|_]+$/, '').trim();
+
+  if (!cookie) { toast('Could not extract cookie value — paste the full .ROBLOSECURITY value', 'error'); return; }
+  if (!pid()) { toast('Not signed into a profile — please sign in first', 'error'); return; }
+
+  const btn = document.querySelector('#manual-cookie-section .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Verifying…'; }
   try {
     const res = await api('POST', '/api/credentials/manual', { profile_id: pid(), cookie });
     hideManualCookieInput();
     STATE.hasCredential = true;
     updateAccountDisplay(res);
     document.getElementById('connected-account-section').style.display = 'block';
+    document.getElementById('add-account-section').style.display = 'none';
     await refreshSavedAccounts();
     await refreshStatus();
-    toast(`✓ Account added: ${res.displayName}`, 'success');
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
+    toast(`✓ Account added: ${res.displayName || res.username}`, 'success');
+  } catch(e) {
+    toast('Failed to add account: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Add Account'; }
+  }
 }
 
 // ── GROUPS ────────────────────────────────────────────────────────────────────
