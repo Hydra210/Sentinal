@@ -729,131 +729,322 @@ async def send_dm(user_id: str, subject: str, body: str, cookie: str) -> bool:
         )
         return r.status_code in (200, 204)
 
+# ── COOKIE VALIDATION HELPER ──────────────────────────────────────────────────
+
+async def _load_and_validate_cookie(profile_id: str, session: "ProfileSession") -> bool:
+    """
+    Ensure session has a valid cookie.
+    1. If in-memory cookie exists, validate it.
+    2. Otherwise load most-recent saved credential from Postgres and validate.
+    Returns True if a valid cookie is now in session, False otherwise.
+    """
+    if session.cookie:
+        try:
+            info = await validate_cookie(session.cookie)
+            session.account_info = info
+            return True
+        except HTTPException:
+            sentinel_log(f"[{profile_id}] In-memory cookie expired", "WARN", "MONITOR")
+            session.cookie = None
+
+    # Try loading from Postgres
+    if not PG_URL:
+        return False
+    try:
+        cred = db_exec(
+            "SELECT cookie_encrypted, account_info FROM saved_credentials "
+            "WHERE profile_id=? ORDER BY saved_at DESC LIMIT 1",
+            (profile_id,), fetch="one"
+        )
+        if not cred or not cred.get("cookie_encrypted"):
+            return False
+        cookie = cred["cookie_encrypted"]
+        info = await validate_cookie(cookie)
+        session.cookie = cookie
+        session.account_info = info
+        sentinel_log(f"[{profile_id}] Cookie restored from saved credentials", "INFO", "MONITOR")
+        return True
+    except HTTPException:
+        sentinel_log(f"[{profile_id}] Saved cookie also expired — monitoring disabled", "ERROR", "MONITOR")
+        return False
+    except Exception as e:
+        sentinel_log(f"[{profile_id}] Error loading saved credentials: {e}", "ERROR", "MONITOR")
+        return False
+
+
 # ── MONITORING LOOP ───────────────────────────────────────────────────────────
 
 async def monitor_loop(profile_id: str):
     session = get_session(profile_id)
     sentinel_log(f"Monitor loop started for profile {profile_id}", "INFO", "MONITOR")
+    consecutive_cookie_errors = 0
+    MAX_COOKIE_ERRORS = 3  # Stop after this many consecutive auth failures
 
     while session.monitoring:
-        cfg              = get_config(profile_id)
-        poll_sec         = int(cfg.get("pollingInterval", 60))
-        delay_sec        = int(cfg.get("archiveDelay", 0))
-        archive_existing = bool(cfg.get("archiveExisting", False))
-        asset_filters    = cfg.get("assetTypeFilters", ALL_ASSET_TYPES)
-        whitelist_all    = {str(u).strip().lower() for u in cfg.get("whitelist_all", [])}
-
-        groups = db_exec(
-            "SELECT id, name FROM groups WHERE profile_id=?", (profile_id,), fetch="all"
-        ) or []
-
-        for grp in groups:
-            gid, gname = grp["id"], grp["name"]
-            try:
-                all_assets: list[dict] = []
-                active_filters = asset_filters[:3] if _DEGRADED else asset_filters
-                if _DEGRADED:
-                    sentinel_log(f"Degraded mode — limiting asset scan to {active_filters}", "MEMORY", "MONITOR")
-                for asset_type in active_filters:
-                    sentinel_log(f"Scanning group {gid} ({gname}) for {asset_type}", "DEBUG", "NETWORK")
-                    type_assets = await fetch_group_assets(
-                        gid, asset_type, cookie=session.cookie
+        try:
+            # ── Validate cookie at start of every cycle ───────────────────────
+            cookie_ok = await _load_and_validate_cookie(profile_id, session)
+            if not cookie_ok:
+                consecutive_cookie_errors += 1
+                sentinel_log(
+                    f"[{profile_id}] Cookie invalid ({consecutive_cookie_errors}/{MAX_COOKIE_ERRORS})",
+                    "ERROR", "MONITOR"
+                )
+                if consecutive_cookie_errors >= MAX_COOKIE_ERRORS:
+                    sentinel_log(
+                        f"[{profile_id}] Too many cookie failures — stopping monitoring. "
+                        "Re-add the Roblox account to resume.",
+                        "ERROR", "MONITOR"
                     )
-                    sentinel_log(f"Found {len(type_assets)} {asset_type} assets in group {gid}", "DEBUG", "NETWORK")
-                    all_assets.extend(type_assets)
+                    session.monitoring = False
+                    set_cfg(profile_id, "_monitoringActive", False)
+                    return
+                # Back off before retrying
+                await asyncio.sleep(60)
+                continue
+            consecutive_cookie_errors = 0  # Reset on success
 
-                current    = {a["id"]: a for a in all_assets}
-                current_ids = set(current)
-                group_key  = f"{profile_id}:{gid}"
+            cfg              = get_config(profile_id)
+            poll_sec         = int(cfg.get("pollingInterval", 60))
+            delay_sec        = int(cfg.get("archiveDelay", 0))
+            archive_existing = bool(cfg.get("archiveExisting", False))
+            asset_filters    = cfg.get("assetTypeFilters", ALL_ASSET_TYPES)
+            whitelist_all    = {str(u).strip().lower() for u in cfg.get("whitelist_all", [])}
 
-                if group_key not in session.known_assets:
-                    session.known_assets[group_key] = current_ids
-                    sentinel_log(f"Group {gid} ({gname}) baseline: {len(current_ids)} assets", "INFO", "MONITOR")
-                    if archive_existing:
-                        new_ids = current_ids
+            groups = db_exec(
+                "SELECT id, name FROM groups WHERE profile_id=?", (profile_id,), fetch="all"
+            ) or []
+
+            if not groups:
+                sentinel_log(f"[{profile_id}] No groups configured — waiting", "INFO", "MONITOR")
+
+            for grp in groups:
+                if not session.monitoring:
+                    break
+                gid, gname = grp["id"], grp["name"]
+                try:
+                    all_assets: list[dict] = []
+                    active_filters = asset_filters[:3] if _DEGRADED else asset_filters
+                    if _DEGRADED:
+                        sentinel_log(f"Degraded mode — limiting asset scan to {active_filters}", "MEMORY", "MONITOR")
+                    for asset_type in active_filters:
+                        sentinel_log(f"Scanning group {gid} ({gname}) for {asset_type}", "DEBUG", "NETWORK")
+                        type_assets = await fetch_group_assets(gid, asset_type, cookie=session.cookie)
+                        sentinel_log(f"Found {len(type_assets)} {asset_type} assets in group {gid}", "DEBUG", "NETWORK")
+                        all_assets.extend(type_assets)
+
+                    current     = {a["id"]: a for a in all_assets}
+                    current_ids = set(current)
+                    group_key   = f"{profile_id}:{gid}"
+
+                    if group_key not in session.known_assets:
+                        session.known_assets[group_key] = current_ids
+                        sentinel_log(f"Group {gid} ({gname}) baseline: {len(current_ids)} assets", "INFO", "MONITOR")
+                        if archive_existing:
+                            new_ids = current_ids
+                        else:
+                            continue
                     else:
-                        continue
-                else:
-                    new_ids = current_ids - session.known_assets[group_key]
-                    # Remove assets that are no longer in the active list (archived/deleted/restored)
-                    # so if they get restored later, they'll be detected as new again
-                    session.known_assets[group_key] -= (session.known_assets[group_key] - current_ids)
-                    # Don't add new_ids yet — we update per-asset after archiving
-                    # so failed archives get retried on the next scan
+                        new_ids = current_ids - session.known_assets[group_key]
+                        session.known_assets[group_key] -= (session.known_assets[group_key] - current_ids)
 
-                for aid in new_ids:
-                    a            = current.get(aid, {})
-                    creator_id   = a.get("creatorId", "")
-                    creator_name = a.get("creatorName", "") or ""
-                    if not creator_name and creator_id:
-                        creator_name = await get_username(creator_id, cookie=session.cookie)
-                    asset_type   = a.get("assetType", "Unknown")
-
-                    # Normalize whitelist entries: strip, lowercase
-                    def _in_wl(wl_set):
-                        return (
-                            creator_id.strip().lower() in wl_set or
-                            creator_name.strip().lower() in wl_set
-                        )
-                    if _in_wl(whitelist_all):
-                        sentinel_log(f"Global whitelist skip: {creator_name} ({asset_type} {aid})", "INFO", "MONITOR")
-                        session.known_assets[group_key].add(aid)
-                        continue
-
-                    type_wl = {str(u).strip().lower() for u in cfg.get(f"whitelist_{asset_type}", [])}
-                    if _in_wl(type_wl):
-                        sentinel_log(f"Type whitelist skip: {creator_name} ({asset_type})", "INFO", "MONITOR")
-                        session.known_assets[group_key].add(aid)
-                        continue
-
-                    sentinel_log(f"New {asset_type} detected: '{a.get('name')}' (ID {aid}) by {creator_name}", "ARCHIVE", "MONITOR")
-
-                    if delay_sec > 0:
-                        sentinel_log(f"Waiting {delay_sec}s before archiving {aid}", "DEBUG", "MONITOR")
-                        await asyncio.sleep(delay_sec)
+                    for aid in new_ids:
                         if not session.monitoring:
                             break
+                        a            = current.get(aid, {})
+                        creator_id   = a.get("creatorId", "")
+                        creator_name = a.get("creatorName", "") or ""
+                        if not creator_name and creator_id:
+                            creator_name = await get_username(creator_id, cookie=session.cookie)
+                        asset_type   = a.get("assetType", "Unknown")
 
-                    ok = await archive_asset(aid, cookie=session.cookie)
-                    sentinel_log(f"Archive {aid}: {'OK' if ok else 'FAILED'}", "ARCHIVE" if ok else "ERROR", "MONITOR")
+                        def _in_wl(wl_set):
+                            return (
+                                creator_id.strip().lower() in wl_set or
+                                creator_name.strip().lower() in wl_set
+                            )
+                        if _in_wl(whitelist_all):
+                            sentinel_log(f"Global whitelist skip: {creator_name} ({asset_type} {aid})", "INFO", "MONITOR")
+                            session.known_assets[group_key].add(aid)
+                            continue
 
-                    if ok:
-                        # Only mark as known once successfully archived — failures retry next scan
-                        session.known_assets[group_key].add(aid)
+                        type_wl = {str(u).strip().lower() for u in cfg.get(f"whitelist_{asset_type}", [])}
+                        if _in_wl(type_wl):
+                            sentinel_log(f"Type whitelist skip: {creator_name} ({asset_type})", "INFO", "MONITOR")
+                            session.known_assets[group_key].add(aid)
+                            continue
 
-                    dm_status = "n/a"
+                        sentinel_log(f"New {asset_type} detected: '{a.get('name')}' (ID {aid}) by {creator_name}", "ARCHIVE", "MONITOR")
 
-                    db_insert_ignore("history", {
-                        "id":           f"{aid}_{int(time.time())}",
-                        "profile_id":   profile_id,
-                        "username":     creator_name,
-                        "display_name": creator_name,
-                        "user_id":      creator_id,
-                        "audio_name":   a.get("name", "Unknown"),
-                        "audio_id":     aid,
-                        "asset_type":   asset_type,
-                        "group_id":     gid,
-                        "group_name":   gname,
-                        "time":         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "dm_status":    dm_status,
-                        "archived":     1,
-                    })
-                    sentinel_log(f"History written: {aid} archived={ok} dm={dm_status}", "DEBUG", "MONITOR")
+                        if delay_sec > 0:
+                            sentinel_log(f"Waiting {delay_sec}s before archiving {aid}", "DEBUG", "MONITOR")
+                            await asyncio.sleep(delay_sec)
+                            if not session.monitoring:
+                                break
 
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                sentinel_log(f"Error in group {gid}: {e}", "ERROR", "MONITOR")
+                        ok = await archive_asset(aid, cookie=session.cookie)
+                        sentinel_log(f"Archive {aid}: {'OK' if ok else 'FAILED'}", "ARCHIVE" if ok else "ERROR", "MONITOR")
 
-        # Trim after every scan cycle so archived asset memory is returned to OS immediately
+                        if ok:
+                            session.known_assets[group_key].add(aid)
+
+                        dm_status = "n/a"
+
+                        db_insert_ignore("history", {
+                            "id":           f"{aid}_{int(time.time())}",
+                            "profile_id":   profile_id,
+                            "username":     creator_name,
+                            "display_name": creator_name,
+                            "user_id":      creator_id,
+                            "audio_name":   a.get("name", "Unknown"),
+                            "audio_id":     aid,
+                            "asset_type":   asset_type,
+                            "group_id":     gid,
+                            "group_name":   gname,
+                            "time":         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "dm_status":    dm_status,
+                            "archived":     1,
+                        })
+                        sentinel_log(f"History written: {aid} archived={ok} dm={dm_status}", "DEBUG", "MONITOR")
+
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    sentinel_log(f"Error in group {gid}: {e}", "ERROR", "MONITOR")
+                    # Don't crash the whole loop for one group failing
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            # Outer catch — log and keep going so one bad cycle doesn't kill the task
+            sentinel_log(f"[{profile_id}] Unexpected error in monitor cycle: {e}", "ERROR", "MONITOR")
+
+        # Trim memory after every scan cycle
         _trim_memory()
 
         sleep_sec = poll_sec * 3 if _DEGRADED else poll_sec
         if _DEGRADED:
             sentinel_log(f"Degraded mode: sleeping {sleep_sec}s instead of {poll_sec}s", "MEMORY", "MONITOR")
+        sentinel_log(f"[{profile_id}] Cycle done — sleeping {sleep_sec}s", "DEBUG", "MONITOR")
         await asyncio.sleep(sleep_sec)
 
     sentinel_log(f"Monitor loop stopped for profile {profile_id}", "INFO", "MONITOR")
+
+
+# ── AUTO-RESUME MONITORING ON STARTUP ─────────────────────────────────────────
+
+async def auto_resume_monitoring():
+    """
+    Called once at startup. Finds all profiles that had monitoring active
+    (_monitoringActive=true in config), restores their credentials from Postgres,
+    validates the cookie, and restarts the monitor task.
+    This is what makes monitoring survive server restarts without user action.
+    """
+    await asyncio.sleep(5)  # Let DB pool fully settle first
+    sentinel_log("Auto-resume: checking for profiles to resume...", "INFO", "MONITOR")
+
+    try:
+        active_rows = db_exec(
+            "SELECT profile_id FROM config WHERE key=? AND value=?",
+            ("_monitoringActive", "true"), fetch="all"
+        ) or []
+    except Exception as e:
+        sentinel_log(f"Auto-resume: failed to query config: {e}", "ERROR", "MONITOR")
+        return
+
+    if not active_rows:
+        sentinel_log("Auto-resume: no profiles had monitoring active", "INFO", "MONITOR")
+        return
+
+    sentinel_log(f"Auto-resume: found {len(active_rows)} profile(s) to resume", "INFO", "MONITOR")
+
+    for row in active_rows:
+        pid = row["profile_id"]
+        session = get_session(pid)
+        if session.monitoring:
+            continue  # Already running (shouldn't happen at startup, but be safe)
+
+        try:
+            cookie_ok = await _load_and_validate_cookie(pid, session)
+            if not cookie_ok:
+                sentinel_log(f"Auto-resume: {pid} — cookie invalid/missing, skipping", "WARN", "MONITOR")
+                set_cfg(pid, "_monitoringActive", False)
+                continue
+
+            session.monitoring   = True
+            session.monitor_task = asyncio.create_task(monitor_loop(pid))
+            sentinel_log(f"Auto-resume: monitoring resumed for profile {pid} ({session.account_info.get('username','?') if session.account_info else '?'})", "INFO", "MONITOR")
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            sentinel_log(f"Auto-resume: error resuming {pid}: {e}", "ERROR", "MONITOR")
+
+
+# ── TASK SUPERVISOR ───────────────────────────────────────────────────────────
+
+async def monitor_supervisor():
+    """
+    Background task that runs every 90 seconds.
+    If a profile has monitoring=True but its asyncio task is dead,
+    it validates the cookie and restarts the task automatically.
+    This catches crashes that auto_resume_monitoring can't (mid-run failures).
+    """
+    await asyncio.sleep(45)  # Stagger from auto_resume
+    sentinel_log("Monitor supervisor started", "INFO", "WATCHDOG")
+
+    while True:
+        try:
+            for pid, session in list(_sessions.items()):
+                if not session.monitoring:
+                    continue
+                task_dead = (
+                    session.monitor_task is None
+                    or session.monitor_task.done()
+                )
+                if not task_dead:
+                    continue
+
+                # Log the crash reason if available
+                crash_exc = None
+                if session.monitor_task and session.monitor_task.done():
+                    try:
+                        crash_exc = session.monitor_task.exception()
+                    except (asyncio.CancelledError, asyncio.InvalidStateError):
+                        crash_exc = "CancelledError"
+                    except Exception:
+                        pass
+
+                sentinel_log(
+                    f"[SUPERVISOR] Task for {pid} died (exc={crash_exc}) — attempting restart",
+                    "WARN", "WATCHDOG"
+                )
+
+                # Validate / restore cookie before restarting
+                cookie_ok = await _load_and_validate_cookie(pid, session)
+                if not cookie_ok:
+                    sentinel_log(
+                        f"[SUPERVISOR] Cannot restart {pid} — cookie invalid. Monitoring disabled.",
+                        "ERROR", "WATCHDOG"
+                    )
+                    session.monitoring = False
+                    set_cfg(pid, "_monitoringActive", False)
+                    continue
+
+                session.monitor_task = asyncio.create_task(monitor_loop(pid))
+                sentinel_log(
+                    f"[SUPERVISOR] Monitor task restarted for profile {pid}",
+                    "INFO", "WATCHDOG"
+                )
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            sentinel_log(f"[SUPERVISOR] Unexpected error: {e}", "ERROR", "WATCHDOG")
+
+        await asyncio.sleep(90)
+
+
 
 # ── PYDANTIC MODELS ───────────────────────────────────────────────────────────
 
@@ -1165,14 +1356,24 @@ def api_status(profile_id: str = ""):
     pending_info = None
     if session.pending_save and session.pending_save_info:
         pending_info = {k: v for k, v in session.pending_save_info.items() if k != "_cookie"}
+
+    # True monitoring = flag AND task is alive
+    task_alive = (
+        session.monitor_task is not None
+        and not session.monitor_task.done()
+    )
+    actually_monitoring = session.monitoring and task_alive
+
     return {
-        "monitoring":      session.monitoring,
-        "account":         session.account_info,
-        "hasCredential":   bool(session.cookie),
-        "extensionLinked": ext_linked,
-        "pendingSave":     session.pending_save,
-        "pendingSaveAccount": pending_info,
-        "addAccountMode":  session.add_account_mode,
+        "monitoring":          actually_monitoring,
+        "monitoringFlag":      session.monitoring,       # raw flag (may be True with dead task)
+        "taskAlive":           task_alive,
+        "account":             session.account_info,
+        "hasCredential":       bool(session.cookie),
+        "extensionLinked":     ext_linked,
+        "pendingSave":         session.pending_save,
+        "pendingSaveAccount":  pending_info,
+        "addAccountMode":      session.add_account_mode,
     }
 
 
@@ -2013,6 +2214,8 @@ def serve_review():
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(memory_watchdog())
+    asyncio.create_task(auto_resume_monitoring())   # ← resume monitoring after restarts
+    asyncio.create_task(monitor_supervisor())        # ← restart crashed tasks automatically
     sentinel_log("SENTINEL backend started", "INFO", "SYSTEM")
     if PG_URL:
         _sc = None
