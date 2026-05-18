@@ -390,6 +390,208 @@ async def memory_watchdog():
         await asyncio.sleep(4)
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# VAULT — master-key-protected backup/restore (works even with empty DB)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Set SENTINEL_MASTER_KEY in your Render env vars.
+# If not set, one is generated and printed to logs on startup — grab it from there.
+_MASTER_KEY: str = os.environ.get("SENTINEL_MASTER_KEY", "")
+
+# All tables in import order (FK-safe: profiles before saved_credentials, etc.)
+_VAULT_TABLES = [
+    "profiles",
+    "saved_credentials",
+    "access_requests",
+    "invite_codes",
+    "review_tokens",
+    "groups",
+    "history",
+    "config",
+    "connect_codes",
+]
+
+_TABLE_PKS = {
+    "profiles":          ["id"],
+    "saved_credentials": ["profile_id", "roblox_user_id"],
+    "access_requests":   ["id"],
+    "invite_codes":      ["code"],
+    "review_tokens":     ["token"],
+    "groups":            ["id", "profile_id"],
+    "history":           ["id"],
+    "config":            ["profile_id", "key"],
+    "connect_codes":     ["code"],
+}
+
+def _vault_check_key(key: str):
+    if not key or not _MASTER_KEY:
+        raise HTTPException(401, "Vault master key not configured or missing")
+    if not secrets.compare_digest(key.strip(), _MASTER_KEY.strip()):
+        raise HTTPException(403, "Invalid vault master key")
+
+def _vault_export_data() -> dict:
+    """Dump all Postgres tables to a plain-dict snapshot. Raises on failure."""
+    if not PG_URL:
+        raise HTTPException(503, "Postgres not configured")
+    conn = get_pg(); cur = conn.cursor()
+    out: dict = {"_meta": {
+        "exported_at":      datetime.utcnow().isoformat() + "Z",
+        "sentinel_version": "1.0",
+    }}
+    try:
+        for table in _VAULT_TABLES:
+            try:
+                cur.execute(f"SELECT * FROM {table}")
+                rows = []
+                for row in cur.fetchall():
+                    d = {}
+                    for k, v in dict(row).items():
+                        if hasattr(v, "isoformat"):
+                            d[k] = v.isoformat()
+                        else:
+                            d[k] = v
+                    rows.append(d)
+                out[table] = rows
+                sentinel_log(f"Vault export: {table} → {len(rows)} rows", "INFO", "VAULT")
+            except Exception as e:
+                sentinel_log(f"Vault export: skipping {table} ({e})", "WARN", "VAULT")
+                out[table] = []
+        return out
+    finally:
+        cur.close(); release_pg(conn)
+
+def _vault_import_data(data: dict) -> dict:
+    """Upsert all rows from a vault snapshot. Returns per-table counts."""
+    if not PG_URL:
+        raise HTTPException(503, "Postgres not configured")
+    if not isinstance(data, dict):
+        raise HTTPException(400, "Invalid vault data")
+
+    conn = get_pg(); cur = conn.cursor()
+    results: dict = {}
+    try:
+        for table in _VAULT_TABLES:
+            rows = data.get(table)
+            if not isinstance(rows, list) or not rows:
+                results[table] = 0
+                continue
+            pks = _TABLE_PKS.get(table)
+            if not pks:
+                continue
+            upserted = 0
+            for row in rows:
+                if not isinstance(row, dict) or not row:
+                    continue
+                cols   = list(row.keys())
+                vals   = [json.dumps(v) if isinstance(v, (dict, list)) else v for v in row.values()]
+                ph     = ", ".join(["%s"] * len(cols))
+                colstr = ", ".join(f'"{c}"' for c in cols)
+                non_pk = [c for c in cols if c not in pks]
+                if non_pk:
+                    set_clause = ", ".join(f'"{c}"=EXCLUDED."{c}"' for c in non_pk)
+                    conflict   = f"DO UPDATE SET {set_clause}"
+                else:
+                    conflict   = "DO NOTHING"
+                pk_str = ", ".join(f'"{p}"' for p in pks)
+                sql = (
+                    f'INSERT INTO "{table}" ({colstr}) VALUES ({ph}) '
+                    f"ON CONFLICT ({pk_str}) {conflict}"
+                )
+                try:
+                    cur.execute(sql, vals)
+                    upserted += 1
+                except Exception as row_err:
+                    conn.rollback()
+                    sentinel_log(f"Vault import row error ({table}): {row_err}", "WARN", "VAULT")
+                    continue
+            conn.commit()
+            results[table] = upserted
+            sentinel_log(f"Vault import: {table} → {upserted}/{len(rows)} rows", "INFO", "VAULT")
+        sentinel_log("Vault import complete", "INFO", "VAULT")
+        return results
+    except HTTPException:
+        raise
+    except Exception as e:
+        try: conn.rollback()
+        except: pass
+        raise HTTPException(500, f"Vault import failed: {e}")
+    finally:
+        cur.close(); release_pg(conn)
+
+
+class VaultKeyBody(BaseModel):
+    key: str
+
+class VaultImportBody(BaseModel):
+    key:  str
+    data: dict
+
+@app.post("/api/vault/export")
+def api_vault_export(body: VaultKeyBody):
+    """Export all data. Protected by SENTINEL_MASTER_KEY. No profile login required."""
+    _vault_check_key(body.key)
+    return _vault_export_data()
+
+@app.post("/api/vault/import")
+def api_vault_import(body: VaultImportBody):
+    """Import/restore all data. Protected by SENTINEL_MASTER_KEY. No profile login required."""
+    _vault_check_key(body.key)
+    results = _vault_import_data(body.data)
+    return {"imported": True, "tables": results}
+
+
+async def vault_auto_restore():
+    """
+    On startup: if Postgres is connected but completely empty (no profiles),
+    attempt to restore from the VAULT_AUTO_RESTORE_URL env var.
+
+    Set VAULT_AUTO_RESTORE_URL to a direct URL that returns your vault JSON
+    (e.g. a raw GitHub Gist URL, an R2 object URL, etc).
+    When you export, upload the file to that URL manually once.
+    After that, every fresh Postgres will auto-restore from it on boot.
+    """
+    restore_url = os.environ.get("VAULT_AUTO_RESTORE_URL", "").strip()
+    if not restore_url or not PG_URL:
+        return
+
+    await asyncio.sleep(8)  # Let DB init fully settle
+
+    try:
+        conn = get_pg(); cur = conn.cursor()
+        try:
+            cur.execute("SELECT COUNT(*) FROM profiles")
+            row = cur.fetchone()
+            count = list(row.values())[0] if row else 0
+        finally:
+            cur.close(); release_pg(conn)
+
+        if count > 0:
+            sentinel_log(f"Auto-restore: DB has {count} profile(s) — skipping", "INFO", "VAULT")
+            return
+
+        sentinel_log(f"Auto-restore: DB is empty — fetching backup from configured URL...", "INFO", "VAULT")
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(restore_url)
+        if r.status_code != 200:
+            sentinel_log(f"Auto-restore: fetch failed HTTP {r.status_code}", "ERROR", "VAULT")
+            return
+
+        data = r.json()
+        if not isinstance(data, dict) or "_meta" not in data:
+            sentinel_log("Auto-restore: URL did not return a valid vault snapshot", "ERROR", "VAULT")
+            return
+
+        results = _vault_import_data(data)
+        total   = sum(results.values())
+        sentinel_log(
+            f"Auto-restore: SUCCESS — {total} rows restored across {len(results)} tables. "
+            f"Details: {results}",
+            "INFO", "VAULT"
+        )
+    except Exception as e:
+        sentinel_log(f"Auto-restore: unexpected error — {e}", "ERROR", "VAULT")
+
+
 # Routes all app-data queries to Postgres when DATABASE_URL is set,
 # falls back to SQLite for local development.
 
@@ -656,36 +858,34 @@ async def get_group_name(group_id: str, cookie=None) -> str:
         pass
     return f"Group {group_id}"
 
-async def fetch_group_assets(group_id: str, asset_type: str, *, cookie=None) -> list[dict]:
-    assets: list[dict] = []
+async def fetch_group_assets(group_id: str, asset_type: str, *, cookie=None) -> list[dict] | None:
+    """Returns assets on success, None on any API/network failure. Never treat failure as empty."""
     if not cookie:
-        return assets
+        return None
+    assets: list[dict] = []
     cursor = None
     for _ in range(10):
-        params = {
-            "assetType":  asset_type,
-            "isArchived": "false",
-            "groupId":    group_id,
-            "pageSize":   100,
-        }
+        params = {"assetType": asset_type, "isArchived": "false", "groupId": group_id, "pageSize": 100}
         if cursor:
             params["cursor"] = cursor
-        r = await rblx_get(
-            "https://itemconfiguration.roblox.com/v1/creations/get-assets",
-            cookie=cookie, params=params,
-        )
+        try:
+            r = await rblx_get("https://itemconfiguration.roblox.com/v1/creations/get-assets", cookie=cookie, params=params)
+        except Exception as e:
+            sentinel_log(f"fetch_group_assets network error ({asset_type} grp {group_id}): {e}", "ERROR", "NETWORK")
+            return None
+        if r.status_code == 401:
+            sentinel_log(f"fetch_group_assets 401 — cookie likely expired ({asset_type} grp {group_id})", "ERROR", "NETWORK")
+            return None
         if r.status_code != 200:
-            print(f"[SENTINEL] fetch_group_assets {asset_type} group {group_id}: HTTP {r.status_code} — {r.text[:200]}")
-            break
+            sentinel_log(f"fetch_group_assets HTTP {r.status_code} ({asset_type} grp {group_id}): {r.text[:200]}", "ERROR", "NETWORK")
+            return None
         d = r.json()
         for item in d.get("data", []):
-            creator_id   = str(item.get("creatorTargetId", ""))
-            creator_name = item.get("creatorName", "") or ""
             assets.append({
                 "id":          str(item.get("assetId", item.get("id", ""))),
                 "name":        item.get("name", "Unknown"),
-                "creatorId":   creator_id,
-                "creatorName": creator_name,
+                "creatorId":   str(item.get("creatorTargetId", "")),
+                "creatorName": item.get("creatorName", "") or "",
                 "assetType":   asset_type,
             })
         cursor = d.get("nextPageCursor")
@@ -729,322 +929,131 @@ async def send_dm(user_id: str, subject: str, body: str, cookie: str) -> bool:
         )
         return r.status_code in (200, 204)
 
-# ── COOKIE VALIDATION HELPER ──────────────────────────────────────────────────
-
-async def _load_and_validate_cookie(profile_id: str, session: "ProfileSession") -> bool:
-    """
-    Ensure session has a valid cookie.
-    1. If in-memory cookie exists, validate it.
-    2. Otherwise load most-recent saved credential from Postgres and validate.
-    Returns True if a valid cookie is now in session, False otherwise.
-    """
-    if session.cookie:
-        try:
-            info = await validate_cookie(session.cookie)
-            session.account_info = info
-            return True
-        except HTTPException:
-            sentinel_log(f"[{profile_id}] In-memory cookie expired", "WARN", "MONITOR")
-            session.cookie = None
-
-    # Try loading from Postgres
-    if not PG_URL:
-        return False
-    try:
-        cred = db_exec(
-            "SELECT cookie_encrypted, account_info FROM saved_credentials "
-            "WHERE profile_id=? ORDER BY saved_at DESC LIMIT 1",
-            (profile_id,), fetch="one"
-        )
-        if not cred or not cred.get("cookie_encrypted"):
-            return False
-        cookie = cred["cookie_encrypted"]
-        info = await validate_cookie(cookie)
-        session.cookie = cookie
-        session.account_info = info
-        sentinel_log(f"[{profile_id}] Cookie restored from saved credentials", "INFO", "MONITOR")
-        return True
-    except HTTPException:
-        sentinel_log(f"[{profile_id}] Saved cookie also expired — monitoring disabled", "ERROR", "MONITOR")
-        return False
-    except Exception as e:
-        sentinel_log(f"[{profile_id}] Error loading saved credentials: {e}", "ERROR", "MONITOR")
-        return False
-
-
 # ── MONITORING LOOP ───────────────────────────────────────────────────────────
 
 async def monitor_loop(profile_id: str):
     session = get_session(profile_id)
     sentinel_log(f"Monitor loop started for profile {profile_id}", "INFO", "MONITOR")
-    consecutive_cookie_errors = 0
-    MAX_COOKIE_ERRORS = 3  # Stop after this many consecutive auth failures
 
     while session.monitoring:
-        try:
-            # ── Validate cookie at start of every cycle ───────────────────────
-            cookie_ok = await _load_and_validate_cookie(profile_id, session)
-            if not cookie_ok:
-                consecutive_cookie_errors += 1
-                sentinel_log(
-                    f"[{profile_id}] Cookie invalid ({consecutive_cookie_errors}/{MAX_COOKIE_ERRORS})",
-                    "ERROR", "MONITOR"
-                )
-                if consecutive_cookie_errors >= MAX_COOKIE_ERRORS:
-                    sentinel_log(
-                        f"[{profile_id}] Too many cookie failures — stopping monitoring. "
-                        "Re-add the Roblox account to resume.",
-                        "ERROR", "MONITOR"
+        cfg              = get_config(profile_id)
+        poll_sec         = int(cfg.get("pollingInterval", 60))
+        delay_sec        = int(cfg.get("archiveDelay", 0))
+        archive_existing = bool(cfg.get("archiveExisting", False))
+        asset_filters    = cfg.get("assetTypeFilters", ALL_ASSET_TYPES)
+        whitelist_all    = {str(u).strip().lower() for u in cfg.get("whitelist_all", [])}
+
+        groups = db_exec(
+            "SELECT id, name FROM groups WHERE profile_id=?", (profile_id,), fetch="all"
+        ) or []
+
+        for grp in groups:
+            gid, gname = grp["id"], grp["name"]
+            try:
+                all_assets: list[dict] = []
+                active_filters = asset_filters[:3] if _DEGRADED else asset_filters
+                if _DEGRADED:
+                    sentinel_log(f"Degraded mode — limiting asset scan to {active_filters}", "MEMORY", "MONITOR")
+                for asset_type in active_filters:
+                    sentinel_log(f"Scanning group {gid} ({gname}) for {asset_type}", "DEBUG", "NETWORK")
+                    type_assets = await fetch_group_assets(
+                        gid, asset_type, cookie=session.cookie
                     )
-                    session.monitoring = False
-                    set_cfg(profile_id, "_monitoringActive", False)
-                    return
-                # Back off before retrying
-                await asyncio.sleep(60)
-                continue
-            consecutive_cookie_errors = 0  # Reset on success
+                    sentinel_log(f"Found {len(type_assets)} {asset_type} assets in group {gid}", "DEBUG", "NETWORK")
+                    all_assets.extend(type_assets)
 
-            cfg              = get_config(profile_id)
-            poll_sec         = int(cfg.get("pollingInterval", 60))
-            delay_sec        = int(cfg.get("archiveDelay", 0))
-            archive_existing = bool(cfg.get("archiveExisting", False))
-            asset_filters    = cfg.get("assetTypeFilters", ALL_ASSET_TYPES)
-            whitelist_all    = {str(u).strip().lower() for u in cfg.get("whitelist_all", [])}
+                current    = {a["id"]: a for a in all_assets}
+                current_ids = set(current)
+                group_key  = f"{profile_id}:{gid}"
 
-            groups = db_exec(
-                "SELECT id, name FROM groups WHERE profile_id=?", (profile_id,), fetch="all"
-            ) or []
-
-            if not groups:
-                sentinel_log(f"[{profile_id}] No groups configured — waiting", "INFO", "MONITOR")
-
-            for grp in groups:
-                if not session.monitoring:
-                    break
-                gid, gname = grp["id"], grp["name"]
-                try:
-                    all_assets: list[dict] = []
-                    active_filters = asset_filters[:3] if _DEGRADED else asset_filters
-                    if _DEGRADED:
-                        sentinel_log(f"Degraded mode — limiting asset scan to {active_filters}", "MEMORY", "MONITOR")
-                    for asset_type in active_filters:
-                        sentinel_log(f"Scanning group {gid} ({gname}) for {asset_type}", "DEBUG", "NETWORK")
-                        type_assets = await fetch_group_assets(gid, asset_type, cookie=session.cookie)
-                        sentinel_log(f"Found {len(type_assets)} {asset_type} assets in group {gid}", "DEBUG", "NETWORK")
-                        all_assets.extend(type_assets)
-
-                    current     = {a["id"]: a for a in all_assets}
-                    current_ids = set(current)
-                    group_key   = f"{profile_id}:{gid}"
-
-                    if group_key not in session.known_assets:
-                        session.known_assets[group_key] = current_ids
-                        sentinel_log(f"Group {gid} ({gname}) baseline: {len(current_ids)} assets", "INFO", "MONITOR")
-                        if archive_existing:
-                            new_ids = current_ids
-                        else:
-                            continue
+                if group_key not in session.known_assets:
+                    session.known_assets[group_key] = current_ids
+                    sentinel_log(f"Group {gid} ({gname}) baseline: {len(current_ids)} assets", "INFO", "MONITOR")
+                    if archive_existing:
+                        new_ids = current_ids
                     else:
-                        new_ids = current_ids - session.known_assets[group_key]
-                        session.known_assets[group_key] -= (session.known_assets[group_key] - current_ids)
+                        continue
+                else:
+                    new_ids = current_ids - session.known_assets[group_key]
+                    # Remove assets that are no longer in the active list (archived/deleted/restored)
+                    # so if they get restored later, they'll be detected as new again
+                    session.known_assets[group_key] -= (session.known_assets[group_key] - current_ids)
+                    # Don't add new_ids yet — we update per-asset after archiving
+                    # so failed archives get retried on the next scan
 
-                    for aid in new_ids:
+                for aid in new_ids:
+                    a            = current.get(aid, {})
+                    creator_id   = a.get("creatorId", "")
+                    creator_name = a.get("creatorName", "") or ""
+                    if not creator_name and creator_id:
+                        creator_name = await get_username(creator_id, cookie=session.cookie)
+                    asset_type   = a.get("assetType", "Unknown")
+
+                    # Normalize whitelist entries: strip, lowercase
+                    def _in_wl(wl_set):
+                        return (
+                            creator_id.strip().lower() in wl_set or
+                            creator_name.strip().lower() in wl_set
+                        )
+                    if _in_wl(whitelist_all):
+                        sentinel_log(f"Global whitelist skip: {creator_name} ({asset_type} {aid})", "INFO", "MONITOR")
+                        session.known_assets[group_key].add(aid)
+                        continue
+
+                    type_wl = {str(u).strip().lower() for u in cfg.get(f"whitelist_{asset_type}", [])}
+                    if _in_wl(type_wl):
+                        sentinel_log(f"Type whitelist skip: {creator_name} ({asset_type})", "INFO", "MONITOR")
+                        session.known_assets[group_key].add(aid)
+                        continue
+
+                    sentinel_log(f"New {asset_type} detected: '{a.get('name')}' (ID {aid}) by {creator_name}", "ARCHIVE", "MONITOR")
+
+                    if delay_sec > 0:
+                        sentinel_log(f"Waiting {delay_sec}s before archiving {aid}", "DEBUG", "MONITOR")
+                        await asyncio.sleep(delay_sec)
                         if not session.monitoring:
                             break
-                        a            = current.get(aid, {})
-                        creator_id   = a.get("creatorId", "")
-                        creator_name = a.get("creatorName", "") or ""
-                        if not creator_name and creator_id:
-                            creator_name = await get_username(creator_id, cookie=session.cookie)
-                        asset_type   = a.get("assetType", "Unknown")
 
-                        def _in_wl(wl_set):
-                            return (
-                                creator_id.strip().lower() in wl_set or
-                                creator_name.strip().lower() in wl_set
-                            )
-                        if _in_wl(whitelist_all):
-                            sentinel_log(f"Global whitelist skip: {creator_name} ({asset_type} {aid})", "INFO", "MONITOR")
-                            session.known_assets[group_key].add(aid)
-                            continue
+                    ok = await archive_asset(aid, cookie=session.cookie)
+                    sentinel_log(f"Archive {aid}: {'OK' if ok else 'FAILED'}", "ARCHIVE" if ok else "ERROR", "MONITOR")
 
-                        type_wl = {str(u).strip().lower() for u in cfg.get(f"whitelist_{asset_type}", [])}
-                        if _in_wl(type_wl):
-                            sentinel_log(f"Type whitelist skip: {creator_name} ({asset_type})", "INFO", "MONITOR")
-                            session.known_assets[group_key].add(aid)
-                            continue
+                    if ok:
+                        # Only mark as known once successfully archived — failures retry next scan
+                        session.known_assets[group_key].add(aid)
 
-                        sentinel_log(f"New {asset_type} detected: '{a.get('name')}' (ID {aid}) by {creator_name}", "ARCHIVE", "MONITOR")
+                    dm_status = "n/a"
 
-                        if delay_sec > 0:
-                            sentinel_log(f"Waiting {delay_sec}s before archiving {aid}", "DEBUG", "MONITOR")
-                            await asyncio.sleep(delay_sec)
-                            if not session.monitoring:
-                                break
+                    db_insert_ignore("history", {
+                        "id":           f"{aid}_{int(time.time())}",
+                        "profile_id":   profile_id,
+                        "username":     creator_name,
+                        "display_name": creator_name,
+                        "user_id":      creator_id,
+                        "audio_name":   a.get("name", "Unknown"),
+                        "audio_id":     aid,
+                        "asset_type":   asset_type,
+                        "group_id":     gid,
+                        "group_name":   gname,
+                        "time":         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "dm_status":    dm_status,
+                        "archived":     1,
+                    })
+                    sentinel_log(f"History written: {aid} archived={ok} dm={dm_status}", "DEBUG", "MONITOR")
 
-                        ok = await archive_asset(aid, cookie=session.cookie)
-                        sentinel_log(f"Archive {aid}: {'OK' if ok else 'FAILED'}", "ARCHIVE" if ok else "ERROR", "MONITOR")
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                sentinel_log(f"Error in group {gid}: {e}", "ERROR", "MONITOR")
 
-                        if ok:
-                            session.known_assets[group_key].add(aid)
-
-                        dm_status = "n/a"
-
-                        db_insert_ignore("history", {
-                            "id":           f"{aid}_{int(time.time())}",
-                            "profile_id":   profile_id,
-                            "username":     creator_name,
-                            "display_name": creator_name,
-                            "user_id":      creator_id,
-                            "audio_name":   a.get("name", "Unknown"),
-                            "audio_id":     aid,
-                            "asset_type":   asset_type,
-                            "group_id":     gid,
-                            "group_name":   gname,
-                            "time":         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "dm_status":    dm_status,
-                            "archived":     1,
-                        })
-                        sentinel_log(f"History written: {aid} archived={ok} dm={dm_status}", "DEBUG", "MONITOR")
-
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    sentinel_log(f"Error in group {gid}: {e}", "ERROR", "MONITOR")
-                    # Don't crash the whole loop for one group failing
-
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            # Outer catch — log and keep going so one bad cycle doesn't kill the task
-            sentinel_log(f"[{profile_id}] Unexpected error in monitor cycle: {e}", "ERROR", "MONITOR")
-
-        # Trim memory after every scan cycle
+        # Trim after every scan cycle so archived asset memory is returned to OS immediately
         _trim_memory()
 
         sleep_sec = poll_sec * 3 if _DEGRADED else poll_sec
         if _DEGRADED:
             sentinel_log(f"Degraded mode: sleeping {sleep_sec}s instead of {poll_sec}s", "MEMORY", "MONITOR")
-        sentinel_log(f"[{profile_id}] Cycle done — sleeping {sleep_sec}s", "DEBUG", "MONITOR")
         await asyncio.sleep(sleep_sec)
 
     sentinel_log(f"Monitor loop stopped for profile {profile_id}", "INFO", "MONITOR")
-
-
-# ── AUTO-RESUME MONITORING ON STARTUP ─────────────────────────────────────────
-
-async def auto_resume_monitoring():
-    """
-    Called once at startup. Finds all profiles that had monitoring active
-    (_monitoringActive=true in config), restores their credentials from Postgres,
-    validates the cookie, and restarts the monitor task.
-    This is what makes monitoring survive server restarts without user action.
-    """
-    await asyncio.sleep(5)  # Let DB pool fully settle first
-    sentinel_log("Auto-resume: checking for profiles to resume...", "INFO", "MONITOR")
-
-    try:
-        active_rows = db_exec(
-            "SELECT profile_id FROM config WHERE key=? AND value=?",
-            ("_monitoringActive", "true"), fetch="all"
-        ) or []
-    except Exception as e:
-        sentinel_log(f"Auto-resume: failed to query config: {e}", "ERROR", "MONITOR")
-        return
-
-    if not active_rows:
-        sentinel_log("Auto-resume: no profiles had monitoring active", "INFO", "MONITOR")
-        return
-
-    sentinel_log(f"Auto-resume: found {len(active_rows)} profile(s) to resume", "INFO", "MONITOR")
-
-    for row in active_rows:
-        pid = row["profile_id"]
-        session = get_session(pid)
-        if session.monitoring:
-            continue  # Already running (shouldn't happen at startup, but be safe)
-
-        try:
-            cookie_ok = await _load_and_validate_cookie(pid, session)
-            if not cookie_ok:
-                sentinel_log(f"Auto-resume: {pid} — cookie invalid/missing, skipping", "WARN", "MONITOR")
-                set_cfg(pid, "_monitoringActive", False)
-                continue
-
-            session.monitoring   = True
-            session.monitor_task = asyncio.create_task(monitor_loop(pid))
-            sentinel_log(f"Auto-resume: monitoring resumed for profile {pid} ({session.account_info.get('username','?') if session.account_info else '?'})", "INFO", "MONITOR")
-
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            sentinel_log(f"Auto-resume: error resuming {pid}: {e}", "ERROR", "MONITOR")
-
-
-# ── TASK SUPERVISOR ───────────────────────────────────────────────────────────
-
-async def monitor_supervisor():
-    """
-    Background task that runs every 90 seconds.
-    If a profile has monitoring=True but its asyncio task is dead,
-    it validates the cookie and restarts the task automatically.
-    This catches crashes that auto_resume_monitoring can't (mid-run failures).
-    """
-    await asyncio.sleep(45)  # Stagger from auto_resume
-    sentinel_log("Monitor supervisor started", "INFO", "WATCHDOG")
-
-    while True:
-        try:
-            for pid, session in list(_sessions.items()):
-                if not session.monitoring:
-                    continue
-                task_dead = (
-                    session.monitor_task is None
-                    or session.monitor_task.done()
-                )
-                if not task_dead:
-                    continue
-
-                # Log the crash reason if available
-                crash_exc = None
-                if session.monitor_task and session.monitor_task.done():
-                    try:
-                        crash_exc = session.monitor_task.exception()
-                    except (asyncio.CancelledError, asyncio.InvalidStateError):
-                        crash_exc = "CancelledError"
-                    except Exception:
-                        pass
-
-                sentinel_log(
-                    f"[SUPERVISOR] Task for {pid} died (exc={crash_exc}) — attempting restart",
-                    "WARN", "WATCHDOG"
-                )
-
-                # Validate / restore cookie before restarting
-                cookie_ok = await _load_and_validate_cookie(pid, session)
-                if not cookie_ok:
-                    sentinel_log(
-                        f"[SUPERVISOR] Cannot restart {pid} — cookie invalid. Monitoring disabled.",
-                        "ERROR", "WATCHDOG"
-                    )
-                    session.monitoring = False
-                    set_cfg(pid, "_monitoringActive", False)
-                    continue
-
-                session.monitor_task = asyncio.create_task(monitor_loop(pid))
-                sentinel_log(
-                    f"[SUPERVISOR] Monitor task restarted for profile {pid}",
-                    "INFO", "WATCHDOG"
-                )
-
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            sentinel_log(f"[SUPERVISOR] Unexpected error: {e}", "ERROR", "WATCHDOG")
-
-        await asyncio.sleep(90)
-
-
 
 # ── PYDANTIC MODELS ───────────────────────────────────────────────────────────
 
@@ -1356,24 +1365,14 @@ def api_status(profile_id: str = ""):
     pending_info = None
     if session.pending_save and session.pending_save_info:
         pending_info = {k: v for k, v in session.pending_save_info.items() if k != "_cookie"}
-
-    # True monitoring = flag AND task is alive
-    task_alive = (
-        session.monitor_task is not None
-        and not session.monitor_task.done()
-    )
-    actually_monitoring = session.monitoring and task_alive
-
     return {
-        "monitoring":          actually_monitoring,
-        "monitoringFlag":      session.monitoring,       # raw flag (may be True with dead task)
-        "taskAlive":           task_alive,
-        "account":             session.account_info,
-        "hasCredential":       bool(session.cookie),
-        "extensionLinked":     ext_linked,
-        "pendingSave":         session.pending_save,
-        "pendingSaveAccount":  pending_info,
-        "addAccountMode":      session.add_account_mode,
+        "monitoring":      session.monitoring,
+        "account":         session.account_info,
+        "hasCredential":   bool(session.cookie),
+        "extensionLinked": ext_linked,
+        "pendingSave":     session.pending_save,
+        "pendingSaveAccount": pending_info,
+        "addAccountMode":  session.add_account_mode,
     }
 
 
@@ -2213,9 +2212,21 @@ def serve_review():
 
 @app.on_event("startup")
 async def startup_event():
+    global _MASTER_KEY
     asyncio.create_task(memory_watchdog())
-    asyncio.create_task(auto_resume_monitoring())   # ← resume monitoring after restarts
-    asyncio.create_task(monitor_supervisor())        # ← restart crashed tasks automatically
+
+    # Print / generate master key
+    if not _MASTER_KEY:
+        _MASTER_KEY = secrets.token_urlsafe(32)
+        sentinel_log(
+            f"SENTINEL_MASTER_KEY not set — generated for this session: {_MASTER_KEY}  "
+            "Set this as an env var on Render to make it permanent.",
+            "WARN", "VAULT"
+        )
+    else:
+        sentinel_log("Vault master key loaded from environment", "INFO", "VAULT")
+
+    asyncio.create_task(vault_auto_restore())   # restore from URL if DB is empty
     sentinel_log("SENTINEL backend started", "INFO", "SYSTEM")
     if PG_URL:
         _sc = None
