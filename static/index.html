@@ -780,6 +780,107 @@
 </head>
 <body>
 
+<!-- ══════════════════════════════════════════════════
+     SENTINEL VAULT — Ctrl+Shift+B  (works on any screen)
+══════════════════════════════════════════════════ -->
+<div id="vault-overlay" style="
+  display:none; position:fixed; inset:0; z-index:99999;
+  background:rgba(0,0,0,0.88); backdrop-filter:blur(12px);
+  align-items:center; justify-content:center; padding:20px;
+">
+  <div id="vault-box" style="
+    background:#0d0d0d; border:1px solid rgba(255,255,255,0.15);
+    border-radius:16px; width:100%; max-width:500px;
+    box-shadow:0 32px 80px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05);
+    overflow:hidden; font-family:'Space Grotesk',sans-serif;
+  ">
+    <!-- Header -->
+    <div style="
+      padding:20px 24px 16px; border-bottom:1px solid rgba(255,255,255,0.08);
+      display:flex; align-items:center; justify-content:space-between;
+    ">
+      <div>
+        <div style="font-family:'Share Tech Mono',monospace; font-size:10px; letter-spacing:4px; color:rgba(255,255,255,0.35); margin-bottom:4px;">SENTINEL</div>
+        <div style="font-size:16px; font-weight:700; color:#fff; letter-spacing:1px;">Database Vault</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:rgba(255,255,255,0.3);letter-spacing:2px;">Ctrl+Shift+B</div>
+        <button onclick="vaultClose()" style="
+          background:none;border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.5);
+          width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:14px;
+          display:flex;align-items:center;justify-content:center;transition:all 0.2s;
+        " onmouseover="this.style.borderColor='rgba(255,100,100,0.5)';this.style.color='#ff6b6b'"
+           onmouseout="this.style.borderColor='rgba(255,255,255,0.12)';this.style.color='rgba(255,255,255,0.5)'">✕</button>
+      </div>
+    </div>
+
+    <!-- Master key input -->
+    <div style="padding:20px 24px 0;">
+      <div style="font-family:'Share Tech Mono',monospace;font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:2px;margin-bottom:8px;">MASTER KEY</div>
+      <div style="display:flex;gap:8px;">
+        <input id="vault-key-input" type="password" placeholder="Enter SENTINEL_MASTER_KEY..."
+          style="
+            flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);
+            border-radius:8px;padding:10px 14px;color:#fff;font-family:'Share Tech Mono',monospace;
+            font-size:12px;outline:none;transition:border-color 0.2s;
+          "
+          onfocus="this.style.borderColor='rgba(255,255,255,0.3)'"
+          onblur="this.style.borderColor='rgba(255,255,255,0.1)'"
+          onkeydown="if(event.key==='Enter')vaultExport()"
+        >
+        <button onclick="vaultToggleKeyVis()" title="Show/hide" style="
+          background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);
+          color:rgba(255,255,255,0.4);border-radius:8px;padding:0 12px;cursor:pointer;font-size:14px;
+        ">👁</button>
+      </div>
+      <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:rgba(255,255,255,0.25);margin-top:6px;">
+        Set SENTINEL_MASTER_KEY on Render · Check startup logs if not set
+      </div>
+    </div>
+
+    <!-- Action buttons -->
+    <div style="padding:16px 24px; display:flex; gap:10px; flex-wrap:wrap;">
+      <button onclick="vaultExport()" id="vault-btn-export" style="
+        flex:1;min-width:120px;padding:11px 16px;border-radius:8px;cursor:pointer;
+        background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);
+        color:#fff;font-family:'Share Tech Mono',monospace;font-size:11px;letter-spacing:1px;
+        transition:all 0.2s;
+      " onmouseover="this.style.background='rgba(255,255,255,0.12)'"
+         onmouseout="this.style.background='rgba(255,255,255,0.07)'">⬇ EXPORT BACKUP</button>
+
+      <label id="vault-btn-import" style="
+        flex:1;min-width:120px;padding:11px 16px;border-radius:8px;cursor:pointer;
+        background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);
+        color:#fff;font-family:'Share Tech Mono',monospace;font-size:11px;letter-spacing:1px;
+        transition:all 0.2s;text-align:center;
+      " onmouseover="this.style.background='rgba(255,255,255,0.12)'"
+         onmouseout="this.style.background='rgba(255,255,255,0.07)'">
+        ⬆ IMPORT BACKUP
+        <input type="file" id="vault-file-input" accept=".json,application/json" style="display:none" onchange="vaultImport(this)">
+      </label>
+    </div>
+
+    <!-- Status log -->
+    <div id="vault-log" style="
+      margin:0 24px 20px; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.07);
+      border-radius:8px; padding:12px 14px; min-height:64px; max-height:180px; overflow-y:auto;
+      display:none;
+    ">
+      <div id="vault-log-inner" style="font-family:'Share Tech Mono',monospace;font-size:10px;line-height:1.8;color:rgba(255,255,255,0.5);"></div>
+    </div>
+
+    <!-- Auto-restore hint -->
+    <div style="
+      padding:12px 24px 18px; border-top:1px solid rgba(255,255,255,0.06);
+      font-family:'Share Tech Mono',monospace;font-size:9px;color:rgba(255,255,255,0.2);
+      line-height:1.6;
+    ">
+      AUTO-RESTORE: set VAULT_AUTO_RESTORE_URL to a raw URL of your latest export.<br>
+      On startup with an empty DB, Sentinel fetches and restores automatically.
+    </div>
+  </div>
+</div>
+
 <!-- ── SCANLINES ── -->
 <div id="scanlines"></div>
 
@@ -3794,6 +3895,197 @@ document.addEventListener('mousemove', e => {
     gb.style.backgroundSize = '100% 100%,56px 56px,56px 56px';
   }, 40); // throttle to 25fps max
 });
+
+})();
+</script>
+<!-- ══════════════════════════════════════════════════
+     VAULT JS — Ctrl+Shift+B, works everywhere
+══════════════════════════════════════════════════ -->
+<script>
+(function() {
+
+const overlay = document.getElementById('vault-overlay');
+const keyInput = document.getElementById('vault-key-input');
+const logEl    = document.getElementById('vault-log');
+const logInner = document.getElementById('vault-log-inner');
+
+// ── Open / close ──────────────────────────────────────────────────────────────
+window.vaultOpen = function() {
+  overlay.style.display = 'flex';
+  // Restore saved key from sessionStorage
+  const saved = sessionStorage.getItem('_vaultKey');
+  if (saved) keyInput.value = saved;
+  setTimeout(() => keyInput.focus(), 80);
+};
+
+window.vaultClose = function() {
+  overlay.style.display = 'none';
+  vaultLogClear();
+};
+
+// Ctrl+Shift+B anywhere
+document.addEventListener('keydown', function(e) {
+  if (e.ctrlKey && e.shiftKey && e.code === 'KeyB') {
+    e.preventDefault();
+    overlay.style.display === 'none' ? vaultOpen() : vaultClose();
+  }
+  if (e.key === 'Escape' && overlay.style.display !== 'none') vaultClose();
+});
+
+// Click backdrop to close
+overlay.addEventListener('click', function(e) {
+  if (e.target === overlay) vaultClose();
+});
+
+// ── Log helpers ───────────────────────────────────────────────────────────────
+function vaultLog(msg, color) {
+  logEl.style.display = 'block';
+  const line = document.createElement('div');
+  line.style.color = color || 'rgba(255,255,255,0.55)';
+  line.textContent = '› ' + msg;
+  logInner.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function vaultLogClear() {
+  logInner.innerHTML = '';
+  logEl.style.display = 'none';
+}
+function vaultLogOk(msg)   { vaultLog(msg, '#4ade80'); }
+function vaultLogErr(msg)  { vaultLog(msg, '#f87171'); }
+function vaultLogInfo(msg) { vaultLog(msg, 'rgba(255,255,255,0.45)'); }
+
+// ── Toggle key visibility ─────────────────────────────────────────────────────
+window.vaultToggleKeyVis = function() {
+  keyInput.type = keyInput.type === 'password' ? 'text' : 'password';
+};
+
+// ── Get + cache key ───────────────────────────────────────────────────────────
+function getKey() {
+  const k = keyInput.value.trim();
+  if (!k) { vaultLogErr('Enter the master key first'); return null; }
+  sessionStorage.setItem('_vaultKey', k); // cache for the session
+  return k;
+}
+
+// ── EXPORT ────────────────────────────────────────────────────────────────────
+window.vaultExport = async function() {
+  const key = getKey(); if (!key) return;
+  vaultLogClear();
+  vaultLogInfo('Connecting to server...');
+  const btn = document.getElementById('vault-btn-export');
+  btn.textContent = '⏳ EXPORTING...'; btn.style.opacity = '0.6';
+
+  try {
+    const res = await fetch('/api/vault/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      vaultLogErr(`Server error ${res.status}: ${err.detail || res.statusText}`);
+      return;
+    }
+    const data = await res.json();
+
+    // Table summary
+    const meta   = data._meta || {};
+    const tables = Object.keys(data).filter(k => k !== '_meta');
+    const total  = tables.reduce((s, t) => s + (Array.isArray(data[t]) ? data[t].length : 0), 0);
+    vaultLogOk(`Export received — ${total} total rows`);
+    tables.forEach(t => {
+      const n = Array.isArray(data[t]) ? data[t].length : 0;
+      vaultLogInfo(`  ${t}: ${n} rows`);
+    });
+
+    // Download
+    const ts       = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+    const filename = `sentinel-vault-${ts}.json`;
+    const blob     = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url      = URL.createObjectURL(blob);
+    const a        = Object.assign(document.createElement('a'), { href: url, download: filename });
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    vaultLogOk(`✓ Saved as ${filename}`);
+    vaultLogInfo('Keep this file safe — it contains all your Sentinel data including cookies.');
+  } catch(e) {
+    vaultLogErr('Network error: ' + e.message);
+  } finally {
+    btn.textContent = '⬇ EXPORT BACKUP'; btn.style.opacity = '1';
+  }
+};
+
+// ── IMPORT ────────────────────────────────────────────────────────────────────
+window.vaultImport = async function(input) {
+  const key = getKey(); if (!key) { input.value = ''; return; }
+  const file = input.files[0]; if (!file) return;
+
+  vaultLogClear();
+  vaultLogInfo(`Reading ${file.name}...`);
+
+  let parsed;
+  try {
+    parsed = JSON.parse(await file.text());
+  } catch(e) {
+    vaultLogErr('Invalid JSON — is this a Sentinel vault file?');
+    input.value = ''; return;
+  }
+
+  if (!parsed || typeof parsed !== 'object' || !parsed._meta) {
+    vaultLogErr('Not a valid Sentinel vault file (missing _meta)');
+    input.value = ''; return;
+  }
+
+  const tables = Object.keys(parsed).filter(k => k !== '_meta');
+  const total  = tables.reduce((s, t) => s + (Array.isArray(parsed[t]) ? parsed[t].length : 0), 0);
+  const exportedAt = parsed._meta.exported_at || 'unknown time';
+
+  vaultLogInfo(`File: ${file.name}`);
+  vaultLogInfo(`Exported: ${exportedAt}`);
+  vaultLogInfo(`Tables: ${tables.join(', ')}`);
+  vaultLogInfo(`Total rows: ${total}`);
+
+  const ok = confirm(
+    `SENTINEL VAULT IMPORT\n\n` +
+    `File: ${file.name}\n` +
+    `Exported: ${exportedAt}\n` +
+    `Rows: ${total} across ${tables.length} tables\n\n` +
+    `Existing rows with matching IDs will be OVERWRITTEN.\n` +
+    `Rows NOT in this file will be left untouched.\n\n` +
+    `Continue?`
+  );
+  if (!ok) { vaultLogInfo('Import cancelled.'); input.value = ''; return; }
+
+  vaultLogInfo('Uploading to server...');
+  const lbl = document.getElementById('vault-btn-import');
+  lbl.textContent = '⏳ IMPORTING...'; lbl.style.opacity = '0.6';
+
+  try {
+    const res = await fetch('/api/vault/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, data: parsed }),
+    });
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      vaultLogErr(`Server error ${res.status}: ${result.detail || res.statusText}`);
+      return;
+    }
+
+    vaultLogOk('✓ Import complete!');
+    const tbl = result.tables || {};
+    Object.entries(tbl).forEach(([t, n]) => vaultLogInfo(`  ${t}: ${n} rows upserted`));
+    vaultLogInfo('Reload the page to log in with your restored profiles.');
+    vaultLogOk('→ Refresh the page now');
+  } catch(e) {
+    vaultLogErr('Network error: ' + e.message);
+  } finally {
+    lbl.innerHTML = '⬆ IMPORT BACKUP<input type="file" id="vault-file-input" accept=".json,application/json" style="display:none" onchange="vaultImport(this)">';
+    lbl.style.opacity = '1';
+    input.value = '';
+  }
+};
 
 })();
 </script>
