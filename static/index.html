@@ -776,6 +776,39 @@
     background: rgba(255,255,255,0.7) !important;
     box-shadow: 0 0 8px rgba(255,255,255,0.4);
   }
+
+  /* ── RESTORE TOOLBAR ── */
+  #restore-toolbar {
+    display: none; align-items: center; gap: 12px;
+    padding: 10px 16px; background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; margin-bottom: 14px; flex-wrap: wrap;
+  }
+  #restore-toolbar.visible { display: flex; }
+  .restore-count-label { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); flex: 1; min-width: 120px; }
+  #restore-progress { font-family: var(--font-mono); font-size: 10px; color: rgba(255,255,255,0.4); display: none; }
+  .history-check {
+    width: 18px; height: 18px; border: 1px solid var(--border); border-radius: 4px;
+    cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s; background: transparent; color: transparent; font-size: 11px;
+  }
+  .history-check.checked { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.35); color: #fff; }
+  .history-check:hover { border-color: rgba(255,255,255,0.3); }
+  .btn-restore {
+    padding: 5px 13px; font-family: var(--font-display); font-size: 10px; font-weight: 700;
+    letter-spacing: 1px; text-transform: uppercase; cursor: pointer;
+    border: 1px solid rgba(100,200,150,0.3); background: rgba(100,200,150,0.06);
+    color: rgba(140,230,180,0.85); border-radius: 5px; transition: all 0.2s; white-space: nowrap;
+  }
+  .btn-restore:hover { background: rgba(100,200,150,0.14); border-color: rgba(100,200,150,0.5); color: #a0f0c0; }
+  .btn-restore:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-restore.restored { border-color: rgba(100,200,150,0.15); color: rgba(140,230,180,0.35); cursor: default; background: transparent; }
+  .badge-restored {
+    background: rgba(100,200,150,0.1); color: rgba(140,230,180,0.7);
+    border: 1px solid rgba(100,200,150,0.2); padding: 3px 10px;
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px;
+    border-radius: 2px; text-transform: uppercase;
+  }
+
 </style>
 </head>
 <body>
@@ -1503,7 +1536,7 @@
     <!-- ── HISTORY ── -->
     <div class="tab-panel" id="tab-history">
       <div style="max-width:1100px;margin:0 auto;">
-        <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;align-items:center;">
+        <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
           <input type="text" id="history-search" placeholder="Search by username, asset name..." oninput="filterHistory()" style="flex:1;min-width:180px;">
           <select id="history-filter-type" onchange="filterHistory()" style="width:auto;">
             <option value="">All Types</option>
@@ -1511,8 +1544,19 @@
             <option>Video</option><option>Mesh</option><option>Plugin</option>
             <option>Animation</option><option>Model</option><option>Package</option>
           </select>
-
+          <label style="display:flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:11px;color:var(--text-dim);cursor:pointer;user-select:none;">
+            <input type="checkbox" id="history-select-mode" onchange="toggleSelectMode(this.checked)" style="width:auto;">
+            Select
+          </label>
           <button class="btn btn-sm" onclick="clearHistory()">Clear History</button>
+        </div>
+        <!-- Bulk restore toolbar — shown in select mode -->
+        <div id="restore-toolbar">
+          <span class="restore-count-label" id="restore-count-label">0 selected</span>
+          <span id="restore-progress"></span>
+          <button class="btn btn-sm" onclick="selectAllHistory()" style="font-size:10px;">All</button>
+          <button class="btn btn-sm" onclick="deselectAllHistory()" style="font-size:10px;">None</button>
+          <button class="btn btn-primary btn-sm" id="bulk-restore-btn" onclick="bulkRestore()" disabled>↩ Restore Selected</button>
         </div>
         <div id="history-list"><div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);padding:20px 0;text-align:center;">No moderation history yet.</div></div>
       </div>
@@ -2696,6 +2740,61 @@ async function refreshHistory() {
 
 function filterHistory() { refreshHistory(); }
 
+// ── Restore state ──────────────────────────────────────────────────────────────
+let _selectModeOn   = false;
+let _selectedIds    = new Set();
+let _restoredAssets = new Set(); // asset IDs already restored this session
+
+function toggleSelectMode(on) {
+  _selectModeOn = on;
+  if (!on) {
+    _selectedIds.clear();
+    document.getElementById('restore-toolbar').classList.remove('visible');
+  } else {
+    document.getElementById('restore-toolbar').classList.add('visible');
+  }
+  renderHistoryList(_cachedHistory);
+}
+
+function selectAllHistory() {
+  _selectedIds.clear();
+  const typeq = document.getElementById('history-filter-type')?.value || '';
+  _cachedHistory.forEach(item => {
+    if (typeq && item.asset_type !== typeq) return;
+    if (!_restoredAssets.has(item.audio_id)) _selectedIds.add(item.id);
+  });
+  renderHistoryList(_cachedHistory);
+  updateRestoreToolbar();
+}
+
+function deselectAllHistory() {
+  _selectedIds.clear();
+  renderHistoryList(_cachedHistory);
+  updateRestoreToolbar();
+}
+
+function updateRestoreToolbar() {
+  const n = _selectedIds.size;
+  const label = document.getElementById('restore-count-label');
+  const btn   = document.getElementById('bulk-restore-btn');
+  if (label) label.textContent = n + ' selected';
+  if (btn)   btn.disabled = n === 0;
+}
+
+function toggleHistorySelect(histId, audioId, el) {
+  if (_restoredAssets.has(audioId)) return;
+  if (_selectedIds.has(histId)) {
+    _selectedIds.delete(histId);
+    el.classList.remove('checked');
+    el.textContent = '';
+  } else {
+    _selectedIds.add(histId);
+    el.classList.add('checked');
+    el.textContent = '✓';
+  }
+  updateRestoreToolbar();
+}
+
 function renderHistoryList(items) {
   const list = document.getElementById('history-list');
   if (!list) return;
@@ -2706,8 +2805,22 @@ function renderHistoryList(items) {
     list.innerHTML = '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);padding:20px 0;text-align:center;">No history.</div>';
     return;
   }
-  list.innerHTML = filtered.map(item => `
-    <div class="history-item" id="hist-${esc(item.id)}">
+  list.innerHTML = filtered.map(item => {
+    const isRestored = _restoredAssets.has(item.audio_id);
+    const isChecked  = _selectedIds.has(item.id);
+    const checkHtml  = _selectModeOn ? `
+      <div class="history-check${isChecked ? ' checked' : ''}"
+           onclick="toggleHistorySelect('${esc(item.id)}','${esc(item.audio_id)}',this)"
+           title="${isChecked ? 'Deselect' : 'Select'}">${isChecked ? '✓' : ''}</div>` : '';
+    const restoreHtml = !_selectModeOn ? `
+      <button class="btn-restore${isRestored ? ' restored' : ''}"
+              id="rb-${esc(item.id)}"
+              onclick="restoreSingle('${esc(item.audio_id)}','${esc(item.id)}',this)"
+              ${isRestored ? 'disabled' : ''}>${isRestored ? '✓ Restored' : '↩ Restore'}</button>` : '';
+    const restoredBadge = isRestored ? `<span class="badge-restored">Restored</span>` : '';
+    return `
+    <div class="history-item" id="hr-${esc(item.id)}">
+      ${checkHtml}
       <div class="history-avatar">${esc(((item.display_name||item.username||'?').slice(0,2)).toUpperCase())}</div>
       <div class="history-user" style="flex:1;min-width:0;">
         <div class="display-name">${esc(item.display_name||item.username)}</div>
@@ -2721,13 +2834,67 @@ function renderHistoryList(items) {
       </div>
       <div class="history-meta">
         <div class="history-time">${esc(item.time)}</div>
-        ${item.archived == 0
-          ? `<span style="font-family:var(--font-mono);font-size:9px;color:#4ade80;border:1px solid rgba(74,222,128,0.35);padding:2px 8px;border-radius:3px;letter-spacing:1px;">RESTORED</span>
-             <button class="btn btn-sm btn-danger" style="font-size:10px;padding:4px 10px;" onclick="historyArchive('${esc(item.id)}')">Archive</button>`
-          : `<button class="btn btn-sm" style="font-size:10px;padding:4px 10px;border-color:rgba(74,222,128,0.3);color:#4ade80;" onclick="historyRestore('${esc(item.id)}')">Restore</button>`
-        }
+        ${restoredBadge}
+        ${restoreHtml}
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
+}
+
+async function restoreSingle(audioId, histId, btn) {
+  if (!audioId) { toast('No asset ID', 'error'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+  try {
+    const res = await api('POST', '/api/restore', { profile_id: pid(), asset_id: audioId, history_id: histId });
+    if (res.ok) {
+      _restoredAssets.add(audioId);
+      if (btn) { btn.textContent = '✓ Restored'; btn.classList.add('restored'); }
+      const row = document.getElementById('hr-' + histId);
+      if (row) {
+        const meta = row.querySelector('.history-meta');
+        if (meta && !meta.querySelector('.badge-restored')) {
+          const badge = document.createElement('span');
+          badge.className = 'badge-restored';
+          badge.textContent = 'Restored';
+          meta.insertBefore(badge, btn || meta.firstChild);
+        }
+      }
+      toast('↩ Restored asset ' + audioId, 'success');
+    } else {
+      if (btn) { btn.disabled = false; btn.textContent = '↩ Restore'; }
+      toast('Restore failed for ' + audioId + ' — check account permissions', 'error');
+    }
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = '↩ Restore'; }
+    toast('Restore error: ' + e.message, 'error');
+  }
+}
+
+async function bulkRestore() {
+  const ids = [..._selectedIds];
+  if (!ids.length) { toast('Nothing selected', 'warn'); return; }
+  if (!confirm('Restore ' + ids.length + ' asset' + (ids.length !== 1 ? 's' : '') + '? They will go live again on Roblox.')) return;
+  const btn      = document.getElementById('bulk-restore-btn');
+  const progress = document.getElementById('restore-progress');
+  if (btn)      { btn.disabled = true; btn.textContent = '⏳ Restoring…'; }
+  if (progress) { progress.style.display = 'inline'; progress.textContent = '0 / ' + ids.length; }
+  const histMap = {};
+  _cachedHistory.forEach(item => { histMap[item.id] = item.audio_id; });
+  const assetIds = ids.map(hid => histMap[hid]).filter(Boolean);
+  try {
+    const res = await api('POST', '/api/restore/bulk', { profile_id: pid(), asset_ids: assetIds });
+    (res.results || []).forEach(r => { if (r.ok) _restoredAssets.add(r.asset_id); });
+    _selectedIds.clear();
+    renderHistoryList(_cachedHistory);
+    updateRestoreToolbar();
+    const s = res.succeeded ?? 0, t = res.total ?? assetIds.length;
+    toast(s === t ? '↩ All ' + t + ' assets restored' : 'Restored ' + s + '/' + t + ' — ' + (t - s) + ' failed', s === t ? 'success' : 'warn');
+  } catch(e) {
+    toast('Bulk restore error: ' + e.message, 'error');
+  } finally {
+    if (btn)      { btn.disabled = false; btn.textContent = '↩ Restore Selected'; }
+    if (progress) { progress.style.display = 'none'; }
+  }
 }
 
 
@@ -2738,33 +2905,6 @@ async function clearHistory() {
   _cachedHistory = []; _prevHistCount = 0;
   await refreshHistory(); await refreshStats();
   toast('History cleared', 'warn');
-}
-
-async function historyRestore(historyId) {
-  const btn = document.querySelector(`#hist-${historyId} .btn`);
-  if (btn) { btn.textContent = '⏳'; btn.disabled = true; }
-  try {
-    await api('POST', `/api/history/${historyId}/restore`, { profile_id: pid() });
-    toast('✓ Asset restored — Sentinel will not auto-archive it again', 'success');
-    await refreshHistory();
-  } catch(e) {
-    toast('Restore failed: ' + e.message, 'error');
-    if (btn) { btn.textContent = 'Restore'; btn.disabled = false; }
-  }
-}
-
-async function historyArchive(historyId) {
-  if (!confirm('Re-archive this asset? Sentinel will be able to auto-archive it again in the future.')) return;
-  const btn = document.querySelector(`#hist-${historyId} .btn-danger`);
-  if (btn) { btn.textContent = '⏳'; btn.disabled = true; }
-  try {
-    await api('POST', `/api/history/${historyId}/archive`, { profile_id: pid() });
-    toast('Asset archived', 'warn');
-    await refreshHistory();
-  } catch(e) {
-    toast('Archive failed: ' + e.message, 'error');
-    if (btn) { btn.textContent = 'Archive'; btn.disabled = false; }
-  }
 }
 
 // ── STATS ─────────────────────────────────────────────────────────────────────
