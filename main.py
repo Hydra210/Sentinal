@@ -68,11 +68,6 @@ def init_db():
             code TEXT PRIMARY KEY,
             profile_id TEXT NOT NULL,
             expiry REAL NOT NULL);
-        CREATE TABLE IF NOT EXISTS restored_assets (
-            asset_id TEXT NOT NULL,
-            profile_id TEXT NOT NULL,
-            restored_at REAL NOT NULL,
-            PRIMARY KEY (asset_id, profile_id));
     """)
     conn.commit()
 
@@ -869,18 +864,50 @@ async def fetch_group_assets(group_id: str, asset_type: str, *, cookie=None) -> 
         return None
     assets: list[dict] = []
     cursor = None
+    # Some Roblox itemconfiguration endpoints need CSRF even on GET requests
+    try:
+        csrf = await get_csrf(cookie)
+    except Exception:
+        csrf = ""
     for _ in range(10):
         params = {"assetType": asset_type, "isArchived": "false", "groupId": group_id, "pageSize": 100}
         if cursor:
             params["cursor"] = cursor
         try:
-            r = await rblx_get("https://itemconfiguration.roblox.com/v1/creations/get-assets", cookie=cookie, params=params)
+            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as c:
+                r = await c.get(
+                    "https://itemconfiguration.roblox.com/v1/creations/get-assets",
+                    cookies={".ROBLOSECURITY": cookie},
+                    headers={"X-CSRF-TOKEN": csrf} if csrf else {},
+                    params=params,
+                )
         except Exception as e:
             sentinel_log(f"fetch_group_assets network error ({asset_type} grp {group_id}): {e}", "ERROR", "NETWORK")
             return None
         if r.status_code == 401:
             sentinel_log(f"fetch_group_assets 401 — cookie likely expired ({asset_type} grp {group_id})", "ERROR", "NETWORK")
             return None
+        if r.status_code == 403:
+            # Roblox may send a refreshed CSRF on 403 — grab it and retry once
+            new_csrf = r.headers.get("x-csrf-token")
+            if new_csrf and new_csrf != csrf:
+                csrf = new_csrf
+                _csrf_cache[cookie] = (new_csrf, time.time())
+                sentinel_log(f"fetch_group_assets 403 CSRF refresh for {asset_type} grp {group_id} — retrying", "DEBUG", "NETWORK")
+                try:
+                    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as c2:
+                        r = await c2.get(
+                            "https://itemconfiguration.roblox.com/v1/creations/get-assets",
+                            cookies={".ROBLOSECURITY": cookie},
+                            headers={"X-CSRF-TOKEN": csrf},
+                            params=params,
+                        )
+                except Exception as e2:
+                    sentinel_log(f"fetch_group_assets retry network error: {e2}", "ERROR", "NETWORK")
+                    return None
+            if r.status_code != 200:
+                sentinel_log(f"fetch_group_assets HTTP {r.status_code} ({asset_type} grp {group_id}): {r.text[:200]}", "ERROR", "NETWORK")
+                return None
         if r.status_code != 200:
             sentinel_log(f"fetch_group_assets HTTP {r.status_code} ({asset_type} grp {group_id}): {r.text[:200]}", "ERROR", "NETWORK")
             return None
@@ -924,6 +951,9 @@ async def archive_asset(asset_id: str, *, cookie=None) -> bool:
         return r.status_code in (200, 204)
 
 async def restore_asset(asset_id: str, *, cookie=None) -> bool:
+    """Call the Roblox restore endpoint for a previously-archived asset.
+    Mirrors archive_asset() exactly, including CSRF retry on 403.
+    """
     if not cookie:
         return False
     csrf = await get_csrf(cookie)
@@ -938,6 +968,7 @@ async def restore_asset(asset_id: str, *, cookie=None) -> bool:
             new_csrf = r.headers.get("x-csrf-token")
             if new_csrf:
                 _csrf_cache[cookie] = (new_csrf, time.time())
+                sentinel_log(f"CSRF expired for restore {asset_id} — refreshed and retrying", "DEBUG", "NETWORK")
                 r2 = await c.post(
                     f"https://develop.roblox.com/v1/assets/{asset_id}/restore",
                     headers={"X-CSRF-TOKEN": new_csrf},
@@ -946,6 +977,7 @@ async def restore_asset(asset_id: str, *, cookie=None) -> bool:
                 sentinel_log(f"Restore retry {asset_id}: HTTP {r2.status_code}", "ARCHIVE", "NETWORK")
                 return r2.status_code in (200, 204)
         return r.status_code in (200, 204)
+
 
 async def send_dm(user_id: str, subject: str, body: str, cookie: str) -> bool:
     csrf = await get_csrf(cookie)
@@ -988,6 +1020,9 @@ async def monitor_loop(profile_id: str):
                     type_assets = await fetch_group_assets(
                         gid, asset_type, cookie=session.cookie
                     )
+                    if type_assets is None:
+                        sentinel_log(f"Skipping {asset_type} for group {gid} — fetch failed (API error)", "WARN", "MONITOR")
+                        continue
                     sentinel_log(f"Found {len(type_assets)} {asset_type} assets in group {gid}", "DEBUG", "NETWORK")
                     all_assets.extend(type_assets)
 
@@ -1016,17 +1051,6 @@ async def monitor_loop(profile_id: str):
                     creator_name = a.get("creatorName", "") or ""
                     if not creator_name and creator_id:
                         creator_name = await get_username(creator_id, cookie=session.cookie)
-                    asset_type   = a.get("assetType", "Unknown")
-
-                    # ── Skip assets the user has manually restored ──────────────
-                    is_restored = db_exec(
-                        "SELECT 1 FROM restored_assets WHERE asset_id=? AND profile_id=?",
-                        (aid, profile_id), fetch="one"
-                    )
-                    if is_restored:
-                        sentinel_log(f"Skipping restored asset {aid} — protected from auto-archive", "INFO", "MONITOR")
-                        session.known_assets[group_key].add(aid)
-                        continue
                     asset_type   = a.get("assetType", "Unknown")
 
                     # Normalize whitelist entries: strip, lowercase
@@ -1149,6 +1173,15 @@ class ConfigBody(BaseModel):
 
 class MonitorBody(BaseModel):
     profile_id: str
+
+class RestoreBody(BaseModel):
+    profile_id: str
+    asset_id:   str
+    history_id: Optional[str] = None  # if provided, marks that history row as archived=0
+
+class RestoreBulkBody(BaseModel):
+    profile_id: str
+    asset_ids:  List[str]
 
 class AccessRequestBody(BaseModel):
     name:   str
@@ -1954,51 +1987,53 @@ def api_clear_history(profile_id: str = ""):
     db_exec("DELETE FROM history WHERE profile_id=?", (profile_id,))
     return {"cleared": True}
 
-class AssetActionBody(BaseModel):
-    profile_id: str
+# ── RESTORE ───────────────────────────────────────────────────────────────────
 
-@app.post("/api/history/{history_id}/restore")
-async def api_restore_asset(history_id: str, body: AssetActionBody):
-    """Restore an archived asset and protect it from being auto-archived again."""
-    row = db_exec(
-        "SELECT * FROM history WHERE id=? AND profile_id=?",
-        (history_id, body.profile_id), fetch="one"
-    )
-    if not row:
-        raise HTTPException(404, "History entry not found")
-    asset_id = row["audio_id"]
-    session  = get_session(body.profile_id)
-    ok = await restore_asset(asset_id, cookie=session.cookie)
-    if not ok:
-        raise HTTPException(502, f"Roblox API refused restore for asset {asset_id} — check that the account owns this asset")
-    # Mark as restored in history
-    db_exec("UPDATE history SET archived=0 WHERE id=? AND profile_id=?", (history_id, body.profile_id))
-    # Add to restored_assets so monitor_loop skips it
-    db_upsert("restored_assets", ["asset_id", "profile_id"],
-              {"asset_id": asset_id, "profile_id": body.profile_id, "restored_at": time.time()})
-    sentinel_log(f"Asset {asset_id} restored by user — added to restore-protection list", "ARCHIVE", "MONITOR")
-    return {"ok": True, "asset_id": asset_id, "restored": True}
+@app.post("/api/restore")
+async def api_restore(body: RestoreBody):
+    """Restore a single archived Roblox asset using the active session cookie."""
+    session = get_session(body.profile_id)
+    if not session.cookie:
+        raise HTTPException(400, "No credentials — connect a Roblox account first")
+    aid = body.asset_id.strip()
+    if not aid:
+        raise HTTPException(400, "asset_id is required")
+    ok = await restore_asset(aid, cookie=session.cookie)
+    sentinel_log(f"Manual restore {aid}: {'OK' if ok else 'FAILED'}", "ARCHIVE" if ok else "ERROR", "RESTORE")
+    if ok and body.history_id:
+        db_exec(
+            "UPDATE history SET archived=0 WHERE id=? AND profile_id=?",
+            (body.history_id, body.profile_id),
+        )
+    return {"ok": ok, "asset_id": aid}
 
-@app.post("/api/history/{history_id}/archive")
-async def api_manual_archive_asset(history_id: str, body: AssetActionBody):
-    """Manually archive a previously-restored asset (removes restore protection)."""
-    row = db_exec(
-        "SELECT * FROM history WHERE id=? AND profile_id=?",
-        (history_id, body.profile_id), fetch="one"
-    )
-    if not row:
-        raise HTTPException(404, "History entry not found")
-    asset_id = row["audio_id"]
-    session  = get_session(body.profile_id)
-    ok = await archive_asset(asset_id, cookie=session.cookie)
-    if not ok:
-        raise HTTPException(502, f"Roblox API refused archive for asset {asset_id}")
-    # Update history row
-    db_exec("UPDATE history SET archived=1 WHERE id=? AND profile_id=?", (history_id, body.profile_id))
-    # Remove restore protection so Sentinel can auto-archive it again if it reappears
-    db_exec("DELETE FROM restored_assets WHERE asset_id=? AND profile_id=?", (asset_id, body.profile_id))
-    sentinel_log(f"Asset {asset_id} manually re-archived — restore protection removed", "ARCHIVE", "MONITOR")
-    return {"ok": True, "asset_id": asset_id, "archived": True}
+
+@app.post("/api/restore/bulk")
+async def api_restore_bulk(body: RestoreBulkBody):
+    """Restore multiple archived assets in sequence, returning per-asset results."""
+    session = get_session(body.profile_id)
+    if not session.cookie:
+        raise HTTPException(400, "No credentials — connect a Roblox account first")
+    if not body.asset_ids:
+        raise HTTPException(400, "asset_ids list is empty")
+    results: list[dict] = []
+    for aid in body.asset_ids:
+        aid = str(aid).strip()
+        if not aid:
+            continue
+        ok = await restore_asset(aid, cookie=session.cookie)
+        sentinel_log(f"Bulk restore {aid}: {'OK' if ok else 'FAILED'}", "ARCHIVE" if ok else "ERROR", "RESTORE")
+        if ok:
+            db_exec(
+                "UPDATE history SET archived=0 WHERE audio_id=? AND profile_id=?",
+                (aid, body.profile_id),
+            )
+        results.append({"asset_id": aid, "ok": ok})
+        await asyncio.sleep(0.3)  # avoid rate-limiting
+    succeeded = sum(1 for r in results if r["ok"])
+    sentinel_log(f"Bulk restore complete: {succeeded}/{len(results)} succeeded", "ARCHIVE", "RESTORE")
+    return {"results": results, "succeeded": succeeded, "total": len(results)}
+
 
 # ── STATS ─────────────────────────────────────────────────────────────────────
 
