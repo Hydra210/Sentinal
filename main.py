@@ -68,6 +68,11 @@ def init_db():
             code TEXT PRIMARY KEY,
             profile_id TEXT NOT NULL,
             expiry REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS restored_assets (
+            asset_id TEXT NOT NULL,
+            profile_id TEXT NOT NULL,
+            restored_at REAL NOT NULL,
+            PRIMARY KEY (asset_id, profile_id));
     """)
     conn.commit()
 
@@ -918,6 +923,30 @@ async def archive_asset(asset_id: str, *, cookie=None) -> bool:
                 return r2.status_code in (200, 204)
         return r.status_code in (200, 204)
 
+async def restore_asset(asset_id: str, *, cookie=None) -> bool:
+    if not cookie:
+        return False
+    csrf = await get_csrf(cookie)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.post(
+            f"https://develop.roblox.com/v1/assets/{asset_id}/restore",
+            headers={"X-CSRF-TOKEN": csrf},
+            cookies={".ROBLOSECURITY": cookie},
+        )
+        sentinel_log(f"Restore {asset_id}: HTTP {r.status_code}", "ARCHIVE", "NETWORK")
+        if r.status_code == 403:
+            new_csrf = r.headers.get("x-csrf-token")
+            if new_csrf:
+                _csrf_cache[cookie] = (new_csrf, time.time())
+                r2 = await c.post(
+                    f"https://develop.roblox.com/v1/assets/{asset_id}/restore",
+                    headers={"X-CSRF-TOKEN": new_csrf},
+                    cookies={".ROBLOSECURITY": cookie},
+                )
+                sentinel_log(f"Restore retry {asset_id}: HTTP {r2.status_code}", "ARCHIVE", "NETWORK")
+                return r2.status_code in (200, 204)
+        return r.status_code in (200, 204)
+
 async def send_dm(user_id: str, subject: str, body: str, cookie: str) -> bool:
     csrf = await get_csrf(cookie)
     async with httpx.AsyncClient(timeout=15) as c:
@@ -987,6 +1016,17 @@ async def monitor_loop(profile_id: str):
                     creator_name = a.get("creatorName", "") or ""
                     if not creator_name and creator_id:
                         creator_name = await get_username(creator_id, cookie=session.cookie)
+                    asset_type   = a.get("assetType", "Unknown")
+
+                    # ── Skip assets the user has manually restored ──────────────
+                    is_restored = db_exec(
+                        "SELECT 1 FROM restored_assets WHERE asset_id=? AND profile_id=?",
+                        (aid, profile_id), fetch="one"
+                    )
+                    if is_restored:
+                        sentinel_log(f"Skipping restored asset {aid} — protected from auto-archive", "INFO", "MONITOR")
+                        session.known_assets[group_key].add(aid)
+                        continue
                     asset_type   = a.get("assetType", "Unknown")
 
                     # Normalize whitelist entries: strip, lowercase
@@ -1913,6 +1953,52 @@ def api_history(profile_id: str = "", limit: int = 200, search: str = ""):
 def api_clear_history(profile_id: str = ""):
     db_exec("DELETE FROM history WHERE profile_id=?", (profile_id,))
     return {"cleared": True}
+
+class AssetActionBody(BaseModel):
+    profile_id: str
+
+@app.post("/api/history/{history_id}/restore")
+async def api_restore_asset(history_id: str, body: AssetActionBody):
+    """Restore an archived asset and protect it from being auto-archived again."""
+    row = db_exec(
+        "SELECT * FROM history WHERE id=? AND profile_id=?",
+        (history_id, body.profile_id), fetch="one"
+    )
+    if not row:
+        raise HTTPException(404, "History entry not found")
+    asset_id = row["audio_id"]
+    session  = get_session(body.profile_id)
+    ok = await restore_asset(asset_id, cookie=session.cookie)
+    if not ok:
+        raise HTTPException(502, f"Roblox API refused restore for asset {asset_id} — check that the account owns this asset")
+    # Mark as restored in history
+    db_exec("UPDATE history SET archived=0 WHERE id=? AND profile_id=?", (history_id, body.profile_id))
+    # Add to restored_assets so monitor_loop skips it
+    db_upsert("restored_assets", ["asset_id", "profile_id"],
+              {"asset_id": asset_id, "profile_id": body.profile_id, "restored_at": time.time()})
+    sentinel_log(f"Asset {asset_id} restored by user — added to restore-protection list", "ARCHIVE", "MONITOR")
+    return {"ok": True, "asset_id": asset_id, "restored": True}
+
+@app.post("/api/history/{history_id}/archive")
+async def api_manual_archive_asset(history_id: str, body: AssetActionBody):
+    """Manually archive a previously-restored asset (removes restore protection)."""
+    row = db_exec(
+        "SELECT * FROM history WHERE id=? AND profile_id=?",
+        (history_id, body.profile_id), fetch="one"
+    )
+    if not row:
+        raise HTTPException(404, "History entry not found")
+    asset_id = row["audio_id"]
+    session  = get_session(body.profile_id)
+    ok = await archive_asset(asset_id, cookie=session.cookie)
+    if not ok:
+        raise HTTPException(502, f"Roblox API refused archive for asset {asset_id}")
+    # Update history row
+    db_exec("UPDATE history SET archived=1 WHERE id=? AND profile_id=?", (history_id, body.profile_id))
+    # Remove restore protection so Sentinel can auto-archive it again if it reappears
+    db_exec("DELETE FROM restored_assets WHERE asset_id=? AND profile_id=?", (asset_id, body.profile_id))
+    sentinel_log(f"Asset {asset_id} manually re-archived — restore protection removed", "ARCHIVE", "MONITOR")
+    return {"ok": True, "asset_id": asset_id, "archived": True}
 
 # ── STATS ─────────────────────────────────────────────────────────────────────
 
