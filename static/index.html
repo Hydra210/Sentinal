@@ -2707,7 +2707,7 @@ function renderHistoryList(items) {
     return;
   }
   list.innerHTML = filtered.map(item => `
-    <div class="history-item">
+    <div class="history-item" id="hist-${esc(item.id)}">
       <div class="history-avatar">${esc(((item.display_name||item.username||'?').slice(0,2)).toUpperCase())}</div>
       <div class="history-user" style="flex:1;min-width:0;">
         <div class="display-name">${esc(item.display_name||item.username)}</div>
@@ -2721,7 +2721,11 @@ function renderHistoryList(items) {
       </div>
       <div class="history-meta">
         <div class="history-time">${esc(item.time)}</div>
-
+        ${item.archived == 0
+          ? `<span style="font-family:var(--font-mono);font-size:9px;color:#4ade80;border:1px solid rgba(74,222,128,0.35);padding:2px 8px;border-radius:3px;letter-spacing:1px;">RESTORED</span>
+             <button class="btn btn-sm btn-danger" style="font-size:10px;padding:4px 10px;" onclick="historyArchive('${esc(item.id)}')">Archive</button>`
+          : `<button class="btn btn-sm" style="font-size:10px;padding:4px 10px;border-color:rgba(74,222,128,0.3);color:#4ade80;" onclick="historyRestore('${esc(item.id)}')">Restore</button>`
+        }
       </div>
     </div>`).join('');
 }
@@ -2734,6 +2738,33 @@ async function clearHistory() {
   _cachedHistory = []; _prevHistCount = 0;
   await refreshHistory(); await refreshStats();
   toast('History cleared', 'warn');
+}
+
+async function historyRestore(historyId) {
+  const btn = document.querySelector(`#hist-${historyId} .btn`);
+  if (btn) { btn.textContent = '⏳'; btn.disabled = true; }
+  try {
+    await api('POST', `/api/history/${historyId}/restore`, { profile_id: pid() });
+    toast('✓ Asset restored — Sentinel will not auto-archive it again', 'success');
+    await refreshHistory();
+  } catch(e) {
+    toast('Restore failed: ' + e.message, 'error');
+    if (btn) { btn.textContent = 'Restore'; btn.disabled = false; }
+  }
+}
+
+async function historyArchive(historyId) {
+  if (!confirm('Re-archive this asset? Sentinel will be able to auto-archive it again in the future.')) return;
+  const btn = document.querySelector(`#hist-${historyId} .btn-danger`);
+  if (btn) { btn.textContent = '⏳'; btn.disabled = true; }
+  try {
+    await api('POST', `/api/history/${historyId}/archive`, { profile_id: pid() });
+    toast('Asset archived', 'warn');
+    await refreshHistory();
+  } catch(e) {
+    toast('Archive failed: ' + e.message, 'error');
+    if (btn) { btn.textContent = 'Archive'; btn.disabled = false; }
+  }
 }
 
 // ── STATS ─────────────────────────────────────────────────────────────────────
