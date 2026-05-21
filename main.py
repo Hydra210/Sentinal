@@ -35,9 +35,12 @@ app.add_middleware(
 # ── ASSET TYPES ───────────────────────────────────────────────────────────────
 
 ALL_ASSET_TYPES = [
-    "Audio", "Image", "Decal", "Video", "Mesh",
+    "Audio", "Decal", "Video", "Mesh",
     "Plugin", "Animation", "Model", "Package"
 ]
+# Note: "Image" is excluded — Roblox does not allow archiving images via API.
+# Images are system-generated from Decal uploads and cannot be archived.
+NON_ARCHIVABLE_TYPES = {"Image"}
 
 # ── SQLITE (local data — groups, history, config) ─────────────────────────────
 
@@ -800,6 +803,9 @@ async def rblx_get(url: str, *, cookie=None, params=None) -> httpx.Response:
         return await c.get(url, cookies=cookies, params=params)
 
 _csrf_cache: dict = {}
+# Tracks (group_id, asset_type) pairs that consistently 403 on the listing endpoint.
+# Suppressed after the first logged failure to avoid log spam on every poll.
+_unsupported_group_types: set = set()
 
 async def get_csrf(cookie: str) -> str:
     now = time.time()
@@ -1016,12 +1022,21 @@ async def monitor_loop(profile_id: str):
                 if _DEGRADED:
                     sentinel_log(f"Degraded mode — limiting asset scan to {active_filters}", "MEMORY", "MONITOR")
                 for asset_type in active_filters:
+                    # Skip types that have previously 403'd for this group — avoids log spam
+                    if (gid, asset_type) in _unsupported_group_types:
+                        continue
                     sentinel_log(f"Scanning group {gid} ({gname}) for {asset_type}", "DEBUG", "NETWORK")
                     type_assets = await fetch_group_assets(
                         gid, asset_type, cookie=session.cookie
                     )
                     if type_assets is None:
-                        sentinel_log(f"Skipping {asset_type} for group {gid} — fetch failed (API error)", "WARN", "MONITOR")
+                        _unsupported_group_types.add((gid, asset_type))
+                        sentinel_log(
+                            f"Skipping {asset_type} for group {gid} — "
+                            f"API returned an error (type may not be supported by this endpoint). "
+                            f"Will silently skip on future polls.",
+                            "WARN", "MONITOR"
+                        )
                         continue
                     sentinel_log(f"Found {len(type_assets)} {asset_type} assets in group {gid}", "DEBUG", "NETWORK")
                     all_assets.extend(type_assets)
@@ -1071,6 +1086,22 @@ async def monitor_loop(profile_id: str):
                         continue
 
                     sentinel_log(f"New {asset_type} detected: '{a.get('name')}' (ID {aid}) by {creator_name}", "ARCHIVE", "MONITOR")
+
+                    # Images cannot be archived via the Roblox API — skip silently
+                    if asset_type in NON_ARCHIVABLE_TYPES:
+                        sentinel_log(f"Skipping {asset_type} {aid} — type cannot be archived", "INFO", "MONITOR")
+                        session.known_assets[group_key].add(aid)
+                        continue
+
+                    # Don't re-archive assets that were manually restored from the dashboard
+                    was_restored = db_exec(
+                        "SELECT COUNT(*) FROM history WHERE audio_id=? AND profile_id=? AND archived=0",
+                        (aid, profile_id), fetch="val"
+                    ) or 0
+                    if was_restored:
+                        sentinel_log(f"Skipping {aid} — was manually restored, not re-archiving", "INFO", "MONITOR")
+                        session.known_assets[group_key].add(aid)
+                        continue
 
                     if delay_sec > 0:
                         sentinel_log(f"Waiting {delay_sec}s before archiving {aid}", "DEBUG", "MONITOR")
@@ -1918,6 +1949,9 @@ async def api_start(body: MonitorBody):
         raise HTTPException(400, "No credentials. Connect a Roblox account first.")
     if session.monitoring:
         return {"status": "already_running"}
+    # Clear cached unsupported types so fresh start retries all (in case group perms changed)
+    stale = {k for k in _unsupported_group_types}
+    _unsupported_group_types.difference_update(stale)
     session.monitoring   = True
     session.monitor_task = asyncio.create_task(monitor_loop(body.profile_id))
     set_cfg(body.profile_id, "_monitoringActive", True)   # persist so it survives restarts
@@ -1989,6 +2023,30 @@ def api_clear_history(profile_id: str = ""):
 
 # ── RESTORE ───────────────────────────────────────────────────────────────────
 
+class ArchiveAssetBody(BaseModel):
+    profile_id: str
+    asset_id:   str
+    history_id: Optional[str] = None
+
+@app.post("/api/archive-asset")
+async def api_archive_asset(body: ArchiveAssetBody):
+    """Manually archive a single Roblox asset from the dashboard (e.g. re-archive a restored asset)."""
+    session = get_session(body.profile_id)
+    if not session.cookie:
+        raise HTTPException(400, "No credentials — connect a Roblox account first")
+    aid = body.asset_id.strip()
+    if not aid:
+        raise HTTPException(400, "asset_id is required")
+    ok = await archive_asset(aid, cookie=session.cookie)
+    sentinel_log(f"Manual archive {aid}: {'OK' if ok else 'FAILED'}", "ARCHIVE" if ok else "ERROR", "RESTORE")
+    if ok:
+        # Mark all history rows for this asset as archived again
+        db_exec(
+            "UPDATE history SET archived=1 WHERE audio_id=? AND profile_id=?",
+            (aid, body.profile_id),
+        )
+    return {"ok": ok, "asset_id": aid}
+
 @app.post("/api/restore")
 async def api_restore(body: RestoreBody):
     """Restore a single archived Roblox asset using the active session cookie."""
@@ -2000,10 +2058,11 @@ async def api_restore(body: RestoreBody):
         raise HTTPException(400, "asset_id is required")
     ok = await restore_asset(aid, cookie=session.cookie)
     sentinel_log(f"Manual restore {aid}: {'OK' if ok else 'FAILED'}", "ARCHIVE" if ok else "ERROR", "RESTORE")
-    if ok and body.history_id:
+    if ok:
+        # Mark ALL history rows for this asset as restored (archived=0) so monitor won't re-archive
         db_exec(
-            "UPDATE history SET archived=0 WHERE id=? AND profile_id=?",
-            (body.history_id, body.profile_id),
+            "UPDATE history SET archived=0 WHERE audio_id=? AND profile_id=?",
+            (aid, body.profile_id),
         )
     return {"ok": ok, "asset_id": aid}
 
