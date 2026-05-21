@@ -1540,7 +1540,7 @@
           <input type="text" id="history-search" placeholder="Search by username, asset name..." oninput="filterHistory()" style="flex:1;min-width:180px;">
           <select id="history-filter-type" onchange="filterHistory()" style="width:auto;">
             <option value="">All Types</option>
-            <option>Audio</option><option>Image</option><option>Decal</option>
+            <option>Audio</option><option>Decal</option>
             <option>Video</option><option>Mesh</option><option>Plugin</option>
             <option>Animation</option><option>Model</option><option>Package</option>
           </select>
@@ -1600,7 +1600,7 @@
 
 <script>
 // ── STATE ─────────────────────────────────────────────────────────────────────
-const ALL_ASSET_TYPES = ['Audio','Image','Decal','Video','Mesh','Plugin','Animation','Model','Package'];
+const ALL_ASSET_TYPES = ['Audio','Decal','Video','Mesh','Plugin','Animation','Model','Package']; // Image excluded — cannot be archived (system-generated from Decals)
 const WL_KEYS = ['all', ...ALL_ASSET_TYPES];
 
 let STATE = {
@@ -2812,11 +2812,14 @@ function renderHistoryList(items) {
       <div class="history-check${isChecked ? ' checked' : ''}"
            onclick="toggleHistorySelect('${esc(item.id)}','${esc(item.audio_id)}',this)"
            title="${isChecked ? 'Deselect' : 'Select'}">${isChecked ? '✓' : ''}</div>` : '';
-    const restoreHtml = !_selectModeOn ? `
-      <button class="btn-restore${isRestored ? ' restored' : ''}"
-              id="rb-${esc(item.id)}"
-              onclick="restoreSingle('${esc(item.audio_id)}','${esc(item.id)}',this)"
-              ${isRestored ? 'disabled' : ''}>${isRestored ? '✓ Restored' : '↩ Restore'}</button>` : '';
+    const restoreHtml = !_selectModeOn ? (isRestored
+      ? `<button class="btn-restore" style="border-color:rgba(255,59,59,0.3);color:rgba(255,100,100,0.8);background:rgba(255,59,59,0.06);"
+               id="rb-${esc(item.id)}"
+               onclick="archiveAgain('${esc(item.audio_id)}','${esc(item.id)}',this)">↩ Archive Again</button>`
+      : `<button class="btn-restore"
+               id="rb-${esc(item.id)}"
+               onclick="restoreSingle('${esc(item.audio_id)}','${esc(item.id)}',this)">↩ Restore</button>`)
+      : '';
     const restoredBadge = isRestored ? `<span class="badge-restored">Restored</span>` : '';
     return `
     <div class="history-item" id="hr-${esc(item.id)}">
@@ -2845,20 +2848,33 @@ async function restoreSingle(audioId, histId, btn) {
   if (!audioId) { toast('No asset ID', 'error'); return; }
   if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
   try {
-    const res = await api('POST', '/api/restore', { profile_id: pid(), asset_id: audioId, history_id: histId });
+    const res = await api('POST', '/api/restore', { profile_id: pid(), asset_id: audioId });
     if (res.ok) {
       _restoredAssets.add(audioId);
-      if (btn) { btn.textContent = '✓ Restored'; btn.classList.add('restored'); }
-      const row = document.getElementById('hr-' + histId);
-      if (row) {
-        const meta = row.querySelector('.history-meta');
-        if (meta && !meta.querySelector('.badge-restored')) {
-          const badge = document.createElement('span');
-          badge.className = 'badge-restored';
-          badge.textContent = 'Restored';
-          meta.insertBefore(badge, btn || meta.firstChild);
+      // Update ALL rows with this audio_id in the rendered list
+      _cachedHistory.forEach(item => {
+        if (item.audio_id === audioId) {
+          const rb = document.getElementById('rb-' + item.id);
+          if (rb) {
+            rb.textContent = '↩ Archive Again';
+            rb.style.borderColor = 'rgba(255,59,59,0.3)';
+            rb.style.color = 'rgba(255,100,100,0.8)';
+            rb.style.background = 'rgba(255,59,59,0.06)';
+            rb.onclick = function() { archiveAgain(audioId, item.id, rb); };
+            rb.disabled = false;
+          }
+          const row = document.getElementById('hr-' + item.id);
+          if (row) {
+            const meta = row.querySelector('.history-meta');
+            if (meta && !meta.querySelector('.badge-restored')) {
+              const badge = document.createElement('span');
+              badge.className = 'badge-restored';
+              badge.textContent = 'Restored';
+              meta.insertBefore(badge, rb || null);
+            }
+          }
         }
-      }
+      });
       toast('↩ Restored asset ' + audioId, 'success');
     } else {
       if (btn) { btn.disabled = false; btn.textContent = '↩ Restore'; }
@@ -2867,6 +2883,44 @@ async function restoreSingle(audioId, histId, btn) {
   } catch(e) {
     if (btn) { btn.disabled = false; btn.textContent = '↩ Restore'; }
     toast('Restore error: ' + e.message, 'error');
+  }
+}
+
+async function archiveAgain(audioId, histId, btn) {
+  if (!audioId) { toast('No asset ID', 'error'); return; }
+  if (!confirm('Archive asset ' + audioId + ' again? The monitor will skip re-archiving it only if it stays in the history as restored.')) return;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+  try {
+    const res = await api('POST', '/api/archive-asset', { profile_id: pid(), asset_id: audioId });
+    if (res.ok) {
+      _restoredAssets.delete(audioId);
+      // Update ALL rows with this audio_id
+      _cachedHistory.forEach(item => {
+        if (item.audio_id === audioId) {
+          const rb = document.getElementById('rb-' + item.id);
+          if (rb) {
+            rb.textContent = '↩ Restore';
+            rb.style.borderColor = '';
+            rb.style.color = '';
+            rb.style.background = '';
+            rb.onclick = function() { restoreSingle(audioId, item.id, rb); };
+            rb.disabled = false;
+          }
+          const row = document.getElementById('hr-' + item.id);
+          if (row) {
+            const badge = row.querySelector('.badge-restored');
+            if (badge) badge.remove();
+          }
+        }
+      });
+      toast('Archived asset ' + audioId, 'success');
+    } else {
+      if (btn) { btn.disabled = false; btn.textContent = '↩ Archive Again'; }
+      toast('Archive failed for ' + audioId, 'error');
+    }
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = '↩ Archive Again'; }
+    toast('Archive error: ' + e.message, 'error');
   }
 }
 
@@ -2885,6 +2939,7 @@ async function bulkRestore() {
     const res = await api('POST', '/api/restore/bulk', { profile_id: pid(), asset_ids: assetIds });
     (res.results || []).forEach(r => { if (r.ok) _restoredAssets.add(r.asset_id); });
     _selectedIds.clear();
+    // Re-render so all rows with restored asset IDs update their buttons
     renderHistoryList(_cachedHistory);
     updateRestoreToolbar();
     const s = res.succeeded ?? 0, t = res.total ?? assetIds.length;
