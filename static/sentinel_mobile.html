@@ -28,7 +28,7 @@
   --font-ui: 'Outfit', sans-serif;
   --font-display: 'Syne', sans-serif;
   --topbar-h: 60px;
-  --tabbar-h: 72px;
+  --tabbar-h: 120px;
 }
 
 html, body {
@@ -121,19 +121,20 @@ body::after {
   align-items: center; justify-content: center; gap: 5px;
   cursor: pointer; position: relative;
   background: none; border: none; color: var(--text-dimmer);
-  transition: color 0.2s; padding: 0; outline: none;
+  transition: color 0.2s; padding: 0 4px; outline: none;
+  gap: 8px;
 }
-.tab-btn svg { width: 26px; height: 26px; transition: transform 0.2s; stroke-width: 1.8px; }
+.tab-btn svg { width: 38px; height: 38px; transition: transform 0.2s; stroke-width: 1.6px; }
 .tab-btn span {
-  font-family: var(--font-mono); font-size: 10px;
+  font-family: var(--font-mono); font-size: 13px;
   letter-spacing: 1.5px; text-transform: uppercase;
 }
 .tab-btn.active { color: #fff; }
 .tab-btn.active svg { transform: translateY(-1px); }
 .tab-dot {
-  position: absolute; top: 10px; right: calc(50% - 16px);
-  width: 6px; height: 6px; border-radius: 50%;
-  background: var(--accent3); box-shadow: 0 0 5px var(--accent3); display: none;
+  position: absolute; top: 14px; right: calc(50% - 22px);
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent3); box-shadow: 0 0 6px var(--accent3); display: none;
 }
 .tab-dot.show { display: block; }
 
@@ -549,6 +550,80 @@ input[type="range"]::-webkit-slider-thumb {
   transition: all 0.2s; background: transparent; color: transparent; font-size: 12px;
 }
 .history-check.checked { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.35); color: #fff; }
+
+/* ── CAROUSEL ── */
+#profile-screen {
+  gap: 0;
+}
+.profile-carousel-wrap {
+  display: flex; align-items: center; justify-content: center;
+  gap: 12px; width: 100%; max-width: 420px; margin-bottom: 24px;
+}
+.carousel-arrow {
+  width: 52px; height: 52px; border-radius: 50%;
+  border: 1.5px solid var(--border-bright); background: var(--surface);
+  color: rgba(255,255,255,0.6); font-size: 22px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  transition: all 0.2s;
+}
+.carousel-arrow:active { background: var(--surface2); color: #fff; transform: scale(0.93); }
+.carousel-arrow:disabled { opacity: 0.2; pointer-events: none; }
+
+.profile-carousel {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+}
+.profile-carousel-card {
+  background: var(--surface); border: 2px solid var(--border);
+  border-radius: 24px; padding: 36px 24px;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  width: 100%; max-width: 280px;
+  transition: border-color 0.25s, transform 0.25s;
+  animation: fadeUp 0.22s ease both;
+}
+.profile-carousel-card.selected { border-color: rgba(255,255,255,0.4); }
+.profile-carousel-avatar {
+  width: 90px; height: 90px; border-radius: 50%;
+  border: 2px solid var(--border-bright); background: var(--surface3);
+  overflow: hidden; display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-weight: 800; font-size: 32px; color: rgba(255,255,255,0.5);
+}
+.profile-carousel-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+.profile-carousel-name { font-family: var(--font-display); font-size: 22px; font-weight: 800; letter-spacing: 2px; color: #fff; text-align: center; }
+.profile-carousel-sub  { font-family: var(--font-mono); font-size: 11px; color: var(--text-dimmer); letter-spacing: 1px; text-align: center; }
+.profile-carousel-admin { font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px; color: var(--green); padding: 3px 10px; background: rgba(100,255,160,0.07); border: 1px solid rgba(100,255,160,0.2); border-radius: 4px; }
+.profile-carousel-del {
+  background: rgba(255,59,59,0.08); border: 1px solid rgba(255,59,59,0.2);
+  color: #ff6b6b; font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px;
+  padding: 6px 14px; border-radius: 8px; cursor: pointer; transition: all 0.2s; margin-top: 4px;
+}
+.profile-carousel-del:active { background: rgba(255,59,59,0.18); }
+
+.carousel-dots { display: flex; gap: 8px; justify-content: center; margin-bottom: 28px; }
+.carousel-dot  { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.15); transition: all 0.25s; cursor: pointer; }
+.carousel-dot.active { background: #fff; transform: scale(1.2); }
+
+.carousel-signin-btn { max-width: 280px; margin-bottom: 12px; font-size: 16px; padding: 18px 24px; }
+.carousel-add-btn    { max-width: 280px; font-size: 13px; }
+
+/* ── BIG PIN MODAL ── */
+.pin-av { width: 90px; height: 90px; border-radius: 50%; margin: 0 auto 16px; border: 2px solid var(--border-bright); background: var(--surface3); overflow: hidden; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-weight: 800; font-size: 32px; color: rgba(255,255,255,0.4); }
+.pin-av img { width: 100%; height: 100%; object-fit: cover; }
+.pin-display { display: flex; justify-content: center; gap: 16px; margin: 24px 0 12px; }
+.pin-dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.25); transition: all 0.15s; }
+.pin-dot.filled { background: #fff; border-color: #fff; box-shadow: 0 0 10px rgba(255,255,255,0.4); }
+.pin-error { font-family: var(--font-mono); font-size: 13px; color: #ff6b6b; text-align: center; min-height: 20px; margin-bottom: 10px; }
+.pin-keypad { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; margin-top: 20px; }
+.pin-key {
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 18px; height: 82px;
+  font-family: var(--font-display); font-size: 28px; font-weight: 700; color: var(--text);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; user-select: none; transition: all 0.12s;
+}
+.pin-key:active { background: var(--surface3); border-color: rgba(255,255,255,0.25); transform: scale(0.92); }
+.pin-key.del { font-size: 24px; color: var(--text-dim); }
+.pin-key.zero { grid-column: 2; }
+.sheet-title { font-size: 26px; }
+
 </style>
 </head>
 <body>
@@ -557,15 +632,28 @@ input[type="range"]::-webkit-slider-thumb {
 <div id="toast-container"></div>
 
 <!-- ══════════════════════════════════════
-     PROFILE SCREEN
+     PROFILE SCREEN  (carousel)
 ══════════════════════════════════════ -->
 <div id="profile-screen">
   <div class="profile-logo">SENTINEL</div>
   <div class="profile-sub">Roblox Asset Moderation</div>
-  <div class="profile-grid" id="profile-grid">
-    <div style="grid-column:1/-1;" class="empty">Loading profiles…</div>
+
+  <!-- Carousel -->
+  <div class="profile-carousel-wrap">
+    <button class="carousel-arrow" id="carousel-prev" onclick="carouselPrev()">&#8592;</button>
+    <div class="profile-carousel" id="profile-carousel">
+      <div class="empty" style="padding:40px 16px;">Loading profiles…</div>
+    </div>
+    <button class="carousel-arrow" id="carousel-next" onclick="carouselNext()">&#8594;</button>
   </div>
-  <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);letter-spacing:1px;text-align:center;">Tap a profile to sign in</div>
+
+  <!-- Dots -->
+  <div class="carousel-dots" id="carousel-dots"></div>
+
+  <!-- CTA -->
+  <button class="btn btn-primary carousel-signin-btn" id="carousel-signin-btn" onclick="carouselSignIn()" style="display:none;">Sign In →</button>
+  <button class="btn carousel-add-btn" onclick="openModal('create-profile-modal')">+ Join with Invite Code</button>
+  <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);letter-spacing:1px;text-align:center;margin-top:16px;">Swipe or tap arrows to switch profile</div>
 </div>
 
 <!-- ══════════════════════════════════════
@@ -1004,36 +1092,63 @@ function showTab(name) {
   if (name === 'admin')    { loadAdminRequests(); loadAdminProfiles(); }
 }
 
-// ── PROFILE SCREEN ────────────────────────────────────────────────────────────
+// ── PROFILE SCREEN (CAROUSEL) ─────────────────────────────────────────────────
+let _profiles = [];
+let _carouselIdx = 0;
+
 async function loadProfileScreen() {
-  const grid = document.getElementById('profile-grid');
-  grid.innerHTML = '<div style="grid-column:1/-1;" class="empty">Loading…</div>';
+  const carousel = document.getElementById('profile-carousel');
+  carousel.innerHTML = '<div class="empty" style="padding:40px 16px;">Loading…</div>';
+  document.getElementById('carousel-signin-btn').style.display = 'none';
   try {
-    const profiles = await api('GET', '/api/profiles');
-    if (!Array.isArray(profiles)) throw new Error('Unexpected server response');
-    grid.innerHTML = '';
-    profiles.forEach(p => {
-      const card = document.createElement('div');
-      card.className = 'profile-card';
-      const initials = (p.name||'?').slice(0,2).toUpperCase();
-      card.innerHTML = `
-        <button class="profile-delete-btn">✕</button>
-        <div class="profile-card-avatar">${p.avatar_url ? `<img src="${esc(p.avatar_url)}" onerror="this.style.display='none'">` : initials}</div>
-        <div class="profile-card-name">${esc(p.name)}</div>
-        <div class="profile-card-sub">Tap to sign in</div>`;
-      card.querySelector('.profile-delete-btn').addEventListener('click', e => { e.stopPropagation(); deleteProfileFromSelector(p); });
-      card.onclick = () => openPinModal(p);
-      grid.appendChild(card);
-    });
-    const joinCard = document.createElement('div');
-    joinCard.className = 'profile-card add-card';
-    joinCard.innerHTML = `<div class="profile-card-avatar" style="font-size:26px;color:rgba(255,255,255,0.3);">+</div><div class="profile-card-name" style="color:var(--text-dim);">Join</div><div class="profile-card-sub">Have an invite</div>`;
-    joinCard.onclick = () => openModal('create-profile-modal');
-    grid.appendChild(joinCard);
+    _profiles = await api('GET', '/api/profiles');
+    if (!Array.isArray(_profiles)) throw new Error('Unexpected server response');
+    _carouselIdx = 0;
+    renderCarousel();
   } catch(e) {
-    grid.innerHTML = `<div style="grid-column:1/-1;" class="empty" style="color:#ff6b6b;">⚠ ${esc(e.message)}<br><br><button onclick="loadProfileScreen()" style="padding:8px 16px;border:1px solid rgba(255,59,59,0.3);border-radius:9px;background:transparent;color:#ff6b6b;font-family:var(--font-mono);font-size:11px;cursor:pointer;">Retry</button></div>`;
+    carousel.innerHTML = `<div class="empty" style="color:#ff6b6b;">⚠ ${esc(e.message)}<br><br><button onclick="loadProfileScreen()" style="margin-top:12px;padding:10px 18px;border:1px solid rgba(255,59,59,0.3);border-radius:9px;background:transparent;color:#ff6b6b;font-family:var(--font-mono);font-size:12px;cursor:pointer;">Retry</button></div>`;
   }
 }
+
+function renderCarousel() {
+  const carousel = document.getElementById('profile-carousel');
+  const dots     = document.getElementById('carousel-dots');
+  const signinBtn= document.getElementById('carousel-signin-btn');
+  const prev     = document.getElementById('carousel-prev');
+  const next     = document.getElementById('carousel-next');
+
+  if (!_profiles.length) {
+    carousel.innerHTML = '<div class="empty" style="padding:40px 16px;">No profiles yet.<br>Join with an invite code below.</div>';
+    dots.innerHTML = ''; signinBtn.style.display = 'none';
+    prev.disabled = true; next.disabled = true; return;
+  }
+
+  const p = _profiles[_carouselIdx];
+  const initials = (p.name||'?').slice(0,2).toUpperCase();
+  carousel.innerHTML = `
+    <div class="profile-carousel-card selected">
+      <div class="profile-carousel-avatar">
+        ${p.avatar_url ? `<img src="${esc(p.avatar_url)}" onerror="this.style.display='none'">${initials}` : initials}
+      </div>
+      <div class="profile-carousel-name">${esc(p.name)}</div>
+      <div class="profile-carousel-sub">Tap Sign In to continue</div>
+      ${p.is_admin ? '<span class="profile-carousel-admin">⚡ ADMIN</span>' : ''}
+      <button class="profile-carousel-del" onclick="deleteProfileFromSelector(_profiles[_carouselIdx])">Delete Profile</button>
+    </div>`;
+
+  dots.innerHTML = _profiles.map((_,i) =>
+    `<div class="carousel-dot ${i===_carouselIdx?'active':''}" onclick="carouselGo(${i})"></div>`
+  ).join('');
+
+  prev.disabled = _carouselIdx === 0;
+  next.disabled = _carouselIdx === _profiles.length - 1;
+  signinBtn.style.display = '';
+}
+
+function carouselPrev() { if (_carouselIdx > 0) { _carouselIdx--; renderCarousel(); } }
+function carouselNext() { if (_carouselIdx < _profiles.length-1) { _carouselIdx++; renderCarousel(); } }
+function carouselGo(i)  { _carouselIdx = i; renderCarousel(); }
+function carouselSignIn() { if (_profiles[_carouselIdx]) openPinModal(_profiles[_carouselIdx]); }
 
 // ── PIN ───────────────────────────────────────────────────────────────────────
 let _pinValue='', _pinTarget=null, _pinLength=4, _pinSubmitTimer=null;
@@ -1087,12 +1202,13 @@ async function createProfile() {
   } catch(e) { toast('Error: '+e.message,'error'); }
 }
 async function deleteProfileFromSelector(profile) {
-  const pin=prompt(`Enter PIN for "${profile.name}" to delete.\nTHIS CANNOT BE UNDONE.`);
-  if (pin===null||!pin.trim()) return;
+  const pin = prompt(`Enter PIN for "${profile.name}" to delete.\nTHIS CANNOT BE UNDONE.`);
+  if (pin === null || !pin.trim()) return;
   try {
-    await api('DELETE',`/api/profiles/${profile.id}?pin=${encodeURIComponent(pin.trim())}`);
-    toast('Profile deleted','warn'); await loadProfileScreen();
-  } catch(e) { toast('Wrong PIN or error: '+e.message,'error'); }
+    await api('DELETE', `/api/profiles/${profile.id}?pin=${encodeURIComponent(pin.trim())}`);
+    toast('Profile deleted', 'warn');
+    await loadProfileScreen();
+  } catch(e) { toast('Wrong PIN or error: ' + e.message, 'error'); }
 }
 
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
