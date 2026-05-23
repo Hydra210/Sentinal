@@ -20,106 +20,97 @@
   --accent: #ffffff;
   --accent3: #ff3b3b;
   --warn: #f0c040;
-  --green: rgba(100,255,160,0.85);
+  --green: rgba(100,255,160,0.9);
   --text: #e8e8e8;
-  --text-dim: rgba(232,232,232,0.45);
-  --text-dimmer: rgba(232,232,232,0.22);
+  --text-dim: rgba(232,232,232,0.5);
+  --text-dimmer: rgba(232,232,232,0.25);
   --font-mono: 'DM Mono', monospace;
   --font-ui: 'Outfit', sans-serif;
   --font-display: 'Syne', sans-serif;
-  --tab-h: 64px;
-  --topbar-h: 56px;
+  --topbar-h: 60px;
+  --tabbar-h: 72px;
 }
 
 html, body {
-  height: 100%; width: 100%;
+  height: 100%; width: 100%; overflow: hidden; position: fixed;
   background: var(--bg); color: var(--text);
-  font-family: var(--font-ui); font-size: 15px;
-  overflow: hidden; position: fixed;
+  font-family: var(--font-ui); font-size: 16px;
   -webkit-font-smoothing: antialiased;
 }
 
-/* ── NOISE + GRID BG ── */
 body::after {
-  content: ''; position: fixed; inset: 0;
+  content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 9999; opacity: 0.35;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
-  pointer-events: none; z-index: 9999; opacity: 0.4;
 }
 #grid-bg {
-  position: fixed; inset: 0;
-  background-image: linear-gradient(rgba(255,255,255,0.02) 1px,transparent 1px), linear-gradient(90deg,rgba(255,255,255,0.02) 1px,transparent 1px);
-  background-size: 40px 40px; pointer-events: none; z-index: 0;
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background-image: linear-gradient(rgba(255,255,255,0.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.018) 1px,transparent 1px);
+  background-size: 44px 44px;
 }
 
 /* ── TOPBAR ── */
 #topbar {
-  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  position: fixed; top: 0; left: 0; right: 0; z-index: 200;
   height: var(--topbar-h);
   display: flex; align-items: center; justify-content: space-between;
-  padding: 0 16px;
+  padding: 0 18px;
   background: rgba(10,10,10,0.97); backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--border);
 }
-.logo-lockup { display: flex; align-items: center; gap: 10px; }
+.logo-wrap { display: flex; align-items: center; gap: 11px; }
 .logo-icon {
-  width: 32px; height: 32px; border: 1px solid rgba(255,255,255,0.2);
+  width: 36px; height: 36px; border: 1px solid rgba(255,255,255,0.2);
   display: flex; align-items: center; justify-content: center;
-  border-radius: 8px; background: rgba(255,255,255,0.06);
+  border-radius: 9px; background: rgba(255,255,255,0.06); flex-shrink: 0;
 }
-.logo-icon svg { width: 16px; height: 16px; }
-.logo-text { font-family: var(--font-display); font-size: 18px; font-weight: 800; letter-spacing: 5px; color: #fff; }
+.logo-icon svg { width: 18px; height: 18px; }
+.logo-text { font-family: var(--font-display); font-size: 20px; font-weight: 800; letter-spacing: 5px; color: #fff; }
 
-.topbar-right { display: flex; align-items: center; gap: 8px; }
-
+.topbar-right { display: flex; align-items: center; gap: 10px; }
 .status-chip {
-  display: flex; align-items: center; gap: 6px;
-  padding: 4px 10px; border: 1px solid var(--border);
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 12px; border: 1px solid var(--border);
   background: var(--surface); border-radius: 20px;
-  font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer);
-  letter-spacing: 1px;
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-dimmer); letter-spacing: 1px;
 }
-.status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dimmer); transition: all 0.4s; flex-shrink: 0; }
-.status-dot.online { background: #fff; box-shadow: 0 0 6px #fff; animation: pulse-dot 2s infinite; }
-.status-dot.error  { background: var(--accent3); box-shadow: 0 0 6px var(--accent3); }
-@keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.35} }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dimmer); flex-shrink: 0; transition: all 0.4s; }
+.status-dot.online { background: #fff; box-shadow: 0 0 7px #fff; animation: pdot 2s infinite; }
+.status-dot.error  { background: var(--accent3); box-shadow: 0 0 7px var(--accent3); }
+@keyframes pdot { 0%,100%{opacity:1} 50%{opacity:0.35} }
 
-.profile-chip {
-  width: 32px; height: 32px; border-radius: 50%;
-  border: 1px solid var(--border-bright);
-  background: var(--surface3); overflow: hidden;
+.avatar-btn {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 1.5px solid var(--border-bright); background: var(--surface3);
   display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-display); font-weight: 700; font-size: 12px;
-  color: rgba(255,255,255,0.6); cursor: pointer; flex-shrink: 0;
-  transition: border-color 0.2s;
+  font-family: var(--font-display); font-weight: 700; font-size: 13px; color: rgba(255,255,255,0.6);
+  cursor: pointer; overflow: hidden; flex-shrink: 0; transition: border-color 0.2s;
 }
-.profile-chip:active { border-color: rgba(255,255,255,0.5); }
-.profile-chip img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+.avatar-btn:active { border-color: rgba(255,255,255,0.5); }
+.avatar-btn img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
 
-/* ── MAIN SCROLL AREA ── */
+/* ── SCROLL AREA ── */
 #app {
   position: fixed; inset: 0;
   padding-top: var(--topbar-h);
-  padding-bottom: var(--tab-h);
+  padding-bottom: var(--tabbar-h);
   z-index: 1;
 }
-
 .tab-panel {
   position: absolute;
   top: var(--topbar-h); left: 0; right: 0;
-  bottom: var(--tab-h);
+  bottom: var(--tabbar-h);
   overflow-y: auto; overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
-  padding: 16px 14px 8px;
-  display: none;
-  animation: fadeUp 0.22s ease both;
+  padding: 18px 16px 12px;
+  display: none; animation: fadeUp 0.2s ease both;
 }
 .tab-panel.active { display: block; }
-@keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+@keyframes fadeUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
 
 /* ── BOTTOM TAB BAR ── */
 #tabbar {
-  position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
-  height: var(--tab-h);
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 200;
+  height: var(--tabbar-h);
   background: rgba(10,10,10,0.97); backdrop-filter: blur(20px);
   border-top: 1px solid var(--border);
   display: flex; align-items: stretch;
@@ -127,422 +118,437 @@ body::after {
 }
 .tab-btn {
   flex: 1; display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  gap: 4px; cursor: pointer; position: relative;
+  align-items: center; justify-content: center; gap: 5px;
+  cursor: pointer; position: relative;
   background: none; border: none; color: var(--text-dimmer);
   transition: color 0.2s; padding: 0; outline: none;
-  -webkit-tap-highlight-color: transparent;
 }
-.tab-btn svg { width: 22px; height: 22px; transition: transform 0.2s; }
+.tab-btn svg { width: 26px; height: 26px; transition: transform 0.2s; stroke-width: 1.8px; }
 .tab-btn span {
-  font-family: var(--font-mono); font-size: 9px;
+  font-family: var(--font-mono); font-size: 10px;
   letter-spacing: 1.5px; text-transform: uppercase;
-  transition: color 0.2s;
 }
 .tab-btn.active { color: #fff; }
 .tab-btn.active svg { transform: translateY(-1px); }
-.tab-btn .tab-dot {
-  position: absolute; top: 8px; right: calc(50% - 14px);
-  width: 5px; height: 5px; border-radius: 50%;
-  background: var(--accent3); box-shadow: 0 0 4px var(--accent3);
-  display: none;
+.tab-dot {
+  position: absolute; top: 10px; right: calc(50% - 16px);
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent3); box-shadow: 0 0 5px var(--accent3); display: none;
 }
-.tab-btn .tab-dot.show { display: block; }
+.tab-dot.show { display: block; }
 
 /* ── CARDS ── */
 .card {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: 14px; padding: 16px; margin-bottom: 12px;
-  transition: border-color 0.2s;
+  border-radius: 14px; padding: 18px 16px; margin-bottom: 14px;
 }
-.card:active { border-color: rgba(255,255,255,0.14); }
-
 .section-label {
-  font-family: var(--font-mono); font-size: 9px;
-  letter-spacing: 3px; text-transform: uppercase;
-  color: var(--text-dimmer); margin-bottom: 12px;
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 3px;
+  text-transform: uppercase; color: var(--text-dimmer); margin-bottom: 14px;
   display: flex; align-items: center; gap: 10px;
 }
 .section-label::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg,var(--border),transparent); }
 
 /* ── STAT TILES ── */
-.stat-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
-.stat-tile {
-  background: var(--surface2); border: 1px solid var(--border);
-  border-radius: 12px; padding: 14px 12px;
-}
-.stat-val { font-family: var(--font-display); font-size: 28px; font-weight: 800; color: #fff; line-height: 1; }
-.stat-lbl { font-family: var(--font-mono); font-size: 9px; color: var(--text-dimmer); letter-spacing: 1.5px; text-transform: uppercase; margin-top: 4px; }
+.stat-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+.stat-tile { background: var(--surface2); border: 1px solid var(--border); border-radius: 13px; padding: 16px 14px; }
+.stat-val  { font-family: var(--font-display); font-size: 32px; font-weight: 800; color: #fff; line-height: 1; }
+.stat-lbl  { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); letter-spacing: 1.5px; text-transform: uppercase; margin-top: 5px; }
 
-/* ── MONITOR TOGGLE ── */
+/* ── MONITOR CARD ── */
 .monitor-card {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: 14px; padding: 18px 16px; margin-bottom: 12px;
+  border-radius: 14px; padding: 20px 18px; margin-bottom: 14px;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
 }
-.monitor-info {}
-.monitor-title { font-family: var(--font-display); font-size: 16px; font-weight: 700; letter-spacing: 1px; color: #fff; margin-bottom: 2px; }
-.monitor-sub { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); letter-spacing: 1px; }
+.monitor-title { font-family: var(--font-display); font-size: 18px; font-weight: 700; letter-spacing: 1px; color: #fff; margin-bottom: 3px; }
+.monitor-sub   { font-family: var(--font-mono); font-size: 11px; color: var(--text-dimmer); letter-spacing: 1px; }
 
 .big-toggle {
-  width: 56px; height: 30px; border-radius: 15px;
-  background: rgba(255,255,255,0.1); border: 1px solid var(--border);
-  position: relative; cursor: pointer; flex-shrink: 0;
-  transition: all 0.3s; -webkit-tap-highlight-color: transparent;
+  width: 62px; height: 34px; border-radius: 17px;
+  background: rgba(255,255,255,0.08); border: 1px solid var(--border);
+  position: relative; cursor: pointer; flex-shrink: 0; transition: all 0.3s;
 }
 .big-toggle::after {
-  content: ''; position: absolute; width: 22px; height: 22px;
+  content: ''; position: absolute; width: 26px; height: 26px;
   background: var(--text-dimmer); border-radius: 50%;
   top: 3px; left: 3px; transition: all 0.3s;
 }
-.big-toggle.on { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.4); }
-.big-toggle.on::after { left: 29px; background: #fff; box-shadow: 0 0 10px rgba(255,255,255,0.5); }
+.big-toggle.on { background: rgba(255,255,255,0.14); border-color: rgba(255,255,255,0.4); }
+.big-toggle.on::after { left: 31px; background: #fff; box-shadow: 0 0 12px rgba(255,255,255,0.5); }
 
-/* ── ACCOUNT CARD ── */
-.account-display {
-  display: flex; align-items: center; gap: 12px;
-}
+/* ── ACCOUNT ── */
+.account-row { display: flex; align-items: center; gap: 13px; }
 .account-avatar {
-  width: 42px; height: 42px; border-radius: 50%;
-  border: 1px solid var(--border-bright); overflow: hidden;
-  background: var(--surface3); flex-shrink: 0;
+  width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--border-bright);
+  overflow: hidden; background: var(--surface3); flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-display); font-weight: 700; font-size: 16px; color: rgba(255,255,255,0.4);
+  font-family: var(--font-display); font-weight: 700; font-size: 17px; color: rgba(255,255,255,0.4);
 }
 .account-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.account-name { font-size: 15px; font-weight: 600; color: var(--text); }
-.account-sub { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); margin-top: 2px; }
+.account-name { font-size: 16px; font-weight: 600; color: var(--text); }
+.account-sub  { font-family: var(--font-mono); font-size: 11px; color: var(--text-dimmer); margin-top: 2px; }
 .account-badge {
-  font-family: var(--font-mono); font-size: 8px; letter-spacing: 1px;
-  color: var(--green); padding: 2px 7px;
-  background: rgba(100,255,160,0.08); border: 1px solid rgba(100,255,160,0.2);
-  border-radius: 4px; margin-top: 4px; display: inline-block;
+  display: inline-block; font-family: var(--font-mono); font-size: 9px; letter-spacing: 1px;
+  color: var(--green); padding: 2px 8px; margin-top: 5px;
+  background: rgba(100,255,160,0.07); border: 1px solid rgba(100,255,160,0.2); border-radius: 4px;
 }
+
+/* ── SAVED ACCOUNT ROW ── */
+.saved-row {
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px 13px; background: var(--surface2);
+  border: 1px solid var(--border); border-radius: 11px; margin-bottom: 9px;
+}
+.saved-av {
+  width: 38px; height: 38px; border-radius: 50%; overflow: hidden;
+  border: 1px solid var(--border); background: var(--surface3); flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-weight: 700; font-size: 14px; color: rgba(255,255,255,0.4);
+}
+.saved-av img { width: 100%; height: 100%; object-fit: cover; }
+.saved-info { flex: 1; min-width: 0; }
+.saved-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.saved-sub  { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); margin-top: 1px; }
+.saved-btns { display: flex; gap: 7px; flex-shrink: 0; }
 
 /* ── BUTTONS ── */
 .btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  gap: 6px; padding: 11px 16px;
-  font-family: var(--font-display); font-size: 12px; font-weight: 700;
-  letter-spacing: 1.5px; text-transform: uppercase;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 13px 18px; font-family: var(--font-display); font-size: 13px;
+  font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
   cursor: pointer; border: 1px solid var(--border);
   background: transparent; color: var(--text-dim);
-  border-radius: 10px; transition: all 0.18s;
-  -webkit-tap-highlight-color: transparent; outline: none;
-  width: 100%;
+  border-radius: 11px; transition: all 0.18s; outline: none; width: 100%;
 }
-.btn:active { background: rgba(255,255,255,0.06); }
-.btn-primary { border-color: rgba(255,255,255,0.25); color: #fff; background: rgba(255,255,255,0.08); }
-.btn-primary:active { background: rgba(255,255,255,0.15); }
-.btn-danger { border-color: rgba(255,59,59,0.3); color: #ff6b6b; background: rgba(255,59,59,0.06); }
-.btn-warn { border-color: rgba(240,192,64,0.3); color: var(--warn); }
-.btn-sm { padding: 8px 12px; font-size: 11px; width: auto; }
-.btn-group { display: flex; flex-direction: column; gap: 8px; }
-.btn-row { display: flex; gap: 8px; }
+.btn:active { background: rgba(255,255,255,0.06); transform: scale(0.98); }
+.btn-primary { border-color: rgba(255,255,255,0.25); color: #fff; background: rgba(255,255,255,0.07); }
+.btn-primary:active { background: rgba(255,255,255,0.14); }
+.btn-danger { border-color: rgba(255,59,59,0.3); color: #ff6b6b; background: rgba(255,59,59,0.05); }
+.btn-warn   { border-color: rgba(240,192,64,0.3); color: var(--warn); }
+.btn-green  { border-color: rgba(100,255,160,0.3); color: var(--green); }
+.btn-sm { padding: 9px 14px; font-size: 11px; width: auto; }
+.btn-row { display: flex; gap: 9px; }
 .btn-row .btn { flex: 1; }
+.btn-col { display: flex; flex-direction: column; gap: 9px; }
 
 /* ── INPUTS ── */
 .field-label {
-  font-family: var(--font-mono); font-size: 9px;
-  letter-spacing: 2px; color: var(--text-dimmer);
-  text-transform: uppercase; margin-bottom: 8px; display: block;
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 2px;
+  color: var(--text-dimmer); text-transform: uppercase; margin-bottom: 9px; display: block;
 }
 input[type="text"], input[type="password"], input[type="url"],
-input[type="number"], textarea, select {
-  width: 100%; background: rgba(255,255,255,0.04);
-  border: 1px solid var(--border); color: var(--text);
-  padding: 12px 14px; font-family: var(--font-mono); font-size: 13px;
-  border-radius: 10px; outline: none; appearance: none;
-  transition: all 0.2s; -webkit-appearance: none;
+input[type="number"], input[type="email"], textarea, select {
+  width: 100%; background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+  color: var(--text); padding: 13px 15px; font-family: var(--font-mono); font-size: 14px;
+  border-radius: 11px; outline: none; appearance: none; -webkit-appearance: none;
+  transition: all 0.2s;
 }
-input:focus, textarea:focus, select:focus {
-  border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.06);
-}
-textarea { resize: none; min-height: 80px; line-height: 1.5; }
+input:focus, textarea:focus, select:focus { border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.06); }
+textarea { resize: none; min-height: 90px; line-height: 1.5; }
 select option { background: var(--surface2); }
+.form-group { margin-bottom: 15px; }
 
-/* ── FORM GROUP ── */
-.form-group { margin-bottom: 14px; }
+/* ── TOGGLE ROW ── */
+.toggle-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 14px 0; border-bottom: 1px solid var(--border);
+}
+.toggle-row:last-child { border-bottom: none; padding-bottom: 0; }
+.toggle-label { font-size: 15px; font-weight: 600; color: var(--text); }
+.toggle-desc  { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); margin-top: 3px; }
+.toggle-sw {
+  width: 50px; height: 28px; border-radius: 14px;
+  background: rgba(255,255,255,0.08); border: 1px solid var(--border);
+  position: relative; cursor: pointer; flex-shrink: 0; transition: all 0.3s;
+}
+.toggle-sw::after {
+  content: ''; position: absolute; width: 22px; height: 22px;
+  background: var(--text-dim); border-radius: 50%;
+  top: 2px; left: 2px; transition: all 0.3s;
+}
+.toggle-sw.on { background: rgba(255,255,255,0.14); border-color: rgba(255,255,255,0.35); }
+.toggle-sw.on::after { left: 24px; background: #fff; }
 
-/* ── HISTORY ITEMS ── */
+/* ── SLIDER ── */
+input[type="range"] {
+  -webkit-appearance: none; width: 100%; height: 4px;
+  background: rgba(255,255,255,0.1); border-radius: 2px; border: none; padding: 0; outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 22px; height: 22px;
+  border-radius: 50%; background: #fff; box-shadow: 0 0 10px rgba(255,255,255,0.3);
+}
+.slider-row { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+.slider-val { font-family: var(--font-mono); font-size: 15px; color: #fff; flex-shrink: 0; min-width: 46px; text-align: right; }
+
+/* ── ASSET CHIPS ── */
+.chip-grid { display: flex; flex-wrap: wrap; gap: 9px; margin-bottom: 14px; }
+.asset-chip {
+  padding: 9px 16px; border-radius: 22px; border: 1px solid var(--border);
+  background: var(--surface2); font-family: var(--font-mono); font-size: 12px;
+  color: var(--text-dimmer); cursor: pointer; transition: all 0.2s; letter-spacing: 0.5px;
+  display: flex; align-items: center; gap: 8px;
+}
+.asset-chip-dot { width: 7px; height: 7px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3); flex-shrink: 0; transition: all 0.2s; }
+.asset-chip.selected { border-color: rgba(255,255,255,0.4); background: rgba(255,255,255,0.07); color: #fff; }
+.asset-chip.selected .asset-chip-dot { background: #fff; border-color: #fff; }
+
+/* ── WHITELIST TABS ── */
+.wl-tabs { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 12px; }
+.wl-tab {
+  padding: 7px 14px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 1px;
+  border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+  background: transparent; color: var(--text-dimmer); transition: all 0.2s;
+}
+.wl-tab.active { border-color: rgba(255,255,255,0.3); color: #fff; background: rgba(255,255,255,0.06); }
+
+/* ── HISTORY ── */
 .history-item {
   background: var(--surface2); border: 1px solid var(--border);
-  border-radius: 12px; padding: 13px 14px; margin-bottom: 8px;
-  animation: fadeUp 0.3s ease both;
+  border-radius: 13px; padding: 14px 15px; margin-bottom: 9px;
 }
-.history-item-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
-.history-user { font-weight: 600; font-size: 14px; color: var(--text); }
-.history-badge {
-  font-family: var(--font-mono); font-size: 9px; letter-spacing: 1px;
-  padding: 2px 8px; border-radius: 4px; flex-shrink: 0;
+.history-top { display: flex; align-items: center; gap: 11px; margin-bottom: 9px; }
+.history-avatar {
+  width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border);
+  background: var(--surface3); flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-weight: 700; font-size: 14px; color: rgba(255,255,255,0.5);
 }
-.history-badge.archived { background: rgba(100,255,160,0.08); color: var(--green); border: 1px solid rgba(100,255,160,0.2); }
-.history-badge.failed   { background: rgba(255,59,59,0.08); color: #ff6b6b; border: 1px solid rgba(255,59,59,0.2); }
-.history-asset { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.history-meta  { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); }
+.history-names { flex: 1; min-width: 0; }
+.history-display { font-size: 15px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.history-username { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); margin-top: 1px; }
+.history-badges { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.badge {
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 1px; text-transform: uppercase;
+  padding: 3px 9px; border-radius: 4px;
+}
+.badge-archived { background: rgba(100,255,160,0.07); color: var(--green); border: 1px solid rgba(100,255,160,0.2); }
+.badge-failed   { background: rgba(255,59,59,0.07); color: #ff6b6b; border: 1px solid rgba(255,59,59,0.2); }
+.badge-info     { background: rgba(255,255,255,0.05); color: rgba(200,180,255,0.8); border: 1px solid rgba(255,255,255,0.1); }
+.badge-restored { background: rgba(240,192,64,0.07); color: var(--warn); border: 1px solid rgba(240,192,64,0.2); }
+.history-audio  { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); margin-bottom: 9px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 7px; padding: 7px 11px; word-break: break-all; }
+.history-foot   { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.history-time   { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); }
+.restore-btn {
+  padding: 6px 14px; font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 1px; text-transform: uppercase; cursor: pointer;
+  border: 1px solid rgba(100,200,150,0.3); background: rgba(100,200,150,0.06);
+  color: rgba(140,230,180,0.85); border-radius: 7px; transition: all 0.2s;
+}
+.restore-btn:active { background: rgba(100,200,150,0.14); }
+.restore-btn.re-archive { border-color: rgba(255,59,59,0.3); color: rgba(255,100,100,0.8); background: rgba(255,59,59,0.06); }
+
+/* ── GROUPS ── */
+.group-item {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px 15px; margin-bottom: 9px;
+  display: flex; align-items: center; gap: 12px;
+}
+.group-icon {
+  width: 38px; height: 38px; border-radius: 9px; background: var(--surface3);
+  border: 1px solid var(--border); flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer);
+}
+.group-name { font-size: 15px; font-weight: 600; color: var(--text); }
+.group-id   { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); margin-top: 2px; }
+.group-remove { background: none; border: none; color: var(--text-dimmer); cursor: pointer; padding: 8px; border-radius: 8px; flex-shrink: 0; }
+.group-remove:active { color: #ff6b6b; }
 
 /* ── PROFILE SCREEN ── */
 #profile-screen {
-  position: fixed; inset: 0; z-index: 500;
-  background: var(--bg);
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  padding: 24px 20px;
-  overflow-y: auto;
-  transition: opacity 0.35s, transform 0.35s cubic-bezier(0.16,1,0.3,1);
+  position: fixed; inset: 0; z-index: 500; background: var(--bg);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 28px 20px; overflow-y: auto;
+  transition: opacity 0.3s, transform 0.3s cubic-bezier(0.16,1,0.3,1);
 }
-#profile-screen.hidden {
-  opacity: 0; transform: translateY(-16px);
-  pointer-events: none;
-}
-.profile-logo {
-  font-family: var(--font-display); font-size: 36px; font-weight: 800;
-  letter-spacing: 10px; color: #fff; text-align: center;
-  margin-bottom: 6px; animation: logo-glow 5s ease-in-out infinite;
-}
-@keyframes logo-glow { 0%,100%{text-shadow:none} 50%{text-shadow:0 0 30px rgba(255,255,255,0.15)} }
-.profile-sub {
-  font-family: var(--font-mono); font-size: 9px; letter-spacing: 3px;
-  color: var(--text-dimmer); text-align: center; text-transform: uppercase;
-  margin-bottom: 40px;
-}
-.profile-grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
-  width: 100%; max-width: 380px; margin-bottom: 20px;
-}
+#profile-screen.hidden { opacity: 0; transform: translateY(-14px); pointer-events: none; }
+.profile-logo { font-family: var(--font-display); font-size: 38px; font-weight: 800; letter-spacing: 10px; color: #fff; text-align: center; margin-bottom: 6px; }
+.profile-sub  { font-family: var(--font-mono); font-size: 10px; letter-spacing: 3px; color: var(--text-dimmer); text-align: center; text-transform: uppercase; margin-bottom: 42px; }
+.profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; width: 100%; max-width: 400px; margin-bottom: 22px; }
 .profile-card {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 14px; padding: 18px 12px;
-  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  padding: 20px 14px; display: flex; flex-direction: column; align-items: center; gap: 9px;
   cursor: pointer; transition: all 0.2s; position: relative;
-  -webkit-tap-highlight-color: transparent;
 }
-.profile-card:active { border-color: rgba(255,255,255,0.3); background: var(--surface2); transform: scale(0.97); }
+.profile-card:active { border-color: rgba(255,255,255,0.3); transform: scale(0.97); }
 .profile-card.add-card { border-style: dashed; border-color: rgba(255,255,255,0.1); }
 .profile-card-avatar {
-  width: 52px; height: 52px; border-radius: 50%;
-  background: var(--surface3); border: 1px solid var(--border);
+  width: 58px; height: 58px; border-radius: 50%; background: var(--surface3);
+  border: 1.5px solid var(--border); overflow: hidden;
   display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-display); font-weight: 700; font-size: 18px;
-  color: rgba(255,255,255,0.5); overflow: hidden;
+  font-family: var(--font-display); font-weight: 700; font-size: 20px; color: rgba(255,255,255,0.5);
 }
 .profile-card-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
-.profile-card-name { font-family: var(--font-display); font-size: 13px; font-weight: 700; letter-spacing: 1px; color: var(--text); text-align: center; }
-.profile-card-sub { font-family: var(--font-mono); font-size: 9px; color: var(--text-dimmer); letter-spacing: 1px; text-align: center; }
+.profile-card-name { font-family: var(--font-display); font-size: 14px; font-weight: 700; letter-spacing: 1px; color: var(--text); text-align: center; }
+.profile-card-sub  { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); letter-spacing: 1px; text-align: center; }
 .profile-delete-btn {
-  position: absolute; top: 8px; right: 8px;
-  width: 20px; height: 20px; border-radius: 50%;
+  position: absolute; top: 9px; right: 9px; width: 22px; height: 22px; border-radius: 50%;
   background: rgba(255,255,255,0.06); border: 1px solid var(--border);
-  color: var(--text-dimmer); font-size: 9px; cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  transition: all 0.2s;
+  color: var(--text-dimmer); font-size: 10px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: all 0.2s;
 }
 .profile-delete-btn:active { background: rgba(255,59,59,0.2); color: #ff6b6b; }
 
-/* ── PIN MODAL ── */
+/* ── MODAL SHEETS ── */
 .modal-overlay {
   position: fixed; inset: 0; z-index: 600;
-  background: rgba(0,0,0,0.85); backdrop-filter: blur(12px);
+  background: rgba(0,0,0,0.82); backdrop-filter: blur(10px);
   display: flex; align-items: flex-end; justify-content: center;
   opacity: 0; pointer-events: none; transition: opacity 0.25s;
 }
 .modal-overlay.open { opacity: 1; pointer-events: all; }
 .modal-sheet {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: 24px 24px 0 0; width: 100%; max-width: 480px;
-  padding: 20px 20px 32px; padding-bottom: calc(32px + env(safe-area-inset-bottom, 0));
-  transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.16,1,0.3,1);
+  border-radius: 22px 22px 0 0; width: 100%; max-width: 540px;
+  padding: 20px 20px; padding-bottom: calc(24px + env(safe-area-inset-bottom, 0));
+  max-height: 94vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  transform: translateY(100%); transition: transform 0.32s cubic-bezier(0.16,1,0.3,1);
 }
 .modal-overlay.open .modal-sheet { transform: translateY(0); }
-.sheet-handle { width: 40px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.15); margin: 0 auto 20px; }
-.sheet-title { font-family: var(--font-display); font-size: 20px; font-weight: 800; letter-spacing: 2px; color: #fff; text-align: center; margin-bottom: 4px; }
-.sheet-sub { font-family: var(--font-mono); font-size: 9px; color: var(--text-dimmer); letter-spacing: 2px; text-align: center; margin-bottom: 6px; }
+.sheet-handle { width: 44px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.15); margin: 0 auto 22px; }
+.sheet-title { font-family: var(--font-display); font-size: 22px; font-weight: 800; letter-spacing: 2px; color: #fff; text-align: center; margin-bottom: 5px; }
+.sheet-sub   { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); letter-spacing: 2px; text-align: center; margin-bottom: 8px; }
 
-/* PIN */
-.pin-display { display: flex; justify-content: center; gap: 10px; margin: 18px 0 6px; min-height: 16px; }
-.pin-dot { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,0.3); transition: all 0.15s; }
-.pin-dot.filled { background: #fff; border-color: #fff; box-shadow: 0 0 8px rgba(255,255,255,0.4); }
-.pin-avatar { width: 60px; height: 60px; border-radius: 50%; margin: 0 auto 12px; border: 2px solid var(--border); background: var(--surface3); overflow: hidden; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-weight: 800; font-size: 22px; color: rgba(255,255,255,0.4); }
-.pin-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.pin-error { font-family: var(--font-mono); font-size: 10px; color: #ff6b6b; text-align: center; min-height: 16px; margin-bottom: 10px; }
-
-.pin-keypad { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin-top: 16px; }
+/* ── PIN ── */
+.pin-av { width: 66px; height: 66px; border-radius: 50%; margin: 0 auto 14px; border: 2px solid var(--border); background: var(--surface3); overflow: hidden; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-weight: 800; font-size: 24px; color: rgba(255,255,255,0.4); }
+.pin-av img { width: 100%; height: 100%; object-fit: cover; }
+.pin-error { font-family: var(--font-mono); font-size: 11px; color: #ff6b6b; text-align: center; min-height: 18px; margin-bottom: 10px; }
+.pin-display { display: flex; justify-content: center; gap: 12px; margin: 20px 0 8px; }
+.pin-dot { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,0.25); transition: all 0.15s; }
+.pin-dot.filled { background: #fff; border-color: #fff; }
+.pin-keypad { display: grid; grid-template-columns: repeat(3,1fr); gap: 11px; margin-top: 18px; }
 .pin-key {
-  background: var(--surface2); border: 1px solid var(--border);
-  border-radius: 14px; height: 62px;
-  font-family: var(--font-display); font-size: 22px; font-weight: 700; color: var(--text);
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 14px; height: 68px;
+  font-family: var(--font-display); font-size: 24px; font-weight: 700; color: var(--text);
   display: flex; align-items: center; justify-content: center;
-  cursor: pointer; transition: all 0.12s; user-select: none;
-  -webkit-tap-highlight-color: transparent;
+  cursor: pointer; user-select: none; transition: all 0.12s;
 }
-.pin-key:active { background: var(--surface3); border-color: rgba(255,255,255,0.2); transform: scale(0.94); }
-.pin-key.del { font-size: 18px; color: var(--text-dim); }
+.pin-key:active { background: var(--surface3); border-color: rgba(255,255,255,0.2); transform: scale(0.93); }
+.pin-key.del { font-size: 20px; color: var(--text-dim); }
 .pin-key.zero { grid-column: 2; }
 
 /* ── TOAST ── */
 #toast-container {
-  position: fixed; top: calc(var(--topbar-h) + 10px); left: 50%;
+  position: fixed; top: calc(var(--topbar-h) + 12px); left: 50%;
   transform: translateX(-50%); z-index: 8000;
-  display: flex; flex-direction: column; align-items: center; gap: 8px;
-  pointer-events: none; width: 90%;
+  display: flex; flex-direction: column; align-items: center; gap: 9px;
+  pointer-events: none; width: 92%;
 }
 .toast {
-  padding: 10px 18px; border-radius: 10px;
-  font-family: var(--font-mono); font-size: 11px; letter-spacing: 1px;
-  background: rgba(20,20,20,0.97); border: 1px solid rgba(255,255,255,0.12);
-  color: var(--text); backdrop-filter: blur(12px);
-  animation: toastIn 0.3s ease both;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  padding: 12px 20px; border-radius: 12px; max-width: 100%;
+  font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.5px;
+  background: rgba(18,18,18,0.97); border: 1px solid rgba(255,255,255,0.1); color: var(--text);
+  backdrop-filter: blur(14px); box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+  animation: toastIn 0.28s ease both;
 }
 .toast.success { border-color: rgba(100,255,160,0.3); color: var(--green); }
 .toast.error   { border-color: rgba(255,59,59,0.35); color: #ff7070; }
 .toast.warn    { border-color: rgba(240,192,64,0.35); color: var(--warn); }
-@keyframes toastIn { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:none} }
+@keyframes toastIn { from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:none} }
 
-/* ── GROUPS ── */
-.group-item {
+/* ── ADMIN ── */
+.admin-request {
   background: var(--surface2); border: 1px solid var(--border);
-  border-radius: 12px; padding: 13px 14px; margin-bottom: 8px;
-  display: flex; align-items: center; gap: 12px;
+  border-radius: 12px; padding: 15px; margin-bottom: 10px;
 }
-.group-icon {
-  width: 36px; height: 36px; border-radius: 8px;
-  background: var(--surface3); border: 1px solid var(--border);
+.admin-req-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+.admin-req-name   { font-family: var(--font-display); font-weight: 800; font-size: 15px; color: #fff; }
+.admin-req-email  { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); margin-top: 2px; }
+.admin-req-reason { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); line-height: 1.6; margin-bottom: 12px; }
+.admin-status-badge { font-family: var(--font-mono); font-size: 10px; padding: 3px 9px; border-radius: 4px; flex-shrink: 0; border: 1px solid; }
+.admin-profile-row {
+  display: flex; align-items: center; gap: 11px;
+  padding: 12px 0; border-bottom: 1px solid var(--border);
+}
+.admin-profile-row:last-child { border-bottom: none; padding-bottom: 0; }
+.admin-pav {
+  width: 36px; height: 36px; border-radius: 50%; background: var(--surface3);
+  border: 1px solid var(--border); overflow: hidden; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-mono); font-size: 11px; color: var(--text-dimmer);
-  flex-shrink: 0;
+  font-family: var(--font-display); font-weight: 800; font-size: 13px; color: rgba(255,255,255,0.5);
 }
-.group-info { flex: 1; min-width: 0; }
-.group-name { font-size: 14px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.group-id   { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); margin-top: 2px; }
-.group-remove { background: none; border: none; color: var(--text-dimmer); cursor: pointer; padding: 6px; border-radius: 6px; }
-.group-remove:active { color: #ff6b6b; }
-
-/* ── CONFIG TOGGLE ROW ── */
-.toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
-.toggle-row:last-child { border-bottom: none; padding-bottom: 0; }
-.toggle-row-info {}
-.toggle-row-label { font-size: 14px; font-weight: 600; color: var(--text); }
-.toggle-row-desc  { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); margin-top: 2px; }
-.toggle-sw {
-  width: 44px; height: 26px; border-radius: 13px;
-  background: rgba(255,255,255,0.08); border: 1px solid var(--border);
-  position: relative; cursor: pointer; flex-shrink: 0;
-  transition: all 0.3s; -webkit-tap-highlight-color: transparent;
-}
-.toggle-sw::after {
-  content: ''; position: absolute; width: 20px; height: 20px;
-  background: var(--text-dim); border-radius: 50%;
-  top: 2px; left: 2px; transition: all 0.3s;
-}
-.toggle-sw.on { background: rgba(255,255,255,0.14); border-color: rgba(255,255,255,0.35); }
-.toggle-sw.on::after { left: 20px; background: #fff; }
-
-/* ── ASSET FILTER CHIPS ── */
-.asset-chip-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
-.asset-chip {
-  padding: 7px 14px; border-radius: 20px;
-  border: 1px solid var(--border); background: var(--surface2);
-  font-family: var(--font-mono); font-size: 11px; color: var(--text-dimmer);
-  cursor: pointer; transition: all 0.2s; letter-spacing: 0.5px;
-  -webkit-tap-highlight-color: transparent;
-}
-.asset-chip.on { border-color: rgba(255,255,255,0.4); background: rgba(255,255,255,0.08); color: #fff; }
-
-/* ── SAVED ACCOUNTS ── */
-.saved-account-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 12px; background: var(--surface2);
-  border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px;
-}
-.saved-acc-avatar {
-  width: 36px; height: 36px; border-radius: 50%;
-  overflow: hidden; border: 1px solid var(--border);
-  background: var(--surface3); flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-display); font-weight: 700; font-size: 13px; color: rgba(255,255,255,0.4);
-}
-.saved-acc-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.saved-acc-info { flex: 1; min-width: 0; }
-.saved-acc-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.saved-acc-sub  { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); }
-.saved-acc-btns { display: flex; gap: 6px; flex-shrink: 0; }
+.admin-pav img { width: 100%; height: 100%; object-fit: cover; }
 
 /* ── SETTINGS ── */
-.settings-profile-header {
-  display: flex; align-items: center; gap: 14px; margin-bottom: 20px;
-}
+.settings-header { display: flex; align-items: center; gap: 15px; margin-bottom: 22px; }
 .settings-avatar {
-  width: 56px; height: 56px; border-radius: 50%;
-  border: 1px solid var(--border-bright); background: var(--surface3);
-  overflow: hidden; flex-shrink: 0;
+  width: 60px; height: 60px; border-radius: 50%; border: 1.5px solid var(--border-bright);
+  background: var(--surface3); overflow: hidden; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-display); font-weight: 800; font-size: 22px; color: rgba(255,255,255,0.4);
+  font-family: var(--font-display); font-weight: 800; font-size: 24px; color: rgba(255,255,255,0.4);
 }
 .settings-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.settings-name { font-family: var(--font-display); font-size: 18px; font-weight: 800; letter-spacing: 1px; color: #fff; }
-.settings-id   { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); margin-top: 2px; }
-
-/* ── DIVIDER ── */
-.divider { height: 1px; background: var(--border); margin: 16px 0; }
-
-/* ── MEM BAR ── */
-.mem-chip {
-  display: flex; align-items: center; gap: 6px;
-  padding: 4px 10px; border: 1px solid var(--border);
-  background: var(--surface); border-radius: 20px;
-  font-family: var(--font-mono); font-size: 9px; color: var(--text-dimmer);
-}
-.mem-track { width: 36px; height: 3px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden; }
-.mem-fill { height: 100%; background: rgba(255,255,255,0.4); border-radius: 2px; transition: width 0.5s, background 0.5s; }
-.mem-fill.warn { background: var(--warn); }
-.mem-fill.crit { background: #ff5f5f; }
-
-/* ── EMPTY STATES ── */
-.empty-state { padding: 32px 16px; text-align: center; font-family: var(--font-mono); font-size: 11px; color: var(--text-dimmer); letter-spacing: 1px; line-height: 1.8; }
+.settings-name { font-family: var(--font-display); font-size: 20px; font-weight: 800; letter-spacing: 1px; color: #fff; }
+.settings-id   { font-family: var(--font-mono); font-size: 11px; color: var(--text-dimmer); margin-top: 3px; }
 
 /* ── INFO BOX ── */
 .info-box {
   background: rgba(255,255,255,0.03); border: 1px solid var(--border);
-  border-radius: 10px; padding: 12px 14px;
-  font-family: var(--font-mono); font-size: 10px; color: var(--text-dim);
-  line-height: 1.7; margin-bottom: 12px;
+  border-radius: 10px; padding: 13px 15px;
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); line-height: 1.7; margin-bottom: 13px;
 }
-.info-box.warn { background: rgba(240,192,64,0.05); border-color: rgba(240,192,64,0.2); color: rgba(240,192,64,0.8); }
+.info-box.warn { background: rgba(240,192,64,0.04); border-color: rgba(240,192,64,0.2); color: rgba(240,192,64,0.8); }
+.info-box.danger { background: rgba(255,59,59,0.04); border-color: rgba(255,59,59,0.2); color: rgba(255,100,100,0.8); }
 
-/* ── SCROLLBAR ── */
+/* ── DIVIDER ── */
+.divider { height: 1px; background: var(--border); margin: 18px 0; }
+
+/* ── DEBUG ── */
+.debug-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 13px; }
+.debug-tile { background: var(--surface2); border: 1px solid var(--border); border-radius: 11px; padding: 13px; }
+.debug-val  { font-family: var(--font-display); font-size: 24px; font-weight: 800; color: #fff; }
+.debug-lbl  { font-family: var(--font-mono); font-size: 9px; color: var(--text-dimmer); letter-spacing: 1px; text-transform: uppercase; margin-top: 3px; }
+
+/* ── SAVE MODE PILLS ── */
+.smode-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.smode-btn {
+  flex: 1; padding: 10px 6px; text-align: center;
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+  border: 1px solid var(--border); border-radius: 9px;
+  background: transparent; color: var(--text-dimmer); cursor: pointer; transition: all 0.2s;
+}
+.smode-btn.active { border-color: rgba(255,255,255,0.35); color: #fff; background: rgba(255,255,255,0.07); }
+
+/* ── CONNECT CODE ── */
+.connect-code {
+  font-family: var(--font-display); font-size: 40px; font-weight: 800;
+  letter-spacing: 12px; color: #fff; text-align: center;
+  padding: 22px; border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 13px; background: var(--surface2); margin: 13px 0;
+}
+
+/* ── MEM BAR ── */
+.mem-chip {
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 11px; border: 1px solid var(--border);
+  background: var(--surface); border-radius: 20px;
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer);
+}
+.mem-track { width: 34px; height: 3px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden; }
+.mem-fill  { height: 100%; background: rgba(255,255,255,0.4); border-radius: 2px; transition: width 0.5s, background 0.5s; }
+.mem-fill.warn { background: var(--warn); }
+.mem-fill.crit { background: #ff5f5f; }
+
+/* ── EMPTY / SCROLLBAR ── */
+.empty { padding: 36px 16px; text-align: center; font-family: var(--font-mono); font-size: 12px; color: var(--text-dimmer); letter-spacing: 1px; line-height: 1.8; }
 ::-webkit-scrollbar { width: 3px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
 
-/* ── SLIDER ── */
-input[type="range"] {
-  -webkit-appearance: none; width: 100%; height: 4px;
-  background: rgba(255,255,255,0.1); border-radius: 2px;
-  border: none; padding: 0; outline: none;
+/* ── RESTORE TOOLBAR ── */
+#restore-toolbar {
+  display: none; align-items: center; gap: 10px;
+  padding: 12px 14px; background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1); border-radius: 11px; margin-bottom: 12px; flex-wrap: wrap;
 }
-input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none; width: 18px; height: 18px;
-  border-radius: 50%; background: #fff;
-  box-shadow: 0 0 8px rgba(255,255,255,0.3);
+#restore-toolbar.visible { display: flex; }
+.history-check {
+  width: 22px; height: 22px; border: 1px solid var(--border); border-radius: 6px;
+  cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s; background: transparent; color: transparent; font-size: 12px;
 }
-.slider-row { display: flex; align-items: center; gap: 12px; }
-.slider-val { font-family: var(--font-mono); font-size: 13px; color: #fff; flex-shrink: 0; min-width: 40px; text-align: right; }
-
-/* ── CONNECT CODE ── */
-.connect-code {
-  font-family: var(--font-mono); font-size: 32px; font-weight: 500;
-  letter-spacing: 10px; color: #fff; text-align: center;
-  padding: 20px; border: 1px solid rgba(255,255,255,0.2);
-  border-radius: 12px; background: var(--surface2); margin: 12px 0;
-  cursor: pointer;
-}
-
-/* ── DEBUG STAT GRID ── */
-.debug-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
-.debug-tile { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
-.debug-val { font-family: var(--font-display); font-size: 22px; font-weight: 800; color: #fff; }
-.debug-lbl { font-family: var(--font-mono); font-size: 9px; color: var(--text-dimmer); letter-spacing: 1px; text-transform: uppercase; margin-top: 3px; }
+.history-check.checked { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.35); color: #fff; }
 </style>
 </head>
 <body>
@@ -551,15 +557,15 @@ input[type="range"]::-webkit-slider-thumb {
 <div id="toast-container"></div>
 
 <!-- ══════════════════════════════════════
-     PROFILE SELECT SCREEN
+     PROFILE SCREEN
 ══════════════════════════════════════ -->
 <div id="profile-screen">
   <div class="profile-logo">SENTINEL</div>
   <div class="profile-sub">Roblox Asset Moderation</div>
   <div class="profile-grid" id="profile-grid">
-    <div style="grid-column:1/-1;" class="empty-state">Loading profiles…</div>
+    <div style="grid-column:1/-1;" class="empty">Loading profiles…</div>
   </div>
-  <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-dimmer);letter-spacing:1px;text-align:center;">Tap a profile to sign in</div>
+  <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);letter-spacing:1px;text-align:center;">Tap a profile to sign in</div>
 </div>
 
 <!-- ══════════════════════════════════════
@@ -568,7 +574,7 @@ input[type="range"]::-webkit-slider-thumb {
 <div class="modal-overlay" id="pin-modal">
   <div class="modal-sheet">
     <div class="sheet-handle"></div>
-    <div class="pin-avatar" id="pin-modal-avatar"></div>
+    <div class="pin-av" id="pin-modal-avatar"></div>
     <div class="sheet-title" id="pin-modal-name"></div>
     <div class="sheet-sub">ENTER PIN</div>
     <div class="pin-error" id="pin-error"></div>
@@ -586,18 +592,18 @@ input[type="range"]::-webkit-slider-thumb {
       <div class="pin-key zero" onclick="pinKey('0')">0</div>
       <div class="pin-key del" onclick="pinBackspace()">⌫</div>
     </div>
-    <button class="btn" style="margin-top:14px;" onclick="closePinModal()">Cancel</button>
+    <button class="btn" style="margin-top:16px;" onclick="closeModal('pin-modal')">Cancel</button>
   </div>
 </div>
 
 <!-- ══════════════════════════════════════
-     CREATE PROFILE SHEET
+     CREATE PROFILE MODAL
 ══════════════════════════════════════ -->
 <div class="modal-overlay" id="create-profile-modal">
   <div class="modal-sheet">
     <div class="sheet-handle"></div>
     <div class="sheet-title">New Profile</div>
-    <div class="sheet-sub" style="margin-bottom:20px;">ENTER AN INVITE CODE TO JOIN</div>
+    <div class="sheet-sub" style="margin-bottom:22px;">ENTER AN INVITE CODE TO JOIN</div>
     <div class="form-group">
       <label class="field-label">Profile Name</label>
       <input type="text" id="new-profile-name" placeholder="e.g. ModerationBot">
@@ -610,7 +616,7 @@ input[type="range"]::-webkit-slider-thumb {
       <label class="field-label">Invite Code</label>
       <input type="text" id="new-profile-invite" placeholder="AB12CD34" maxlength="8" style="text-transform:uppercase;letter-spacing:4px;" oninput="this.value=this.value.toUpperCase()">
     </div>
-    <div class="btn-group">
+    <div class="btn-col">
       <button class="btn btn-primary" onclick="createProfile()">Create Profile →</button>
       <button class="btn" onclick="closeModal('create-profile-modal')">Cancel</button>
     </div>
@@ -621,88 +627,125 @@ input[type="range"]::-webkit-slider-thumb {
      SETTINGS SHEET
 ══════════════════════════════════════ -->
 <div class="modal-overlay" id="settings-modal">
-  <div class="modal-sheet" style="max-height:92vh;overflow-y:auto;">
+  <div class="modal-sheet">
     <div class="sheet-handle"></div>
-    <div class="settings-profile-header">
+    <div class="settings-header">
       <div class="settings-avatar" id="settings-avatar"></div>
       <div>
         <div class="settings-name" id="settings-name">—</div>
         <div class="settings-id" id="settings-id"></div>
       </div>
     </div>
-    <div class="btn-group" style="margin-bottom:16px;">
-      <div class="btn-row">
-        <button class="btn btn-sm" onclick="openChangePinModal()">Change PIN</button>
-        <button class="btn btn-sm" onclick="openChangeNameModal()">Change Name</button>
-      </div>
+
+    <div class="section-label">Profile</div>
+    <div class="btn-row" style="margin-bottom:10px;">
+      <button class="btn btn-sm" onclick="openChangePinModal()">Change PIN</button>
+      <button class="btn btn-sm" onclick="openChangeNameModal()">Change Name</button>
+    </div>
+    <div class="btn-col" style="margin-bottom:14px;">
       <button class="btn btn-warn" onclick="signOutProfile()">Sign Out</button>
       <button class="btn btn-danger" onclick="deleteProfilePrompt()">Delete Profile</button>
     </div>
+
+    <div class="divider"></div>
+    <div class="section-label">Cookie Save Mode</div>
+    <div class="smode-row">
+      <button class="smode-btn" id="smode-ask"    onclick="setCookieSaveMode('ask')">Ask</button>
+      <button class="smode-btn" id="smode-always" onclick="setCookieSaveMode('always')">Always</button>
+      <button class="smode-btn" id="smode-never"  onclick="setCookieSaveMode('never')">Never</button>
+    </div>
+    <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);line-height:1.6;margin-bottom:14px;">
+      Controls whether detected accounts are saved to the database.
+    </div>
+
     <div class="divider"></div>
     <div class="section-label">Danger Zone</div>
-    <div class="btn-group" style="margin-bottom:16px;">
-      <button class="btn btn-danger" onclick="clearAllHistory()">Clear History</button>
+    <div class="btn-col" style="margin-bottom:14px;">
+      <button class="btn btn-danger" onclick="clearAllHistory()">Clear All History</button>
       <button class="btn btn-danger" onclick="clearCredentials()">Unlink All Accounts</button>
     </div>
+
     <div class="divider"></div>
-    <div class="section-label">Debug</div>
-    <div class="debug-grid" id="debug-grid">
+    <div class="section-label">System</div>
+    <div class="debug-grid">
       <div class="debug-tile"><div class="debug-val" id="dbg-rss">—</div><div class="debug-lbl">Memory MB</div></div>
       <div class="debug-tile"><div class="debug-val" id="dbg-cpu">—</div><div class="debug-lbl">CPU %</div></div>
       <div class="debug-tile"><div class="debug-val" id="dbg-sess">—</div><div class="debug-lbl">Sessions</div></div>
       <div class="debug-tile"><div class="debug-val" id="dbg-logs">—</div><div class="debug-lbl">Log Entries</div></div>
     </div>
-    <button class="btn" style="margin-bottom:8px;" onclick="runGc()">Force GC + Trim</button>
-    <button class="btn" onclick="closeModal('settings-modal')">Close</button>
+    <div class="btn-col">
+      <button class="btn" onclick="runGc()">Force GC + Trim</button>
+      <button class="btn" onclick="closeModal('settings-modal')">Close</button>
+    </div>
   </div>
 </div>
 
 <!-- ══════════════════════════════════════
-     MAIN APP
+     ADD ACCOUNT MODAL
 ══════════════════════════════════════ -->
-<div id="app">
-
-  <!-- TOP BAR -->
-  <div id="topbar">
-    <div class="logo-lockup">
-      <div class="logo-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-        </svg>
-      </div>
-      <div class="logo-text">SENTINEL</div>
+<div class="modal-overlay" id="add-account-modal">
+  <div class="modal-sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Add Account</div>
+    <div class="sheet-sub" style="margin-bottom:20px;">ROBLOX ACCOUNT</div>
+    <div class="info-box warn">Your cookie grants full access. Only use a dedicated mod/bot account — never your main.</div>
+    <div class="form-group">
+      <label class="field-label">.ROBLOSECURITY Cookie</label>
+      <textarea id="manual-cookie-input" placeholder="Paste your full .ROBLOSECURITY cookie here…"></textarea>
     </div>
-    <div class="topbar-right">
-      <div class="mem-chip" id="mem-chip" style="display:none;">
-        <div class="mem-track"><div class="mem-fill" id="mem-fill" style="width:0%"></div></div>
-        <span id="mem-label">0MB</span>
-      </div>
-      <div class="status-chip" id="main-status-pill">
-        <div class="status-dot" id="main-status-dot"></div>
-        <span id="main-status-text">—</span>
-      </div>
-      <div class="profile-chip" id="topbar-avatar" onclick="openSettings()"></div>
+    <div class="btn-col">
+      <button class="btn btn-primary" id="add-account-btn" onclick="submitManualCookie()">Add Account</button>
+      <button class="btn" onclick="closeModal('add-account-modal')">Cancel</button>
     </div>
   </div>
+</div>
 
-  <!-- TAB PANELS -->
+<!-- ══════════════════════════════════════
+     TOPBAR
+══════════════════════════════════════ -->
+<div id="topbar">
+  <div class="logo-wrap">
+    <div class="logo-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      </svg>
+    </div>
+    <div class="logo-text">SENTINEL</div>
+  </div>
+  <div class="topbar-right">
+    <div class="mem-chip" id="mem-chip" style="display:none;">
+      <div class="mem-track"><div class="mem-fill" id="mem-fill" style="width:0%"></div></div>
+      <span id="mem-label">0MB</span>
+    </div>
+    <div class="status-chip" id="main-status-pill">
+      <div class="status-dot" id="main-status-dot"></div>
+      <span id="main-status-text">—</span>
+    </div>
+    <div class="avatar-btn" id="topbar-avatar" onclick="openSettings()"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     APP
+══════════════════════════════════════ -->
+<div id="app">
 
   <!-- ── DASHBOARD ── -->
   <div class="tab-panel active" id="tab-dash">
 
-    <div class="stat-row" id="stat-row">
+    <div class="stat-row">
       <div class="stat-tile">
         <div class="stat-val" id="stat-archived">—</div>
         <div class="stat-lbl">Archived</div>
       </div>
       <div class="stat-tile">
-        <div class="stat-val" id="stat-total">—</div>
-        <div class="stat-lbl">Total Scanned</div>
+        <div class="stat-val" id="stat-groups">—</div>
+        <div class="stat-lbl">Groups</div>
       </div>
     </div>
 
     <div class="monitor-card">
-      <div class="monitor-info">
+      <div>
         <div class="monitor-title">Monitor</div>
         <div class="monitor-sub" id="monitor-sub-text">INACTIVE</div>
       </div>
@@ -712,62 +755,61 @@ input[type="range"]::-webkit-slider-thumb {
     <div class="card">
       <div class="section-label">Active Account</div>
       <div id="conn-account-display">
-        <div class="empty-state" style="padding:12px 0;">No account connected</div>
+        <div class="empty" style="padding:10px 0;">No account connected</div>
       </div>
     </div>
 
     <div class="card" id="saved-accounts-card" style="display:none;">
       <div class="section-label">Saved Accounts</div>
       <div id="saved-accounts-list"></div>
+      <button class="btn btn-primary" style="margin-top:4px;" onclick="openModal('add-account-modal')">+ Add Another Account</button>
     </div>
 
-    <div class="card">
-      <div class="section-label">Add Account</div>
-      <div id="add-account-section">
-        <button class="btn" style="margin-bottom:8px;opacity:0.4;pointer-events:none;">Extension — Under Maintenance</button>
-        <button class="btn btn-warn" onclick="showManualCookieInput()">⚠ Add Manually (No Extension)</button>
-      </div>
-      <div id="manual-cookie-section" style="display:none;">
-        <div class="info-box warn">Your cookie grants full access. Only use a dedicated mod/bot account — never your main.</div>
-        <div class="form-group">
-          <label class="field-label">.ROBLOSECURITY Cookie</label>
-          <textarea id="manual-cookie-input" placeholder="Paste cookie here…"></textarea>
-        </div>
-        <div class="btn-row">
-          <button class="btn btn-primary" onclick="submitManualCookie()">Add Account</button>
-          <button class="btn" onclick="hideManualCookieInput()">Cancel</button>
-        </div>
-      </div>
-      <div id="connected-account-section" style="display:none;margin-top:10px;">
-        <div class="btn-group">
-          <button class="btn btn-primary" onclick="openAddAnotherModal()">+ Add Another Account</button>
-          <button class="btn btn-danger" onclick="disconnectExtension()" id="disconnect-ext-btn">Disconnect Extension</button>
-        </div>
+    <div class="card" id="add-account-card">
+      <div class="section-label">Connect Account</div>
+      <div class="btn-col">
+        <button class="btn" style="opacity:0.4;pointer-events:none;">Extension — Under Maintenance</button>
+        <button class="btn btn-warn" onclick="openModal('add-account-modal')">⚠ Add Manually (No Extension)</button>
       </div>
     </div>
 
     <div class="card">
       <div class="section-label">Recent Activity</div>
-      <div id="recent-activity">
-        <div class="empty-state">No activity yet — start monitoring to see events here.</div>
-      </div>
+      <div id="recent-activity"><div class="empty" style="padding:10px 0;">No activity yet — start monitoring to see events here.</div></div>
     </div>
 
   </div>
 
   <!-- ── HISTORY ── -->
   <div class="tab-panel" id="tab-history">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-      <input type="text" id="history-search" placeholder="Search username or asset…" oninput="filterHistory(this.value)" style="flex:1;">
+    <div style="display:flex;gap:9px;margin-bottom:10px;align-items:center;">
+      <input type="text" id="history-search" placeholder="Search username or asset…" oninput="filterHistory()" style="flex:1;">
+      <select id="history-filter-type" onchange="filterHistory()" style="width:auto;padding:13px 12px;font-size:13px;">
+        <option value="">All Types</option>
+        <option>Audio</option><option>Decal</option><option>Video</option>
+        <option>Mesh</option><option>Plugin</option><option>Animation</option>
+        <option>Model</option><option>Package</option>
+      </select>
     </div>
-    <div id="history-list">
-      <div class="empty-state">No moderation history yet.</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+      <label style="display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:12px;color:var(--text-dim);cursor:pointer;">
+        <input type="checkbox" id="history-select-mode" onchange="toggleSelectMode(this.checked)" style="width:auto;accent-color:#fff;">
+        Select Mode
+      </label>
     </div>
+    <div id="restore-toolbar">
+      <span style="font-family:var(--font-mono);font-size:12px;color:var(--text-dim);flex:1;" id="restore-count-label">0 selected</span>
+      <span id="restore-progress" style="display:none;font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);"></span>
+      <button class="btn btn-sm" onclick="selectAllHistory()">All</button>
+      <button class="btn btn-sm" onclick="deselectAllHistory()">None</button>
+      <button class="btn btn-sm btn-green" id="bulk-restore-btn" onclick="bulkRestore()" disabled>↩ Restore</button>
+    </div>
+    <div id="history-list"><div class="empty">No moderation history yet.</div></div>
   </div>
 
   <!-- ── GROUPS ── -->
   <div class="tab-panel" id="tab-groups">
-    <div class="card" style="margin-bottom:12px;">
+    <div class="card" style="margin-bottom:14px;">
       <div class="section-label">Add Group</div>
       <div class="form-group">
         <label class="field-label">Group URL or ID</label>
@@ -776,59 +818,85 @@ input[type="range"]::-webkit-slider-thumb {
       <button class="btn btn-primary" onclick="addGroup()">Add Group</button>
     </div>
     <div class="section-label">Active Groups</div>
-    <div id="groups-list">
-      <div class="empty-state">No groups added yet.</div>
-    </div>
+    <div id="groups-list"><div class="empty">No groups added yet.</div></div>
   </div>
 
   <!-- ── CONFIG ── -->
   <div class="tab-panel" id="tab-config">
 
-    <div class="card" style="margin-bottom:12px;">
+    <div class="card">
       <div class="section-label">Asset Types</div>
-      <div class="asset-chip-grid" id="asset-filter-grid"></div>
+      <div class="chip-grid" id="asset-filter-grid"></div>
+      <button class="btn btn-sm" onclick="selectAllAssetTypes()" style="width:auto;">Select All</button>
     </div>
 
-    <div class="card" style="margin-bottom:12px;">
+    <div class="card">
       <div class="section-label">Polling Interval</div>
       <div class="slider-row">
-        <input type="range" id="polling-slider" min="5" max="300" value="60" oninput="updateSlider('polling-val',this.value,'s');checkFastPollWarning(this.value)">
+        <input type="range" id="polling-slider" min="30" max="300" value="60" oninput="updateSlider('polling-val',this.value,'s');checkFastPollWarning(this.value)">
         <div class="slider-val" id="polling-val">60s</div>
       </div>
-      <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);margin-top:8px;">How often to check for new uploads</div>
+      <div id="fast-poll-warning" style="display:none;" class="info-box warn" style="margin-top:8px;">⚠ Polling below 30s may cause Roblox rate limiting.</div>
       <div class="divider"></div>
       <div class="toggle-row">
-        <div class="toggle-row-info">
-          <div class="toggle-row-label">Allow Fast Polling (&lt;30s)</div>
-          <div class="toggle-row-desc">Unlock intervals below 30s</div>
-        </div>
+        <div><div class="toggle-label">Fast Polling (&lt;30s)</div><div class="toggle-desc">Unlock intervals below 30 seconds</div></div>
         <div class="toggle-sw" id="fast-poll-toggle" onclick="toggleFastPoll(this)"></div>
       </div>
-      <div id="fast-poll-warning" style="display:none;" class="info-box warn" style="margin-top:8px;">⚠ Polling below 30s may cause Roblox rate limiting.</div>
+      <div class="toggle-row">
+        <div><div class="toggle-label">Archive Existing</div><div class="toggle-desc">Archive assets already on Roblox</div></div>
+        <div class="toggle-sw" id="archive-existing-toggle" onclick="this.classList.toggle('on')"></div>
+      </div>
+      <div class="toggle-row">
+        <div><div class="toggle-label">Auto-Start Monitor</div><div class="toggle-desc">Start monitoring on login</div></div>
+        <div class="toggle-sw" id="auto-start-toggle" onclick="this.classList.toggle('on')"></div>
+      </div>
     </div>
 
-    <div class="card" style="margin-bottom:12px;">
+    <div class="card">
       <div class="section-label">Archive Delay</div>
       <div class="slider-row">
         <input type="range" id="delay-slider" min="0" max="120" value="0" oninput="updateSlider('delay-val',this.value,'s')">
         <div class="slider-val" id="delay-val">0s</div>
       </div>
-      <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);margin-top:8px;">0 = archive immediately on detection</div>
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);margin-top:6px;">0 = archive immediately on detection</div>
     </div>
 
-    <div class="card" style="margin-bottom:12px;">
+    <div class="card">
       <div class="section-label">Whitelist</div>
-      <div class="info-box">One Roblox username or user ID per line. These users will never be moderated.</div>
-      <div class="form-group">
-        <textarea id="whitelist-input" placeholder="username1&#10;12345678&#10;username2" oninput="updateWhitelistCount()"></textarea>
-      </div>
-      <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);margin-bottom:10px;" id="whitelist-count">0 users</div>
+      <div class="info-box">Each asset type has its own whitelist. "All Types" applies globally.</div>
+      <div class="wl-tabs" id="wl-tabs"></div>
+      <label class="field-label" id="wl-current-label">Whitelisted Users — All Types</label>
+      <textarea id="whitelist-input" placeholder="One username or user ID per line" oninput="updateWhitelistCount()"></textarea>
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);margin-top:8px;" id="whitelist-count">0 users</div>
     </div>
 
-    <div class="btn-group" style="margin-bottom:24px;">
+    <div class="btn-col" style="margin-bottom:24px;">
       <button class="btn btn-primary" onclick="saveConfig()">Save Config</button>
       <button class="btn" onclick="exportConfig()">Export Config</button>
       <button class="btn btn-danger" onclick="clearConfig()">Reset Config</button>
+    </div>
+
+  </div>
+
+  <!-- ── ADMIN ── -->
+  <div class="tab-panel" id="tab-admin">
+
+    <div class="card" style="margin-bottom:14px;">
+      <div class="section-label">Generate Invite</div>
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-bottom:14px;line-height:1.6;">Generate a one-time invite code to manually send to someone.</div>
+      <button class="btn btn-primary" onclick="adminGenerateInvite()">Generate Code</button>
+      <div id="generated-code-box" style="display:none;margin-top:14px;" class="connect-code" onclick="copyGeneratedCode()" title="Tap to copy"></div>
+    </div>
+
+    <div class="section-label">Access Requests</div>
+    <div id="admin-requests-loading" style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);padding:12px 0;">Loading…</div>
+    <div id="admin-requests-list"></div>
+    <div id="admin-requests-empty" style="display:none;" class="empty">No requests yet.</div>
+
+    <div class="section-label" style="margin-top:6px;">Manage Profiles</div>
+    <div class="card">
+      <div id="admin-profiles-loading" style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);">Loading…</div>
+      <div id="admin-profiles-list"></div>
     </div>
 
   </div>
@@ -838,34 +906,25 @@ input[type="range"]::-webkit-slider-thumb {
 <!-- ── BOTTOM TAB BAR ── -->
 <div id="tabbar">
   <button class="tab-btn active" id="tbtn-dash" onclick="showTab('dash')">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-      <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
-    </svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
     <span>Dash</span>
   </button>
   <button class="tab-btn" id="tbtn-history" onclick="showTab('history')">
     <div class="tab-dot" id="history-dot"></div>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-    </svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
     <span>History</span>
   </button>
   <button class="tab-btn" id="tbtn-groups" onclick="showTab('groups')">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-      <circle cx="9" cy="7" r="4"/>
-      <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-      <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-    </svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
     <span>Groups</span>
   </button>
   <button class="tab-btn" id="tbtn-config" onclick="showTab('config')">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <circle cx="12" cy="12" r="3"/>
-      <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>
-    </svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
     <span>Config</span>
+  </button>
+  <button class="tab-btn" id="tbtn-admin" onclick="showTab('admin')" style="display:none;">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+    <span>Admin</span>
   </button>
 </div>
 
@@ -874,11 +933,24 @@ input[type="range"]::-webkit-slider-thumb {
 // SENTINEL MOBILE — @Nexesmere
 // ─────────────────────────────────────────────────────────────────────────────
 
-const STATE = {
+const ALL_ASSET_TYPES = ['Audio','Decal','Video','Mesh','Plugin','Animation','Model','Package'];
+const WL_KEYS = ['all', ...ALL_ASSET_TYPES];
+const EXT_MAINTENANCE = true;
+
+let STATE = {
   profileId: null, profileName: '', profileAvatar: '',
   monitoring: false, hasCredential: false,
-  extensionLinked: false, isAdmin: false, _lastPin: '',
+  extensionLinked: false, isAdmin: false,
+  activeWlTab: 'all', _lastPin: '',
 };
+let _cfg = {};
+let _cachedHistory = [];
+let _prevHistCount = 0;
+let _selectModeOn = false;
+let _selectedIds = new Set();
+let _restoredAssets = new Set();
+let _generatedCode = '';
+let _liveInterval = null;
 
 function esc(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -890,33 +962,35 @@ async function api(method, path, body) {
   if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
   let r;
   try { r = await fetch(path, opts); }
-  catch(e) { throw new Error('Network error — check your connection'); }
+  catch(e) { throw new Error('Network error'); }
   let data;
   try { data = await r.json(); }
-  catch(e) {
-    if (!r.ok) throw new Error(`Server error ${r.status}`);
-    throw new Error(`Unexpected response (${r.status})`);
-  }
+  catch(e) { throw new Error(`Server error ${r.status}`); }
   if (!r.ok) {
     const det = data.detail;
-    let msg = typeof det === 'string' ? det
-      : Array.isArray(det) ? det.map(e => `${e.loc?.join('.')}: ${e.msg}`).join('; ')
+    const msg = typeof det === 'string' ? det
+      : Array.isArray(det) ? det.map(e=>`${e.loc?.join('.')}: ${e.msg}`).join('; ')
       : data.error || `HTTP ${r.status}`;
     throw new Error(msg);
   }
   return data;
 }
-
 function pid() { return STATE.profileId; }
 
 // ── TOAST ─────────────────────────────────────────────────────────────────────
-function toast(msg, type = '') {
+function toast(msg, type='') {
   const el = document.createElement('div');
-  el.className = 'toast ' + type;
-  el.textContent = msg;
+  el.className = 'toast ' + type; el.textContent = msg;
   document.getElementById('toast-container').appendChild(el);
-  setTimeout(() => el.remove(), 3000);
+  setTimeout(() => el.remove(), 3200);
 }
+
+// ── MODALS ────────────────────────────────────────────────────────────────────
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-overlay').forEach(o => {
+  o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
+});
 
 // ── TABS ──────────────────────────────────────────────────────────────────────
 function showTab(name) {
@@ -924,393 +998,284 @@ function showTab(name) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
   document.getElementById('tbtn-' + name).classList.add('active');
-  if (name === 'history') {
-    document.getElementById('history-dot').classList.remove('show');
-    refreshHistory();
-  }
-  if (name === 'groups') refreshGroups();
-  if (name === 'config') { buildAssetFilterGrid(); loadConfigFromApi(); }
+  if (name === 'history')  { document.getElementById('history-dot').classList.remove('show'); refreshHistory(); }
+  if (name === 'groups')   refreshGroups();
+  if (name === 'config')   { buildAssetFilterGrid(); buildWlTabs(); }
+  if (name === 'admin')    { loadAdminRequests(); loadAdminProfiles(); }
 }
-
-// ── MODALS ────────────────────────────────────────────────────────────────────
-function openModal(id)  { document.getElementById(id).classList.add('open'); }
-function closeModal(id) { document.getElementById(id).classList.remove('open'); }
-
-// Close on backdrop tap
-document.querySelectorAll('.modal-overlay').forEach(overlay => {
-  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
-});
 
 // ── PROFILE SCREEN ────────────────────────────────────────────────────────────
 async function loadProfileScreen() {
   const grid = document.getElementById('profile-grid');
-  grid.innerHTML = '<div style="grid-column:1/-1;" class="empty-state">Loading…</div>';
+  grid.innerHTML = '<div style="grid-column:1/-1;" class="empty">Loading…</div>';
   try {
     const profiles = await api('GET', '/api/profiles');
-    if (!Array.isArray(profiles)) throw new Error('Unexpected response from server');
+    if (!Array.isArray(profiles)) throw new Error('Unexpected server response');
     grid.innerHTML = '';
-
     profiles.forEach(p => {
       const card = document.createElement('div');
       card.className = 'profile-card';
-      const initials = (p.name || '?').slice(0,2).toUpperCase();
+      const initials = (p.name||'?').slice(0,2).toUpperCase();
       card.innerHTML = `
-        <button class="profile-delete-btn" title="Delete">✕</button>
-        <div class="profile-card-avatar">
-          ${p.avatar_url ? `<img src="${esc(p.avatar_url)}" onerror="this.style.display='none'">` : initials}
-        </div>
+        <button class="profile-delete-btn">✕</button>
+        <div class="profile-card-avatar">${p.avatar_url ? `<img src="${esc(p.avatar_url)}" onerror="this.style.display='none'">` : initials}</div>
         <div class="profile-card-name">${esc(p.name)}</div>
         <div class="profile-card-sub">Tap to sign in</div>`;
-      card.querySelector('.profile-delete-btn').addEventListener('click', e => {
-        e.stopPropagation();
-        deleteProfileFromSelector(p);
-      });
+      card.querySelector('.profile-delete-btn').addEventListener('click', e => { e.stopPropagation(); deleteProfileFromSelector(p); });
       card.onclick = () => openPinModal(p);
       grid.appendChild(card);
     });
-
-    // Join card
     const joinCard = document.createElement('div');
     joinCard.className = 'profile-card add-card';
-    joinCard.innerHTML = `
-      <div class="profile-card-avatar" style="font-size:22px;color:rgba(255,255,255,0.3);">+</div>
-      <div class="profile-card-name" style="color:var(--text-dim);">Join</div>
-      <div class="profile-card-sub">Have an invite</div>`;
+    joinCard.innerHTML = `<div class="profile-card-avatar" style="font-size:26px;color:rgba(255,255,255,0.3);">+</div><div class="profile-card-name" style="color:var(--text-dim);">Join</div><div class="profile-card-sub">Have an invite</div>`;
     joinCard.onclick = () => openModal('create-profile-modal');
     grid.appendChild(joinCard);
   } catch(e) {
-    grid.innerHTML = `<div style="grid-column:1/-1;" class="empty-state" style="color:#ff6b6b;">⚠ ${esc(e.message)}<br><br><button onclick="loadProfileScreen()" style="padding:6px 14px;border:1px solid rgba(255,59,59,0.3);border-radius:8px;background:transparent;color:#ff6b6b;font-family:var(--font-mono);font-size:10px;cursor:pointer;">Retry</button></div>`;
+    grid.innerHTML = `<div style="grid-column:1/-1;" class="empty" style="color:#ff6b6b;">⚠ ${esc(e.message)}<br><br><button onclick="loadProfileScreen()" style="padding:8px 16px;border:1px solid rgba(255,59,59,0.3);border-radius:9px;background:transparent;color:#ff6b6b;font-family:var(--font-mono);font-size:11px;cursor:pointer;">Retry</button></div>`;
   }
 }
 
-// ── PIN MODAL ─────────────────────────────────────────────────────────────────
-let _pinValue = '', _pinTarget = null, _pinLength = 4, _pinSubmitTimer = null;
+// ── PIN ───────────────────────────────────────────────────────────────────────
+let _pinValue='', _pinTarget=null, _pinLength=4, _pinSubmitTimer=null;
 
 function openPinModal(profile) {
-  _pinTarget = profile; _pinValue = '';
-  _pinLength = profile.pin_length || 4;
+  _pinTarget=profile; _pinValue=''; _pinLength=profile.pin_length||4;
   document.getElementById('pin-modal-name').textContent = profile.name;
-  const avatarEl = document.getElementById('pin-modal-avatar');
-  avatarEl.innerHTML = profile.avatar_url
-    ? `<img src="${esc(profile.avatar_url)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.style.display='none'">`
-    : profile.name.slice(0,2).toUpperCase();
   document.getElementById('pin-error').textContent = '';
-  updatePinDots();
-  openModal('pin-modal');
+  const av = document.getElementById('pin-modal-avatar');
+  av.innerHTML = profile.avatar_url ? `<img src="${esc(profile.avatar_url)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.style.display='none'">` : profile.name.slice(0,2).toUpperCase();
+  updatePinDots(); openModal('pin-modal');
 }
-
-function closePinModal() {
-  closeModal('pin-modal');
-  _pinValue = ''; _pinTarget = null;
-  clearTimeout(_pinSubmitTimer);
-}
-
 function updatePinDots() {
-  const display = document.getElementById('pin-display');
-  const entered = _pinValue.length;
-  const total = Math.max(_pinLength, entered);
-  display.innerHTML = Array.from({length: total}, (_,i) =>
-    `<div class="pin-dot ${i < entered ? 'filled' : ''}"></div>`
-  ).join('');
+  const d = document.getElementById('pin-display');
+  const total = Math.max(_pinLength, _pinValue.length);
+  d.innerHTML = Array.from({length:total},(_,i)=>`<div class="pin-dot ${i<_pinValue.length?'filled':''}"></div>`).join('');
 }
-
 function pinKey(digit) {
-  if (_pinValue.length >= 8) return;
-  _pinValue += digit;
-  updatePinDots();
-  clearTimeout(_pinSubmitTimer);
-  if (_pinValue.length === _pinLength) {
-    _pinSubmitTimer = setTimeout(() => submitPin(), 300);
-  } else if (_pinValue.length === 8) {
-    submitPin();
-  } else if (_pinValue.length > _pinLength) {
-    _pinSubmitTimer = setTimeout(() => submitPin(), 800);
-  }
+  if (_pinValue.length>=8) return;
+  _pinValue+=digit; updatePinDots(); clearTimeout(_pinSubmitTimer);
+  if (_pinValue.length===_pinLength) _pinSubmitTimer=setTimeout(submitPin,300);
+  else if (_pinValue.length===8) submitPin();
+  else if (_pinValue.length>_pinLength) _pinSubmitTimer=setTimeout(submitPin,800);
 }
-
-function pinBackspace() {
-  _pinValue = _pinValue.slice(0,-1);
-  updatePinDots();
-  document.getElementById('pin-error').textContent = '';
-}
-
+function pinBackspace() { _pinValue=_pinValue.slice(0,-1); updatePinDots(); document.getElementById('pin-error').textContent=''; }
 async function submitPin() {
-  if (!_pinTarget) return;
-  clearTimeout(_pinSubmitTimer);
+  if (!_pinTarget) return; clearTimeout(_pinSubmitTimer);
   try {
-    const res = await api('POST', '/api/profiles/login', { profile_id: _pinTarget.id, pin: _pinValue });
-    STATE._lastPin = _pinValue;
-    res.is_admin = _pinTarget.is_admin || false;
-    closeModal('pin-modal');
-    await loginToProfile(res);
+    const res = await api('POST','/api/profiles/login',{profile_id:_pinTarget.id,pin:_pinValue});
+    STATE._lastPin=_pinValue; res.is_admin=_pinTarget.is_admin||false;
+    closeModal('pin-modal'); await loginToProfile(res);
   } catch(e) {
-    document.getElementById('pin-error').textContent = 'Wrong PIN — try again';
-    _pinValue = '';
-    updatePinDots();
+    document.getElementById('pin-error').textContent='Wrong PIN — try again';
+    _pinValue=''; updatePinDots();
   }
 }
 
 // ── CREATE PROFILE ────────────────────────────────────────────────────────────
 async function createProfile() {
-  const name = document.getElementById('new-profile-name').value.trim();
-  const pin  = document.getElementById('new-profile-pin').value.trim();
-  const code = document.getElementById('new-profile-invite').value.trim().toUpperCase();
-  if (!name)          { toast('Enter a profile name', 'error'); return; }
-  if (pin.length < 4) { toast('PIN must be at least 4 digits', 'error'); return; }
-  if (!code)          { toast('Enter your invite code', 'error'); return; }
+  const name=document.getElementById('new-profile-name').value.trim();
+  const pin=document.getElementById('new-profile-pin').value.trim();
+  const code=document.getElementById('new-profile-invite').value.trim().toUpperCase();
+  if (!name) { toast('Enter a profile name','error'); return; }
+  if (pin.length<4) { toast('PIN must be at least 4 digits','error'); return; }
+  if (!code) { toast('Enter your invite code','error'); return; }
   try {
-    await api('POST', '/api/profiles', { name, pin, invite_code: code });
+    await api('POST','/api/profiles',{name,pin,invite_code:code});
     closeModal('create-profile-modal');
-    ['new-profile-name','new-profile-pin','new-profile-invite'].forEach(id => document.getElementById(id).value = '');
-    await loadProfileScreen();
-    toast('Profile created!', 'success');
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
+    ['new-profile-name','new-profile-pin','new-profile-invite'].forEach(id=>document.getElementById(id).value='');
+    await loadProfileScreen(); toast('Profile created!','success');
+  } catch(e) { toast('Error: '+e.message,'error'); }
 }
-
 async function deleteProfileFromSelector(profile) {
-  const pin = prompt(`Enter PIN for "${profile.name}" to delete.\nTHIS CANNOT BE UNDONE.`);
-  if (pin === null || pin.trim() === '') return;
+  const pin=prompt(`Enter PIN for "${profile.name}" to delete.\nTHIS CANNOT BE UNDONE.`);
+  if (pin===null||!pin.trim()) return;
   try {
-    await api('DELETE', `/api/profiles/${profile.id}?pin=${encodeURIComponent(pin.trim())}`);
-    toast('Profile deleted', 'warn');
-    await loadProfileScreen();
-  } catch(e) { toast('Wrong PIN or error: ' + e.message, 'error'); }
+    await api('DELETE',`/api/profiles/${profile.id}?pin=${encodeURIComponent(pin.trim())}`);
+    toast('Profile deleted','warn'); await loadProfileScreen();
+  } catch(e) { toast('Wrong PIN or error: '+e.message,'error'); }
 }
 
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
 async function loginToProfile(profileData) {
-  STATE.profileId     = profileData.id;
-  STATE.profileName   = profileData.name;
-  STATE.profileAvatar = profileData.avatar_url;
-  STATE.hasCredential = profileData.hasCredential || false;
-  STATE.isAdmin       = profileData.is_admin || false;
+  STATE.profileId=profileData.id; STATE.profileName=profileData.name;
+  STATE.profileAvatar=profileData.avatar_url; STATE.hasCredential=profileData.hasCredential||false;
+  STATE.isAdmin=profileData.is_admin||false;
 
-  // Topbar avatar
-  const avatarEl = document.getElementById('topbar-avatar');
-  if (profileData.avatar_url) {
-    avatarEl.innerHTML = `<img src="${esc(profileData.avatar_url)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.style.display='none'">`;
-  } else {
-    avatarEl.textContent = profileData.name.slice(0,2).toUpperCase();
-  }
+  const av=document.getElementById('topbar-avatar');
+  av.innerHTML = profileData.avatar_url ? `<img src="${esc(profileData.avatar_url)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.style.display='none'">` : profileData.name.slice(0,2).toUpperCase();
 
-  // Settings panel
   document.getElementById('settings-name').textContent = profileData.name;
-  document.getElementById('settings-id').textContent = profileData.id?.slice(0,8) + '…';
-  const settingsAvatar = document.getElementById('settings-avatar');
-  if (profileData.avatar_url) {
-    settingsAvatar.innerHTML = `<img src="${esc(profileData.avatar_url)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`;
-  } else {
-    settingsAvatar.textContent = profileData.name.slice(0,2).toUpperCase();
-  }
+  document.getElementById('settings-id').textContent   = (profileData.id||'').slice(0,12)+'…';
+  const sav=document.getElementById('settings-avatar');
+  sav.innerHTML = profileData.avatar_url ? `<img src="${esc(profileData.avatar_url)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : profileData.name.slice(0,2).toUpperCase();
 
-  // Hide profile screen
+  // Show admin tab if admin
+  document.getElementById('tbtn-admin').style.display = STATE.isAdmin ? '' : 'none';
+
   document.getElementById('profile-screen').classList.add('hidden');
-
   if (profileData.hasCredential && profileData.account) updateAccountDisplay(profileData.account);
-
   await initApp();
-  toast(`Welcome, ${profileData.name}!`, 'success');
+  toast(`Welcome, ${profileData.name}!`,'success');
 }
 
 // ── SETTINGS ─────────────────────────────────────────────────────────────────
 function openSettings() {
   if (!STATE.profileId) return;
-  refreshDebugStats();
+  refreshDebugStats(); syncSaveModeUI(_cfg.cookieSaveMode||'ask');
   openModal('settings-modal');
 }
-
 function signOutProfile() {
   if (!confirm('Sign out?')) return;
-  closeModal('settings-modal');
-  STATE.profileId = null;
-  STATE.monitoring = false;
+  closeModal('settings-modal'); STATE.profileId=null; STATE.monitoring=false;
+  if (_liveInterval) { clearInterval(_liveInterval); _liveInterval=null; }
   document.getElementById('profile-screen').classList.remove('hidden');
-  document.getElementById('topbar-avatar').textContent = '';
+  document.getElementById('topbar-avatar').innerHTML='';
+  document.getElementById('tbtn-admin').style.display='none';
   loadProfileScreen();
 }
-
 async function deleteProfilePrompt() {
-  const pin = prompt(`Enter PIN for "${STATE.profileName}" to delete this profile.\nTHIS CANNOT BE UNDONE.`);
-  if (pin === null || !pin.trim()) return;
+  const pin=prompt(`Enter PIN for "${STATE.profileName}" to delete.\nTHIS CANNOT BE UNDONE.`);
+  if (!pin?.trim()) return;
   try {
-    await api('DELETE', `/api/profiles/${pid()}?pin=${encodeURIComponent(pin.trim())}`);
-    closeModal('settings-modal');
-    signOutProfile();
-    toast('Profile deleted', 'warn');
-  } catch(e) { toast('Wrong PIN or error: ' + e.message, 'error'); }
+    await api('DELETE',`/api/profiles/${pid()}?pin=${encodeURIComponent(pin.trim())}`);
+    closeModal('settings-modal'); signOutProfile(); toast('Profile deleted','warn');
+  } catch(e) { toast('Wrong PIN: '+e.message,'error'); }
 }
-
 async function openChangePinModal() {
-  const currentPin = prompt('Enter current PIN:');
-  if (!currentPin) return;
-  const newPin = prompt('Enter new PIN (4+ digits, numbers only):');
-  if (!newPin || newPin.length < 4 || !/^\d+$/.test(newPin)) { toast('Invalid PIN', 'error'); return; }
+  const cur=prompt('Enter current PIN:'); if (!cur) return;
+  const nw=prompt('Enter new PIN (4+ digits, numbers only):');
+  if (!nw||nw.length<4||!/^\d+$/.test(nw)) { toast('Invalid PIN','error'); return; }
   try {
-    await api('POST', `/api/profiles/${pid()}/change-pin`, { pin: currentPin, new_pin: newPin });
-    STATE._lastPin = newPin;
-    toast('PIN changed!', 'success');
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
+    await api('POST',`/api/profiles/${pid()}/change-pin`,{pin:cur,new_pin:nw});
+    STATE._lastPin=nw; toast('PIN changed!','success');
+  } catch(e) { toast('Error: '+e.message,'error'); }
 }
-
 async function openChangeNameModal() {
-  const newName = prompt('Enter new profile name:', STATE.profileName);
-  if (!newName || !newName.trim()) return;
+  const nw=prompt('Enter new profile name:',STATE.profileName);
+  if (!nw?.trim()) return;
   try {
-    await api('POST', `/api/profiles/${pid()}/change-name`, { pin: STATE._lastPin, name: newName.trim() });
-    STATE.profileName = newName.trim();
-    document.getElementById('settings-name').textContent = newName.trim();
-    toast('Name updated!', 'success');
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
+    await api('POST',`/api/profiles/${pid()}/change-name`,{pin:STATE._lastPin,name:nw.trim()});
+    STATE.profileName=nw.trim();
+    document.getElementById('settings-name').textContent=nw.trim();
+    toast('Name updated!','success');
+  } catch(e) { toast('Error: '+e.message,'error'); }
 }
-
 async function clearAllHistory() {
-  if (!confirm('Clear all moderation history? This cannot be undone.')) return;
+  if (!confirm('Clear all moderation history?')) return;
   try {
-    await api('DELETE', `/api/history?profile_id=${pid()}`);
-    toast('History cleared', 'warn');
-    refreshHistory();
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
+    await api('DELETE',`/api/history?profile_id=${pid()}`);
+    _cachedHistory=[]; _prevHistCount=0; await refreshHistory(); await refreshStats();
+    toast('History cleared','warn');
+  } catch(e) { toast('Error: '+e.message,'error'); }
 }
-
 async function clearCredentials() {
   if (!confirm('Unlink all Roblox accounts from this profile?')) return;
   try {
-    await api('POST', '/api/credentials/clear', { profile_id: pid() });
-    STATE.hasCredential = false;
-    updateAccountDisplay(null);
-    toast('Accounts unlinked', 'warn');
-    await refreshStatus();
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
+    await api('POST','/api/credentials/clear',{profile_id:pid()});
+    STATE.hasCredential=false; updateAccountDisplay(null);
+    toast('Accounts unlinked','warn'); await refreshStatus();
+  } catch(e) { toast('Error: '+e.message,'error'); }
 }
-
 async function refreshDebugStats() {
   try {
-    const mem = await api('GET', '/api/debug/memory');
-    document.getElementById('dbg-rss').textContent  = mem.rss_mb || '—';
-    document.getElementById('dbg-cpu').textContent  = (mem.cpu_pct ?? '—') + '%';
-    document.getElementById('dbg-sess').textContent = mem.sessions ?? '—';
-    document.getElementById('dbg-logs').textContent = mem.log_count ?? '—';
+    const m=await api('GET','/api/debug/memory');
+    document.getElementById('dbg-rss').textContent  = m.rss_mb||'—';
+    document.getElementById('dbg-cpu').textContent  = (m.cpu_pct??'—')+'%';
+    document.getElementById('dbg-sess').textContent = m.sessions??'—';
+    document.getElementById('dbg-logs').textContent = m.log_count??'—';
   } catch {}
 }
-
 async function runGc() {
   try {
-    const r = await api('POST', '/api/debug/gc');
-    toast(`GC done — freed ~${r.freed_mb}MB`, 'success');
-    refreshDebugStats();
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
+    const r=await api('POST','/api/debug/gc');
+    toast(`GC done — freed ~${r.freed_mb}MB`,'success'); refreshDebugStats();
+  } catch(e) { toast('Error: '+e.message,'error'); }
+}
+function syncSaveModeUI(mode) {
+  ['ask','always','never'].forEach(m => {
+    const el=document.getElementById('smode-'+m); if (el) el.classList.toggle('active',m===mode);
+  });
+}
+async function setCookieSaveMode(mode) {
+  if (!pid()) { toast('No profile active','error'); return; }
+  syncSaveModeUI(mode);
+  try {
+    const confirmed = mode==='never' ? confirm('Setting to "Never save" will delete all saved accounts. Continue?') : true;
+    if (!confirmed) { syncSaveModeUI(_cfg.cookieSaveMode||'ask'); return; }
+    await api('POST','/api/config',{profile_id:pid(),cookieSaveMode:mode});
+    _cfg.cookieSaveMode=mode;
+    const labels={ask:'Will ask before saving',always:'Always saving accounts',never:'Never saving accounts'};
+    toast(labels[mode],mode==='never'?'warn':'success');
+    if (mode==='never') await refreshSavedAccounts();
+  } catch(e) { syncSaveModeUI(_cfg.cookieSaveMode||'ask'); toast('Error: '+e.message,'error'); }
 }
 
-// ── APP INIT ──────────────────────────────────────────────────────────────────
+// ── INIT ──────────────────────────────────────────────────────────────────────
 async function initApp() {
-  await Promise.all([
-    refreshStatus(), refreshStats(), refreshGroups(),
-    refreshHistory(), loadConfigFromApi(), refreshSavedAccounts(),
-  ]);
-  startLiveUpdates();
-  refreshMemory();
+  await Promise.all([refreshStatus(),refreshStats(),refreshGroups(),refreshHistory(),loadConfigFromApi(),refreshSavedAccounts()]);
+  startLiveUpdates(); refreshMemory();
 }
-
-let _liveInterval = null;
-
 function startLiveUpdates() {
   if (_liveInterval) clearInterval(_liveInterval);
-  let tick = 0;
-  _liveInterval = setInterval(async () => {
+  let tick=0;
+  _liveInterval=setInterval(async()=>{
     tick++;
-    try { await refreshStatus(); await refreshStats(); }
-    catch {}
-    if (tick % 3 === 0) try { refreshMemory(); } catch {}
-    if (STATE.monitoring && tick % 5 === 0) {
-      try { await refreshHistory(); } catch {}
-    }
-  }, 2000);
+    try { await refreshStatus(); await refreshStats(); } catch {}
+    if (tick%3===0) try { refreshMemory(); } catch {}
+    if (STATE.monitoring && tick%5===0) try { await refreshHistory(); } catch {}
+  },2000);
 }
 
 // ── STATUS ────────────────────────────────────────────────────────────────────
 async function refreshStatus() {
-  const status = await api('GET', `/api/status?profile_id=${pid()}`);
-  applyStatusPill(status);
-  if (status.account) updateAccountDisplay(status.account);
+  const status=await api('GET',`/api/status?profile_id=${pid()}`);
+  const dot=document.getElementById('main-status-dot');
+  const txt=document.getElementById('main-status-text');
+  const toggle=document.getElementById('monitor-toggle');
+  const sub=document.getElementById('monitor-sub-text');
+  const addCard=document.getElementById('add-account-card');
+  const savedCard=document.getElementById('saved-accounts-card');
 
-  const addSec = document.getElementById('add-account-section');
-  const connSec = document.getElementById('connected-account-section');
-  if (status.hasCredential) {
-    addSec.style.display = 'none';
-    connSec.style.display = 'block';
-  } else {
-    addSec.style.display = 'block';
-    connSec.style.display = 'none';
-  }
+  const hasCred=status.hasCredential, monitoring=status.monitoring;
+  let label='INACTIVE',dotClass='';
+  if (hasCred && monitoring) { label='LIVE'; dotClass='online'; }
+  else if (hasCred)          { label='IDLE'; dotClass=''; }
+  else if (status.extensionLinked) { label='NO ACCT'; dotClass='error'; }
 
-  const discBtn = document.getElementById('disconnect-ext-btn');
-  if (discBtn) discBtn.style.display = status.extensionLinked ? 'block' : 'none';
-}
-
-function applyStatusPill(status) {
-  const dot    = document.getElementById('main-status-dot');
-  const txt    = document.getElementById('main-status-text');
-  const toggle = document.getElementById('monitor-toggle');
-  const sub    = document.getElementById('monitor-sub-text');
-
-  const hasCred    = status.hasCredential;
-  const monitoring = status.monitoring;
-
-  let label, dotClass;
-  if (!hasCred) { label = 'INACTIVE'; dotClass = ''; }
-  else { label = monitoring ? 'LIVE' : 'IDLE'; dotClass = monitoring ? 'online' : ''; }
-
-  dot.className = 'status-dot ' + dotClass;
-  txt.textContent = label;
-  if (toggle) toggle.classList.toggle('on', monitoring);
+  dot.className='status-dot '+dotClass; txt.textContent=label;
+  if (toggle) toggle.classList.toggle('on',monitoring);
   if (sub) sub.textContent = monitoring ? 'LIVE — monitoring active' : hasCred ? 'PAUSED — tap to start' : 'NO ACCOUNT CONNECTED';
+  if (toggle) { toggle.style.opacity=hasCred?'':'0.35'; toggle.style.pointerEvents=hasCred?'':'none'; }
+  if (addCard) addCard.style.display = hasCred ? 'none' : 'block';
 
-  if (toggle) {
-    toggle.style.opacity       = hasCred ? '' : '0.35';
-    toggle.style.pointerEvents = hasCred ? '' : 'none';
-  }
-
-  STATE.monitoring    = monitoring;
-  STATE.hasCredential = hasCred;
+  if (status.account) updateAccountDisplay(status.account);
+  STATE.monitoring=monitoring; STATE.hasCredential=hasCred; STATE.extensionLinked=status.extensionLinked;
 }
-
-// ── STATS ─────────────────────────────────────────────────────────────────────
 async function refreshStats() {
   try {
-    const s = await api('GET', `/api/stats?profile_id=${pid()}`);
-    document.getElementById('stat-archived').textContent = s.archived ?? '—';
-    document.getElementById('stat-total').textContent    = s.total    ?? '—';
+    const s=await api('GET',`/api/stats?profile_id=${pid()}`);
+    const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v??'0';};
+    set('stat-archived',s.archived); set('stat-groups',s.groups);
   } catch {}
 }
-
-// ── MEMORY ────────────────────────────────────────────────────────────────────
 async function refreshMemory() {
   try {
-    const mem = await api('GET', '/api/debug/memory');
-    const pct = mem.pct || 0;
-    const chip = document.getElementById('mem-chip');
-    const fill = document.getElementById('mem-fill');
-    const lbl  = document.getElementById('mem-label');
-    chip.style.display = '';
-    fill.style.width = pct + '%';
-    fill.className = 'mem-fill' + (pct > 80 ? ' crit' : pct > 60 ? ' warn' : '');
-    lbl.textContent = mem.rss_mb + 'MB';
+    const m=await api('GET','/api/debug/memory');
+    const pct=m.pct||0; const chip=document.getElementById('mem-chip');
+    const fill=document.getElementById('mem-fill'); const lbl=document.getElementById('mem-label');
+    chip.style.display=''; fill.style.width=pct+'%';
+    fill.className='mem-fill'+(pct>80?' crit':pct>60?' warn':'');
+    lbl.textContent=m.rss_mb+'MB';
   } catch {}
 }
 
 // ── ACCOUNT DISPLAY ───────────────────────────────────────────────────────────
 function updateAccountDisplay(acc) {
-  const el = document.getElementById('conn-account-display');
-  if (!el) return;
-  if (!acc) {
-    el.innerHTML = '<div class="empty-state" style="padding:12px 0;">No account connected</div>';
-    return;
-  }
-  el.innerHTML = `
-    <div class="account-display">
-      <div class="account-avatar">
-        ${acc.avatarUrl ? `<img src="${esc(acc.avatarUrl)}">` : esc((acc.displayName||'?').charAt(0))}
-      </div>
+  const el=document.getElementById('conn-account-display'); if (!el) return;
+  if (!acc) { el.innerHTML='<div class="empty" style="padding:10px 0;">No account connected</div>'; return; }
+  el.innerHTML=`
+    <div class="account-row">
+      <div class="account-avatar">${acc.avatarUrl?`<img src="${esc(acc.avatarUrl)}">`:(acc.displayName||'?').charAt(0)}</div>
       <div>
         <div class="account-name">${esc(acc.displayName)}</div>
         <div class="account-sub">@${esc(acc.username)} · UID ${esc(acc.userId)}</div>
@@ -1321,330 +1286,428 @@ function updateAccountDisplay(acc) {
 
 // ── SAVED ACCOUNTS ────────────────────────────────────────────────────────────
 async function refreshSavedAccounts() {
-  const list = document.getElementById('saved-accounts-list');
-  const card = document.getElementById('saved-accounts-card');
-  if (!list || !card) return;
+  const list=document.getElementById('saved-accounts-list');
+  const card=document.getElementById('saved-accounts-card');
+  if (!list||!card) return;
   try {
-    const accounts = await api('GET', `/api/saved-accounts?profile_id=${pid()}`);
-    if (!accounts?.length) { card.style.display = 'none'; return; }
-    card.style.display = 'block';
-    list.innerHTML = '';
-    accounts.forEach(a => {
-      const uid  = String(a.userId || a.roblox_user_id || '');
-      const name = String(a.displayName || a.username || 'Unknown');
-      const user = String(a.username || '');
-      const row  = document.createElement('div');
-      row.className = 'saved-account-row';
-      row.innerHTML = `
-        <div class="saved-acc-avatar">
-          ${a.avatarUrl ? `<img src="${esc(a.avatarUrl)}">` : esc(name.charAt(0))}
+    const accounts=await api('GET',`/api/saved-accounts?profile_id=${pid()}`);
+    if (!accounts?.length) { card.style.display='none'; return; }
+    card.style.display='block'; list.innerHTML='';
+    accounts.forEach(a=>{
+      const uid=String(a.userId||a.roblox_user_id||'');
+      const name=String(a.displayName||a.username||'Unknown');
+      const user=String(a.username||'');
+      const row=document.createElement('div');
+      row.className='saved-row';
+      row.innerHTML=`
+        <div class="saved-av">${a.avatarUrl?`<img src="${esc(a.avatarUrl)}">`:(name.charAt(0))}</div>
+        <div class="saved-info">
+          <div class="saved-name">${esc(name)}</div>
+          <div class="saved-sub">@${esc(user)} · UID ${esc(uid)}</div>
         </div>
-        <div class="saved-acc-info">
-          <div class="saved-acc-name">${esc(name)}</div>
-          <div class="saved-acc-sub">@${esc(user)} · UID ${esc(uid)}</div>
-        </div>
-        <div class="saved-acc-btns">
-          <button class="btn btn-sm btn-primary use-btn" style="padding:6px 10px;">Use</button>
-          <button class="btn btn-sm btn-danger rm-btn" style="padding:6px 8px;">✕</button>
+        <div class="saved-btns">
+          <button class="btn btn-sm btn-primary use-btn" style="padding:8px 12px;">Use</button>
+          <button class="btn btn-sm btn-danger rm-btn" style="padding:8px 10px;">✕</button>
         </div>`;
-      row.querySelector('.use-btn').addEventListener('click', () => activateAccount(uid));
-      row.querySelector('.rm-btn').addEventListener('click',  () => removeAccount(uid, name));
+      row.querySelector('.use-btn').addEventListener('click',()=>activateAccount(uid));
+      row.querySelector('.rm-btn').addEventListener('click',()=>removeAccount(uid,name));
       list.appendChild(row);
     });
-  } catch { card.style.display = 'none'; }
+  } catch { card.style.display='none'; }
 }
-
 async function activateAccount(userId) {
   try {
-    const res = await api('POST', '/api/credentials/relink-saved', { profile_id: pid(), roblox_user_id: userId });
-    STATE.hasCredential = true;
-    updateAccountDisplay(res);
-    toast(`✓ Switched to ${res.displayName}`, 'success');
-    await refreshStatus();
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
+    const res=await api('POST','/api/credentials/relink-saved',{profile_id:pid(),roblox_user_id:userId});
+    STATE.hasCredential=true; updateAccountDisplay(res);
+    toast(`✓ Switched to ${res.displayName}`,'success'); await refreshStatus();
+  } catch(e) { toast('Error: '+e.message,'error'); }
 }
-
-async function removeAccount(userId, name) {
+async function removeAccount(userId,name) {
   if (!confirm(`Remove saved account "${name}"?`)) return;
   try {
-    await api('POST', '/api/credentials/remove-account', { profile_id: pid(), roblox_user_id: userId });
-    toast(`Account "${name}" removed`, 'warn');
-    await refreshSavedAccounts();
-    await refreshStatus();
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
+    await api('POST','/api/credentials/remove-account',{profile_id:pid(),roblox_user_id:userId});
+    toast(`Account "${name}" removed`,'warn'); await refreshSavedAccounts(); await refreshStatus();
+  } catch(e) { toast('Error: '+e.message,'error'); }
+}
+
+// ── MANUAL COOKIE ─────────────────────────────────────────────────────────────
+async function submitManualCookie() {
+  let cookie=(document.getElementById('manual-cookie-input')?.value||'').trim();
+  if (!cookie) { toast('Paste your cookie first','error'); return; }
+  if (cookie.includes('|_')) cookie=cookie.split('|_').pop().trim();
+  cookie=cookie.replace(/^[|_]+/,'').replace(/[|_]+$/,'').trim();
+  if (!cookie) { toast('Could not extract cookie value','error'); return; }
+  const btn=document.getElementById('add-account-btn');
+  if (btn) { btn.disabled=true; btn.textContent='Verifying…'; }
+  try {
+    const res=await api('POST','/api/credentials/manual',{profile_id:pid(),cookie});
+    STATE.hasCredential=true; updateAccountDisplay(res);
+    closeModal('add-account-modal');
+    document.getElementById('manual-cookie-input').value='';
+    document.getElementById('add-account-card').style.display='none';
+    await refreshSavedAccounts(); await refreshStatus();
+    toast(`✓ Account added: ${res.displayName||res.username}`,'success');
+  } catch(e) { toast('Failed: '+e.message,'error'); }
+  finally { if (btn) { btn.disabled=false; btn.textContent='Add Account'; } }
 }
 
 // ── MONITORING ────────────────────────────────────────────────────────────────
 async function toggleMonitor(el) {
-  if (!STATE.hasCredential) {
-    toast('⚠ No Roblox account connected', 'warn'); return;
-  }
-  const turningOn = !el.classList.contains('on');
+  if (!STATE.hasCredential) { toast('⚠ No Roblox account connected','warn'); return; }
+  const on=!el.classList.contains('on');
   try {
-    if (turningOn) {
-      await api('POST', '/api/monitoring/start', { profile_id: pid() });
-      STATE.monitoring = true;
-      toast('Monitoring started', 'success');
-    } else {
-      await api('POST', '/api/monitoring/stop', { profile_id: pid() });
-      STATE.monitoring = false;
-      toast('Monitoring paused', 'warn');
-    }
-    el.classList.toggle('on', STATE.monitoring);
-    document.getElementById('monitor-sub-text').textContent = STATE.monitoring ? 'LIVE — monitoring active' : 'PAUSED — tap to start';
-    document.getElementById('main-status-dot').className = 'status-dot' + (STATE.monitoring ? ' online' : '');
-    document.getElementById('main-status-text').textContent = STATE.monitoring ? 'LIVE' : 'IDLE';
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
-}
-
-// ── MANUAL COOKIE ─────────────────────────────────────────────────────────────
-function showManualCookieInput() {
-  document.getElementById('add-account-section').style.display = 'none';
-  document.getElementById('manual-cookie-section').style.display = 'block';
-}
-function hideManualCookieInput() {
-  document.getElementById('manual-cookie-section').style.display = 'none';
-  document.getElementById('add-account-section').style.display = 'block';
-}
-async function submitManualCookie() {
-  const cookie = document.getElementById('manual-cookie-input').value.trim();
-  if (!cookie) { toast('Paste your cookie first', 'error'); return; }
-  try {
-    const res = await api('POST', '/api/credentials/save', { profile_id: pid(), cookie });
-    STATE.hasCredential = true;
-    updateAccountDisplay(res);
-    hideManualCookieInput();
-    document.getElementById('manual-cookie-input').value = '';
-    document.getElementById('connected-account-section').style.display = 'block';
-    toast(`✓ Account linked: ${res.displayName}`, 'success');
-    await refreshStatus();
-    await refreshSavedAccounts();
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
-}
-
-async function openAddAnotherModal() {
-  const cookie = prompt('Paste another .ROBLOSECURITY cookie:');
-  if (!cookie?.trim()) return;
-  try {
-    const res = await api('POST', '/api/credentials/save', { profile_id: pid(), cookie: cookie.trim() });
-    toast(`✓ Account linked: ${res.displayName}`, 'success');
-    await refreshSavedAccounts();
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
-}
-
-async function disconnectExtension() {
-  try {
-    await api('POST', '/api/extension/disconnect', { profile_id: pid() });
-    toast('Extension disconnected', 'warn');
-    await refreshStatus();
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
+    if (on) { await api('POST','/api/monitoring/start',{profile_id:pid()}); STATE.monitoring=true; toast('Monitoring started','success'); }
+    else     { await api('POST','/api/monitoring/stop',{profile_id:pid()}); STATE.monitoring=false; toast('Monitoring paused','warn'); }
+    el.classList.toggle('on',STATE.monitoring);
+    document.getElementById('monitor-sub-text').textContent=STATE.monitoring?'LIVE — monitoring active':'PAUSED — tap to start';
+    document.getElementById('main-status-dot').className='status-dot'+(STATE.monitoring?' online':'');
+    document.getElementById('main-status-text').textContent=STATE.monitoring?'LIVE':'IDLE';
+  } catch(e) { toast('Error: '+e.message,'error'); }
 }
 
 // ── HISTORY ───────────────────────────────────────────────────────────────────
-let _allHistory = [];
-
 async function refreshHistory() {
-  const list = document.getElementById('history-list');
+  const search=document.getElementById('history-search')?.value||'';
+  const params=new URLSearchParams({limit:200,profile_id:pid()});
+  if (search) params.append('search',search);
   try {
-    const data = await api('GET', `/api/history?profile_id=${pid()}&limit=80`);
-    _allHistory = Array.isArray(data) ? data : (data.items || []);
-    renderHistory(_allHistory);
+    const items=await api('GET',`/api/history?${params}`);
+    if (items.length>_prevHistCount && _prevHistCount>0) {
+      document.getElementById('history-dot').classList.add('show');
+      const newest=items[0];
+      toast(`Archived: "${newest.audio_name}" by ${newest.display_name||newest.username}`,'success');
+    }
+    _prevHistCount=items.length; _cachedHistory=items;
+    // Recent activity on dashboard
+    const ra=document.getElementById('recent-activity');
+    if (ra) {
+      const recent=items.slice(0,8);
+      ra.innerHTML=recent.length ? recent.map(e=>`
+        <div style="padding:9px 0;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;color:var(--text-dim);">
+          <span style="color:rgba(255,255,255,0.35);">▶</span> [${esc(e.time)}]
+          <span style="color:rgba(200,180,255,0.8);">${esc(e.asset_type||'Asset')}</span>
+          "${esc(e.audio_name)}" — <span style="color:rgba(255,255,255,0.7);">${esc(e.display_name||e.username)}</span>
+        </div>`).join('')+'<div style="border:none;padding-bottom:0;"></div>' : '<div class="empty" style="padding:10px 0;">No activity yet.</div>';
+    }
+    if (document.getElementById('tab-history')?.classList.contains('active')) renderHistoryList(items);
   } catch(e) {
-    list.innerHTML = `<div class="empty-state" style="color:#ff6b6b;">⚠ ${esc(e.message)}</div>`;
+    const list=document.getElementById('history-list');
+    if (list) list.innerHTML=`<div class="empty" style="color:#ff6b6b;">⚠ ${esc(e.message)}</div>`;
   }
 }
+function filterHistory() { refreshHistory(); }
 
-function renderHistory(items) {
-  const list = document.getElementById('history-list');
-  if (!items.length) { list.innerHTML = '<div class="empty-state">No moderation history yet.</div>'; return; }
-  list.innerHTML = items.map(h => `
-    <div class="history-item">
-      <div class="history-item-header">
-        <div class="history-user">${esc(h.display_name || h.username)}</div>
-        <div class="history-badge ${h.archived ? 'archived' : 'failed'}">${h.archived ? 'ARCHIVED' : 'FAILED'}</div>
-      </div>
-      <div class="history-asset">${esc(h.audio_name || h.audio_id || '—')}</div>
-      <div class="history-meta">${esc(h.asset_type || 'Audio')} · ${esc(h.group_name || h.group_id || '—')} · ${esc(h.time ? new Date(h.time).toLocaleString() : '—')}</div>
-    </div>`).join('');
+function toggleSelectMode(on) {
+  _selectModeOn=on;
+  if (!on) { _selectedIds.clear(); document.getElementById('restore-toolbar').classList.remove('visible'); }
+  else document.getElementById('restore-toolbar').classList.add('visible');
+  renderHistoryList(_cachedHistory);
+}
+function selectAllHistory() {
+  _selectedIds.clear();
+  const typeq=document.getElementById('history-filter-type')?.value||'';
+  _cachedHistory.forEach(item=>{ if (typeq && item.asset_type!==typeq) return; if (!_restoredAssets.has(item.audio_id)) _selectedIds.add(item.id); });
+  renderHistoryList(_cachedHistory); updateRestoreToolbar();
+}
+function deselectAllHistory() { _selectedIds.clear(); renderHistoryList(_cachedHistory); updateRestoreToolbar(); }
+function updateRestoreToolbar() {
+  const n=_selectedIds.size;
+  const label=document.getElementById('restore-count-label'); if (label) label.textContent=n+' selected';
+  const btn=document.getElementById('bulk-restore-btn'); if (btn) btn.disabled=n===0;
+}
+function toggleHistorySelect(histId,audioId,el) {
+  if (_restoredAssets.has(audioId)) return;
+  if (_selectedIds.has(histId)) { _selectedIds.delete(histId); el.classList.remove('checked'); el.textContent=''; }
+  else { _selectedIds.add(histId); el.classList.add('checked'); el.textContent='✓'; }
+  updateRestoreToolbar();
 }
 
-function filterHistory(q) {
-  if (!q.trim()) { renderHistory(_allHistory); return; }
-  const query = q.toLowerCase();
-  renderHistory(_allHistory.filter(h =>
-    (h.username || '').toLowerCase().includes(query) ||
-    (h.display_name || '').toLowerCase().includes(query) ||
-    (h.audio_name || '').toLowerCase().includes(query) ||
-    (h.audio_id || '').toLowerCase().includes(query)
-  ));
+function renderHistoryList(items) {
+  const list=document.getElementById('history-list'); if (!list) return;
+  const typeq=document.getElementById('history-filter-type')?.value||'';
+  let filtered=items; if (typeq) filtered=filtered.filter(i=>i.asset_type===typeq);
+  if (!filtered.length) { list.innerHTML='<div class="empty">No history.</div>'; return; }
+  list.innerHTML=filtered.map(item=>{
+    const isRestored=_restoredAssets.has(item.audio_id);
+    const isChecked=_selectedIds.has(item.id);
+    const checkHtml=_selectModeOn?`<div class="history-check${isChecked?' checked':''}" onclick="toggleHistorySelect('${esc(item.id)}','${esc(item.audio_id)}',this)">${isChecked?'✓':''}</div>`:'';
+    const restoreHtml=!_selectModeOn?(isRestored
+      ?`<button class="restore-btn re-archive" id="rb-${esc(item.id)}" onclick="archiveAgain('${esc(item.audio_id)}','${esc(item.id)}',this)">↩ Archive Again</button>`
+      :`<button class="restore-btn" id="rb-${esc(item.id)}" onclick="restoreSingle('${esc(item.audio_id)}','${esc(item.id)}',this)">↩ Restore</button>`):'';
+    return `
+    <div class="history-item" id="hr-${esc(item.id)}">
+      <div class="history-top">
+        ${checkHtml}
+        <div class="history-avatar">${esc(((item.display_name||item.username||'?').slice(0,2)).toUpperCase())}</div>
+        <div class="history-names">
+          <div class="history-display">${esc(item.display_name||item.username)}</div>
+          <div class="history-username">@${esc(item.username)} · UID ${esc(item.user_id||'—')}</div>
+        </div>
+        <div class="history-badges">
+          <span class="badge ${item.archived?'badge-archived':'badge-failed'}">${item.archived?'ARCHIVED':'FAILED'}</span>
+          ${isRestored?'<span class="badge badge-restored">RESTORED</span>':''}
+        </div>
+      </div>
+      <div class="history-audio">
+        🎵 ${esc(item.audio_name)} · ID: ${esc(item.audio_id)}
+        <span class="badge badge-info" style="margin-left:6px;">${esc(item.asset_type||'Audio')}</span>
+        ${item.group_name?` · 📂 ${esc(item.group_name)}`:''}
+      </div>
+      <div class="history-foot">
+        <div class="history-time">${esc(item.time)}</div>
+        ${restoreHtml}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function restoreSingle(audioId,histId,btn) {
+  if (!audioId) { toast('No asset ID','error'); return; }
+  if (btn) { btn.disabled=true; btn.textContent='⏳'; }
+  try {
+    const res=await api('POST','/api/restore',{profile_id:pid(),asset_id:audioId});
+    if (res.ok) {
+      _restoredAssets.add(audioId);
+      _cachedHistory.forEach(item=>{ if (item.audio_id===audioId) { const rb=document.getElementById('rb-'+item.id); if (rb) { rb.textContent='↩ Archive Again'; rb.className='restore-btn re-archive'; rb.onclick=function(){archiveAgain(audioId,item.id,rb);}; rb.disabled=false; } } });
+      renderHistoryList(_cachedHistory); toast('↩ Restored asset '+audioId,'success');
+    } else { if (btn) { btn.disabled=false; btn.textContent='↩ Restore'; } toast('Restore failed — check account permissions','error'); }
+  } catch(e) { if (btn) { btn.disabled=false; btn.textContent='↩ Restore'; } toast('Restore error: '+e.message,'error'); }
+}
+async function archiveAgain(audioId,histId,btn) {
+  if (!audioId) { toast('No asset ID','error'); return; }
+  if (!confirm('Archive asset '+audioId+' again?')) return;
+  if (btn) { btn.disabled=true; btn.textContent='⏳'; }
+  try {
+    const res=await api('POST','/api/archive-asset',{profile_id:pid(),asset_id:audioId});
+    if (res.ok) { _restoredAssets.delete(audioId); renderHistoryList(_cachedHistory); toast('Archived asset '+audioId,'success'); }
+    else { if (btn) { btn.disabled=false; btn.textContent='↩ Archive Again'; } toast('Archive failed','error'); }
+  } catch(e) { if (btn) { btn.disabled=false; btn.textContent='↩ Archive Again'; } toast('Archive error: '+e.message,'error'); }
+}
+async function bulkRestore() {
+  const ids=[..._selectedIds]; if (!ids.length) { toast('Nothing selected','warn'); return; }
+  if (!confirm('Restore '+ids.length+' asset'+(ids.length!==1?'s':'')+' — they will go live again on Roblox.')) return;
+  const btn=document.getElementById('bulk-restore-btn'); const progress=document.getElementById('restore-progress');
+  if (btn) { btn.disabled=true; btn.textContent='⏳ Restoring…'; }
+  if (progress) { progress.style.display='inline'; progress.textContent='0/'+ids.length; }
+  const histMap={}; _cachedHistory.forEach(item=>{histMap[item.id]=item.audio_id;});
+  const assetIds=ids.map(hid=>histMap[hid]).filter(Boolean);
+  try {
+    const res=await api('POST','/api/restore/bulk',{profile_id:pid(),asset_ids:assetIds});
+    (res.results||[]).forEach(r=>{if(r.ok)_restoredAssets.add(r.asset_id);});
+    _selectedIds.clear(); renderHistoryList(_cachedHistory); updateRestoreToolbar();
+    const s=res.succeeded??0,t=res.total??assetIds.length;
+    toast(s===t?'↩ All '+t+' assets restored':'Restored '+s+'/'+t+' — '+(t-s)+' failed',s===t?'success':'warn');
+  } catch(e) { toast('Bulk restore error: '+e.message,'error'); }
+  finally { if (btn){btn.disabled=false;btn.textContent='↩ Restore';} if (progress) progress.style.display='none'; }
 }
 
 // ── GROUPS ────────────────────────────────────────────────────────────────────
 async function refreshGroups() {
-  const list = document.getElementById('groups-list');
+  const list=document.getElementById('groups-list'); if (!list) return;
   try {
-    const data = await api('GET', `/api/groups?profile_id=${pid()}`);
-    const groups = Array.isArray(data) ? data : (data.groups || []);
-    if (!groups.length) { list.innerHTML = '<div class="empty-state">No groups added yet.</div>'; return; }
-    list.innerHTML = groups.map(g => `
+    const groups=await api('GET',`/api/groups?profile_id=${pid()}`);
+    if (!groups.length) { list.innerHTML='<div class="empty">No groups added yet.</div>'; return; }
+    list.innerHTML=groups.map(g=>`
       <div class="group-item">
-        <div class="group-icon">${(g.name||'?').slice(0,2).toUpperCase()}</div>
-        <div class="group-info">
-          <div class="group-name">${esc(g.name || g.id)}</div>
+        <div class="group-icon">GRP</div>
+        <div style="flex:1;min-width:0;">
+          <div class="group-name">${esc(g.name)}</div>
           <div class="group-id">ID: ${esc(g.id)}</div>
         </div>
+        <span class="badge badge-archived" style="flex-shrink:0;">● Monitoring</span>
         <button class="group-remove" onclick="removeGroup('${esc(g.id)}')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
         </button>
       </div>`).join('');
-  } catch(e) {
-    list.innerHTML = `<div class="empty-state" style="color:#ff6b6b;">⚠ ${esc(e.message)}</div>`;
-  }
+  } catch(e) { list.innerHTML=`<div class="empty" style="color:#ff6b6b;">⚠ ${esc(e.message)}</div>`; }
 }
-
 async function addGroup() {
-  const input = document.getElementById('group-url-input');
-  const val   = input.value.trim();
-  if (!val) { toast('Enter a group URL or ID', 'error'); return; }
-  const match = val.match(/(\d{5,})/);
-  const groupId = match ? match[1] : val;
+  let val=document.getElementById('group-url-input').value.trim();
+  const match=val.match(/groups\/(\d+)/);
+  let gid=match?match[1]:val;
+  if (!/^\d+$/.test(gid)) { toast('Invalid group URL or ID','error'); return; }
   try {
-    await api('POST', '/api/groups', { profile_id: pid(), group_id: groupId });
-    input.value = '';
-    toast('Group added', 'success');
-    await refreshGroups();
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
+    const g=await api('POST','/api/groups',{id:gid,profile_id:pid()});
+    document.getElementById('group-url-input').value='';
+    await refreshGroups(); await refreshStats();
+    toast(`Group "${g.name}" added`,'success');
+  } catch(e) { toast('Error: '+e.message,'error'); }
 }
-
-async function removeGroup(groupId) {
-  if (!confirm(`Remove group ${groupId}?`)) return;
+async function removeGroup(id) {
+  if (!confirm('Remove this group?')) return;
   try {
-    await api('DELETE', `/api/groups/${groupId}?profile_id=${pid()}`);
-    toast('Group removed', 'warn');
-    await refreshGroups();
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
+    await api('DELETE',`/api/groups/${id}?profile_id=${pid()}`);
+    await refreshGroups(); await refreshStats(); toast('Group removed','warn');
+  } catch(e) { toast('Error: '+e.message,'error'); }
 }
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
-const ALL_ASSET_TYPES = ['Audio','Decal','Video','Mesh','Plugin','Animation','Model','Package'];
-let _enabledTypes = new Set(ALL_ASSET_TYPES);
-
-function buildAssetFilterGrid() {
-  const grid = document.getElementById('asset-filter-grid');
-  grid.innerHTML = ALL_ASSET_TYPES.map(t => `
-    <div class="asset-chip ${_enabledTypes.has(t) ? 'on' : ''}" onclick="toggleAssetType(this,'${t}')">${t}</div>
-  `).join('');
-}
-
-function toggleAssetType(el, type) {
-  el.classList.toggle('on');
-  if (el.classList.contains('on')) _enabledTypes.add(type);
-  else _enabledTypes.delete(type);
-}
-
 async function loadConfigFromApi() {
-  try {
-    const cfg = await api('GET', `/api/config?profile_id=${pid()}`);
-    const pol = document.getElementById('polling-slider');
-    const del = document.getElementById('delay-slider');
-    if (pol && cfg.polling_interval) { pol.value = cfg.polling_interval; updateSlider('polling-val', cfg.polling_interval, 's'); }
-    if (del && cfg.archive_delay != null) { del.value = cfg.archive_delay; updateSlider('delay-val', cfg.archive_delay, 's'); }
-    if (cfg.asset_types && Array.isArray(cfg.asset_types)) {
-      _enabledTypes = new Set(cfg.asset_types);
-      buildAssetFilterGrid();
-    }
-    const wl = document.getElementById('whitelist-input');
-    if (wl && cfg.whitelist) { wl.value = Array.isArray(cfg.whitelist) ? cfg.whitelist.join('\n') : cfg.whitelist; updateWhitelistCount(); }
-    const fp = document.getElementById('fast-poll-toggle');
-    if (fp && cfg.allow_fast_poll) fp.classList.toggle('on', cfg.allow_fast_poll);
-  } catch {}
+  _cfg=await api('GET',`/api/config?profile_id=${pid()}`).catch(()=>({}));
+  const poll=document.getElementById('polling-slider'); const delay=document.getElementById('delay-slider');
+  if (poll)  { poll.value=_cfg.pollingInterval??60; document.getElementById('polling-val').textContent=(_cfg.pollingInterval??60)+'s'; }
+  if (delay) { delay.value=_cfg.archiveDelay??0;    document.getElementById('delay-val').textContent=(_cfg.archiveDelay??0)+'s'; }
+  const ae=document.getElementById('archive-existing-toggle'); if (ae) ae.className='toggle-sw'+(_cfg.archiveExisting?' on':'');
+  const fp=document.getElementById('fast-poll-toggle');         if (fp) fp.className='toggle-sw'+(_cfg.allowFastPolling?' on':'');
+  const ast=document.getElementById('auto-start-toggle');       if (ast) ast.className='toggle-sw'+(_cfg.autoStartMonitoring?' on':'');
+  syncSaveModeUI(_cfg.cookieSaveMode||'ask');
+  if (poll) poll.min=_cfg.allowFastPolling?'5':'30';
+  buildAssetFilterGrid(); buildWlTabs();
 }
+function buildAssetFilterGrid() {
+  const grid=document.getElementById('asset-filter-grid'); if (!grid) return;
+  const selected=_cfg.assetTypeFilters||ALL_ASSET_TYPES;
+  grid.innerHTML=ALL_ASSET_TYPES.map(t=>`
+    <div class="asset-chip ${selected.includes(t)?'selected':''}" onclick="toggleAssetChip(this,'${t}')">
+      <div class="asset-chip-dot"></div>${t}
+    </div>`).join('');
+}
+function toggleAssetChip(el) { el.classList.toggle('selected'); }
+function selectAllAssetTypes() { document.querySelectorAll('.asset-chip').forEach(c=>c.classList.add('selected')); }
 
+function buildWlTabs() {
+  const tabs=document.getElementById('wl-tabs'); if (!tabs) return;
+  tabs.innerHTML=['all',...ALL_ASSET_TYPES].map(t=>`
+    <button class="wl-tab ${STATE.activeWlTab===t?'active':''}" onclick="switchWlTab('${t}')">${t==='all'?'All Types':t}</button>`).join('');
+  loadWlForTab(STATE.activeWlTab);
+}
+function switchWlTab(tab) { saveWlTab(STATE.activeWlTab); STATE.activeWlTab=tab; buildWlTabs(); loadWlForTab(tab); }
+function saveWlTab(tab) {
+  const key=tab==='all'?'whitelist_all':`whitelist_${tab}`;
+  _cfg[key]=document.getElementById('whitelist-input')?.value.split('\n').filter(l=>l.trim())||[];
+}
+function loadWlForTab(tab) {
+  const key=tab==='all'?'whitelist_all':`whitelist_${tab}`;
+  const label=document.getElementById('wl-current-label'); if (label) label.textContent=`Whitelisted Users — ${tab==='all'?'All Types':tab}`;
+  const input=document.getElementById('whitelist-input'); if (input) input.value=(_cfg[key]||[]).join('\n');
+  updateWhitelistCount();
+}
+function updateWhitelistCount() {
+  const val=document.getElementById('whitelist-input')?.value||'';
+  const count=val.split('\n').filter(l=>l.trim()).length;
+  const el=document.getElementById('whitelist-count'); if (el) el.textContent=count+' user'+(count!==1?'s':'');
+}
+function updateSlider(valId,val,unit) { document.getElementById(valId).textContent=val+unit; }
+function checkFastPollWarning(val) {
+  const warn=document.getElementById('fast-poll-warning'); const fp=document.getElementById('fast-poll-toggle'); if (!warn) return;
+  warn.style.display=(val<30&&fp?.classList.contains('on'))?'block':'none';
+}
+function toggleFastPoll(el) {
+  el.classList.toggle('on'); const on=el.classList.contains('on');
+  const poll=document.getElementById('polling-slider');
+  if (poll) { poll.min=on?'5':'30'; if (!on&&parseInt(poll.value)<30) { poll.value='30'; document.getElementById('polling-val').textContent='30s'; } }
+  if (!on) document.getElementById('fast-poll-warning').style.display='none';
+}
 async function saveConfig() {
-  try {
-    const polling  = parseInt(document.getElementById('polling-slider').value);
-    const delay    = parseInt(document.getElementById('delay-slider').value);
-    const wlRaw    = document.getElementById('whitelist-input').value;
-    const whitelist= wlRaw.split('\n').map(s=>s.trim()).filter(Boolean);
-    const fastPoll = document.getElementById('fast-poll-toggle').classList.contains('on');
-    await api('POST', '/api/config', {
-      profile_id: pid(),
-      polling_interval: polling,
-      archive_delay: delay,
-      asset_types: [..._enabledTypes],
-      whitelist,
-      allow_fast_poll: fastPoll,
-    });
-    toast('Config saved!', 'success');
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
-}
-
-function exportConfig() {
-  const cfg = {
-    polling_interval: parseInt(document.getElementById('polling-slider').value),
-    archive_delay:    parseInt(document.getElementById('delay-slider').value),
-    asset_types:      [..._enabledTypes],
-    whitelist:        document.getElementById('whitelist-input').value.split('\n').map(s=>s.trim()).filter(Boolean),
+  saveWlTab(STATE.activeWlTab);
+  const selectedTypes=[...document.querySelectorAll('.asset-chip.selected')].map(c=>c.textContent.trim());
+  const body={
+    profile_id:pid(),
+    pollingInterval:parseInt(document.getElementById('polling-slider').value),
+    archiveDelay:parseInt(document.getElementById('delay-slider').value),
+    archiveExisting:document.getElementById('archive-existing-toggle').classList.contains('on'),
+    allowFastPolling:document.getElementById('fast-poll-toggle').classList.contains('on'),
+    autoStartMonitoring:document.getElementById('auto-start-toggle').classList.contains('on'),
+    assetTypeFilters:selectedTypes,
   };
-  const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' });
-  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'sentinel-config.json' });
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  toast('Config exported', 'success');
+  ['all',...ALL_ASSET_TYPES].forEach(t=>{ const key=t==='all'?'whitelist_all':`whitelist_${t}`; body[key]=_cfg[key]||[]; });
+  try {
+    const saved=await api('POST','/api/config',body); _cfg={..._cfg,...saved};
+    await refreshStats(); toast('Config saved','success');
+  } catch(e) { toast('Error: '+e.message,'error'); }
 }
-
+async function exportConfig() {
+  const selectedTypes=[...document.querySelectorAll('.asset-chip.selected')].map(c=>c.textContent.trim());
+  const cfg={pollingInterval:parseInt(document.getElementById('polling-slider').value),archiveDelay:parseInt(document.getElementById('delay-slider').value),assetTypeFilters:selectedTypes};
+  const blob=new Blob([JSON.stringify(cfg,null,2)],{type:'application/json'});
+  const a=Object.assign(document.createElement('a'),{href:URL.createObjectURL(blob),download:'sentinel-config.json'});
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); toast('Config exported','success');
+}
 async function clearConfig() {
   if (!confirm('Reset all config to defaults?')) return;
+  try { await api('DELETE',`/api/config?profile_id=${pid()}`); await loadConfigFromApi(); buildAssetFilterGrid(); toast('Config reset','warn'); }
+  catch(e) { toast('Error: '+e.message,'error'); }
+}
+
+// ── ADMIN ─────────────────────────────────────────────────────────────────────
+async function adminGenerateInvite() {
   try {
-    await api('DELETE', `/api/config?profile_id=${pid()}`);
-    await loadConfigFromApi();
-    buildAssetFilterGrid();
-    toast('Config reset', 'warn');
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
+    const res=await api('POST','/api/admin/generate-invite',{admin_id:STATE.profileId,admin_pin:STATE._lastPin});
+    _generatedCode=res.code;
+    const box=document.getElementById('generated-code-box');
+    box.textContent=res.code; box.style.display='block';
+    toast('Code generated — tap it to copy','success');
+  } catch(e) { toast('Error: '+e.message,'error'); }
 }
-
-// ── SLIDER HELPERS ────────────────────────────────────────────────────────────
-function updateSlider(valId, val, unit) {
-  document.getElementById(valId).textContent = val + unit;
-}
-
-function updateWhitelistCount() {
-  const lines = document.getElementById('whitelist-input').value.split('\n').map(s=>s.trim()).filter(Boolean);
-  document.getElementById('whitelist-count').textContent = lines.length + ' user' + (lines.length !== 1 ? 's' : '');
-}
-
-function toggleFastPoll(el) {
-  el.classList.toggle('on');
-  checkFastPollWarning(parseInt(document.getElementById('polling-slider').value));
-}
-
-function checkFastPollWarning(val) {
-  const fastOn  = document.getElementById('fast-poll-toggle').classList.contains('on');
-  const warning = document.getElementById('fast-poll-warning');
-  warning.style.display = (!fastOn && val < 30) ? 'block' : 'none';
-}
-
-// ── RECENT ACTIVITY (dashboard) ───────────────────────────────────────────────
-async function refreshRecentActivity() {
+function copyGeneratedCode() { navigator.clipboard.writeText(_generatedCode).then(()=>toast('Copied!','success')); }
+async function loadAdminRequests() {
+  const loading=document.getElementById('admin-requests-loading');
+  const list=document.getElementById('admin-requests-list');
+  const empty=document.getElementById('admin-requests-empty');
+  loading.style.display=''; list.innerHTML=''; empty.style.display='none';
   try {
-    const data = await api('GET', `/api/history?profile_id=${pid()}&limit=5`);
-    const items = Array.isArray(data) ? data : (data.items || []);
-    const el = document.getElementById('recent-activity');
-    if (!items.length) { el.innerHTML = '<div class="empty-state" style="padding:12px 0;">No activity yet.</div>'; return; }
-    el.innerHTML = items.map(h => `
-      <div class="history-item" style="margin-bottom:6px;padding:10px 12px;">
-        <div class="history-item-header">
-          <div class="history-user" style="font-size:13px;">${esc(h.display_name || h.username)}</div>
-          <div class="history-badge ${h.archived ? 'archived' : 'failed'}" style="font-size:8px;">${h.archived ? 'ARCHIVED' : 'FAILED'}</div>
+    const reqs=await api('GET',`/api/admin/requests?profile_id=${STATE.profileId}&pin=${encodeURIComponent(STATE._lastPin)}`);
+    loading.style.display='none';
+    if (!reqs.length) { empty.style.display=''; return; }
+    reqs.forEach(r=>{
+      const statusColor=r.status==='approved'?'var(--green)':r.status==='denied'?'#ef4444':'var(--warn)';
+      const el=document.createElement('div'); el.className='admin-request';
+      el.innerHTML=`
+        <div class="admin-req-header">
+          <div><div class="admin-req-name">${esc(r.name)}</div><div class="admin-req-email">${esc(r.email)} · ${new Date(r.created_at).toLocaleString()}</div></div>
+          <span class="admin-status-badge" style="color:${statusColor};border-color:${statusColor};">${r.status.toUpperCase()}</span>
         </div>
-        <div class="history-meta">${esc(h.audio_name || h.audio_id || '—')} · ${esc(h.asset_type || 'Audio')}</div>
-      </div>`).join('');
-  } catch {}
+        <div class="admin-req-reason">${esc(r.reason)}</div>
+        ${r.status==='approved'&&r.invite_code?`<div style="font-family:var(--font-mono);font-size:12px;color:var(--green);margin-bottom:10px;">Invite: <strong>${esc(r.invite_code)}</strong></div>`:''}
+        ${r.status==='pending'?`<div class="btn-row">
+          <button class="btn btn-sm btn-green" onclick="adminReviewRequest('${r.id}','approve')">✓ Approve</button>
+          <button class="btn btn-sm btn-danger" onclick="adminReviewRequest('${r.id}','deny')">✕ Deny</button>
+        </div>`:''}`;
+      list.appendChild(el);
+    });
+  } catch(e) { loading.textContent='Error: '+e.message; }
+}
+async function adminReviewRequest(requestId,action) {
+  try {
+    if (action==='approve') {
+      const inv=await api('POST','/api/admin/generate-invite',{admin_id:STATE.profileId,admin_pin:STATE._lastPin});
+      await api('POST','/api/admin/approve-request',{admin_id:STATE.profileId,admin_pin:STATE._lastPin,request_id:requestId,invite_code:inv.code});
+      toast(`Approved! Code: ${inv.code}`,'success');
+    } else {
+      await api('POST','/api/admin/deny-request',{admin_id:STATE.profileId,admin_pin:STATE._lastPin,request_id:requestId});
+      toast('Request denied','warn');
+    }
+    loadAdminRequests();
+  } catch(e) { toast('Error: '+e.message,'error'); }
+}
+async function loadAdminProfiles() {
+  const loading=document.getElementById('admin-profiles-loading'); const list=document.getElementById('admin-profiles-list');
+  loading.style.display=''; list.innerHTML='';
+  try {
+    const profiles=await api('GET','/api/profiles'); loading.style.display='none';
+    profiles.forEach(p=>{
+      const el=document.createElement('div'); el.className='admin-profile-row';
+      el.innerHTML=`
+        <div class="admin-pav">${p.avatar_url?`<img src="${esc(p.avatar_url)}" style="width:100%;height:100%;object-fit:cover;">`:p.name.slice(0,2).toUpperCase()}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-family:var(--font-display);font-weight:700;font-size:14px;color:#fff;">${esc(p.name)} ${p.is_admin?'<span style="font-size:10px;color:var(--green);font-family:var(--font-mono);">ADMIN</span>':''}</div>
+          <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p.id}</div>
+        </div>
+        ${p.id!==STATE.profileId?`<button class="btn btn-sm ${p.is_admin?'btn-danger':''}" onclick="adminToggleAdmin('${p.id}',${!p.is_admin})">${p.is_admin?'Remove Admin':'Make Admin'}</button>`:'<span style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);">You</span>'}`;
+      list.appendChild(el);
+    });
+  } catch(e) { loading.textContent='Error: '+e.message; }
+}
+async function adminToggleAdmin(targetId,makeAdmin) {
+  try {
+    await api('POST','/api/admin/set-admin',{admin_id:STATE.profileId,admin_pin:STATE._lastPin,target_id:targetId,is_admin:makeAdmin});
+    toast(makeAdmin?'Admin granted':'Admin removed','success'); loadAdminProfiles();
+  } catch(e) { toast('Error: '+e.message,'error'); }
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  loadProfileScreen();
-  buildAssetFilterGrid();
+  loadProfileScreen(); buildAssetFilterGrid();
 });
 </script>
 </body>
