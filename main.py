@@ -1001,152 +1001,178 @@ async def send_dm(user_id: str, subject: str, body: str, cookie: str) -> bool:
 async def monitor_loop(profile_id: str):
     session = get_session(profile_id)
     sentinel_log(f"Monitor loop started for profile {profile_id}", "INFO", "MONITOR")
+    consecutive_errors = 0
 
     while session.monitoring:
-        cfg              = get_config(profile_id)
-        poll_sec         = int(cfg.get("pollingInterval", 60))
-        delay_sec        = int(cfg.get("archiveDelay", 0))
-        archive_existing = bool(cfg.get("archiveExisting", False))
-        asset_filters    = cfg.get("assetTypeFilters", ALL_ASSET_TYPES)
-        whitelist_all    = {str(u).strip().lower() for u in cfg.get("whitelist_all", [])}
+        try:
+            cfg              = get_config(profile_id)
+            poll_sec         = int(cfg.get("pollingInterval", 60))
+            delay_sec        = int(cfg.get("archiveDelay", 0))
+            archive_existing = bool(cfg.get("archiveExisting", False))
+            asset_filters    = cfg.get("assetTypeFilters", ALL_ASSET_TYPES)
+            whitelist_all    = {str(u).strip().lower() for u in cfg.get("whitelist_all", [])}
 
-        groups = db_exec(
-            "SELECT id, name FROM groups WHERE profile_id=?", (profile_id,), fetch="all"
-        ) or []
+            groups = db_exec(
+                "SELECT id, name FROM groups WHERE profile_id=?", (profile_id,), fetch="all"
+            ) or []
 
-        for grp in groups:
-            gid, gname = grp["id"], grp["name"]
-            try:
-                all_assets: list[dict] = []
-                active_filters = asset_filters[:3] if _DEGRADED else asset_filters
-                if _DEGRADED:
-                    sentinel_log(f"Degraded mode — limiting asset scan to {active_filters}", "MEMORY", "MONITOR")
-                for asset_type in active_filters:
-                    # Skip types that have previously 403'd for this group — avoids log spam
-                    if (gid, asset_type) in _unsupported_group_types:
-                        continue
-                    sentinel_log(f"Scanning group {gid} ({gname}) for {asset_type}", "DEBUG", "NETWORK")
-                    type_assets = await fetch_group_assets(
-                        gid, asset_type, cookie=session.cookie
-                    )
-                    if type_assets is None:
-                        _unsupported_group_types.add((gid, asset_type))
-                        sentinel_log(
-                            f"Skipping {asset_type} for group {gid} — "
-                            f"API returned an error (type may not be supported by this endpoint). "
-                            f"Will silently skip on future polls.",
-                            "WARN", "MONITOR"
+            for grp in groups:
+                if not session.monitoring:
+                    break
+                gid, gname = grp["id"], grp["name"]
+                try:
+                    all_assets: list[dict] = []
+                    active_filters = asset_filters[:3] if _DEGRADED else asset_filters
+                    if _DEGRADED:
+                        sentinel_log(f"Degraded mode — limiting asset scan to {active_filters}", "MEMORY", "MONITOR")
+                    for asset_type in active_filters:
+                        # Skip types that have previously 403'd for this group — avoids log spam
+                        if (gid, asset_type) in _unsupported_group_types:
+                            continue
+                        sentinel_log(f"Scanning group {gid} ({gname}) for {asset_type}", "DEBUG", "NETWORK")
+                        type_assets = await fetch_group_assets(
+                            gid, asset_type, cookie=session.cookie
                         )
-                        continue
-                    sentinel_log(f"Found {len(type_assets)} {asset_type} assets in group {gid}", "DEBUG", "NETWORK")
-                    all_assets.extend(type_assets)
+                        if type_assets is None:
+                            _unsupported_group_types.add((gid, asset_type))
+                            sentinel_log(
+                                f"Skipping {asset_type} for group {gid} — "
+                                f"API returned an error (type may not be supported by this endpoint). "
+                                f"Will silently skip on future polls.",
+                                "WARN", "MONITOR"
+                            )
+                            continue
+                        sentinel_log(f"Found {len(type_assets)} {asset_type} assets in group {gid}", "DEBUG", "NETWORK")
+                        all_assets.extend(type_assets)
 
-                current    = {a["id"]: a for a in all_assets}
-                current_ids = set(current)
-                group_key  = f"{profile_id}:{gid}"
+                    current     = {a["id"]: a for a in all_assets}
+                    current_ids = set(current)
+                    group_key   = f"{profile_id}:{gid}"
 
-                if group_key not in session.known_assets:
-                    session.known_assets[group_key] = current_ids
-                    sentinel_log(f"Group {gid} ({gname}) baseline: {len(current_ids)} assets", "INFO", "MONITOR")
-                    if archive_existing:
-                        new_ids = current_ids
+                    if group_key not in session.known_assets:
+                        session.known_assets[group_key] = current_ids
+                        sentinel_log(f"Group {gid} ({gname}) baseline: {len(current_ids)} assets", "INFO", "MONITOR")
+                        if archive_existing:
+                            new_ids = current_ids
+                        else:
+                            continue
                     else:
-                        continue
-                else:
-                    new_ids = current_ids - session.known_assets[group_key]
-                    # Remove assets that are no longer in the active list (archived/deleted/restored)
-                    # so if they get restored later, they'll be detected as new again
-                    session.known_assets[group_key] -= (session.known_assets[group_key] - current_ids)
-                    # Don't add new_ids yet — we update per-asset after archiving
-                    # so failed archives get retried on the next scan
+                        new_ids = current_ids - session.known_assets[group_key]
+                        session.known_assets[group_key] -= (session.known_assets[group_key] - current_ids)
 
-                for aid in new_ids:
-                    a            = current.get(aid, {})
-                    creator_id   = a.get("creatorId", "")
-                    creator_name = a.get("creatorName", "") or ""
-                    if not creator_name and creator_id:
-                        creator_name = await get_username(creator_id, cookie=session.cookie)
-                    asset_type   = a.get("assetType", "Unknown")
-
-                    # Normalize whitelist entries: strip, lowercase
-                    def _in_wl(wl_set):
-                        return (
-                            creator_id.strip().lower() in wl_set or
-                            creator_name.strip().lower() in wl_set
-                        )
-                    if _in_wl(whitelist_all):
-                        sentinel_log(f"Global whitelist skip: {creator_name} ({asset_type} {aid})", "INFO", "MONITOR")
-                        session.known_assets[group_key].add(aid)
-                        continue
-
-                    type_wl = {str(u).strip().lower() for u in cfg.get(f"whitelist_{asset_type}", [])}
-                    if _in_wl(type_wl):
-                        sentinel_log(f"Type whitelist skip: {creator_name} ({asset_type})", "INFO", "MONITOR")
-                        session.known_assets[group_key].add(aid)
-                        continue
-
-                    sentinel_log(f"New {asset_type} detected: '{a.get('name')}' (ID {aid}) by {creator_name}", "ARCHIVE", "MONITOR")
-
-                    # Images cannot be archived via the Roblox API — skip silently
-                    if asset_type in NON_ARCHIVABLE_TYPES:
-                        sentinel_log(f"Skipping {asset_type} {aid} — type cannot be archived", "INFO", "MONITOR")
-                        session.known_assets[group_key].add(aid)
-                        continue
-
-                    # Don't re-archive assets that were manually restored from the dashboard
-                    was_restored = db_exec(
-                        "SELECT COUNT(*) FROM history WHERE audio_id=? AND profile_id=? AND archived=0",
-                        (aid, profile_id), fetch="val"
-                    ) or 0
-                    if was_restored:
-                        sentinel_log(f"Skipping {aid} — was manually restored, not re-archiving", "INFO", "MONITOR")
-                        session.known_assets[group_key].add(aid)
-                        continue
-
-                    if delay_sec > 0:
-                        sentinel_log(f"Waiting {delay_sec}s before archiving {aid}", "DEBUG", "MONITOR")
-                        await asyncio.sleep(delay_sec)
+                    for aid in new_ids:
                         if not session.monitoring:
                             break
+                        a            = current.get(aid, {})
+                        creator_id   = a.get("creatorId", "")
+                        creator_name = a.get("creatorName", "") or ""
+                        if not creator_name and creator_id:
+                            creator_name = await get_username(creator_id, cookie=session.cookie)
+                        asset_type   = a.get("assetType", "Unknown")
 
-                    ok = await archive_asset(aid, cookie=session.cookie)
-                    sentinel_log(f"Archive {aid}: {'OK' if ok else 'FAILED'}", "ARCHIVE" if ok else "ERROR", "MONITOR")
+                        def _in_wl(wl_set):
+                            return (
+                                creator_id.strip().lower() in wl_set or
+                                creator_name.strip().lower() in wl_set
+                            )
+                        if _in_wl(whitelist_all):
+                            sentinel_log(f"Global whitelist skip: {creator_name} ({asset_type} {aid})", "INFO", "MONITOR")
+                            session.known_assets[group_key].add(aid)
+                            continue
 
-                    if ok:
-                        # Only mark as known once successfully archived — failures retry next scan
-                        session.known_assets[group_key].add(aid)
+                        type_wl = {str(u).strip().lower() for u in cfg.get(f"whitelist_{asset_type}", [])}
+                        if _in_wl(type_wl):
+                            sentinel_log(f"Type whitelist skip: {creator_name} ({asset_type})", "INFO", "MONITOR")
+                            session.known_assets[group_key].add(aid)
+                            continue
 
-                    dm_status = "n/a"
+                        sentinel_log(f"New {asset_type} detected: '{a.get('name')}' (ID {aid}) by {creator_name}", "ARCHIVE", "MONITOR")
 
-                    db_insert_ignore("history", {
-                        "id":           f"{aid}_{int(time.time())}",
-                        "profile_id":   profile_id,
-                        "username":     creator_name,
-                        "display_name": creator_name,
-                        "user_id":      creator_id,
-                        "audio_name":   a.get("name", "Unknown"),
-                        "audio_id":     aid,
-                        "asset_type":   asset_type,
-                        "group_id":     gid,
-                        "group_name":   gname,
-                        "time":         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "dm_status":    dm_status,
-                        "archived":     1,
-                    })
-                    sentinel_log(f"History written: {aid} archived={ok} dm={dm_status}", "DEBUG", "MONITOR")
+                        # Images cannot be archived via the Roblox API — skip silently
+                        if asset_type in NON_ARCHIVABLE_TYPES:
+                            sentinel_log(f"Skipping {asset_type} {aid} — type cannot be archived", "INFO", "MONITOR")
+                            session.known_assets[group_key].add(aid)
+                            continue
 
+                        # Don't re-archive assets that were manually restored from the dashboard
+                        was_restored = db_exec(
+                            "SELECT COUNT(*) FROM history WHERE audio_id=? AND profile_id=? AND archived=0",
+                            (aid, profile_id), fetch="val"
+                        ) or 0
+                        if was_restored:
+                            sentinel_log(f"Skipping {aid} — was manually restored, not re-archiving", "INFO", "MONITOR")
+                            session.known_assets[group_key].add(aid)
+                            continue
+
+                        if delay_sec > 0:
+                            sentinel_log(f"Waiting {delay_sec}s before archiving {aid}", "DEBUG", "MONITOR")
+                            await asyncio.sleep(delay_sec)
+                            if not session.monitoring:
+                                break
+
+                        ok = await archive_asset(aid, cookie=session.cookie)
+                        sentinel_log(f"Archive {aid}: {'OK' if ok else 'FAILED'}", "ARCHIVE" if ok else "ERROR", "MONITOR")
+
+                        if ok:
+                            session.known_assets[group_key].add(aid)
+
+                        dm_status = "n/a"
+
+                        db_insert_ignore("history", {
+                            "id":           f"{aid}_{int(time.time())}",
+                            "profile_id":   profile_id,
+                            "username":     creator_name,
+                            "display_name": creator_name,
+                            "user_id":      creator_id,
+                            "audio_name":   a.get("name", "Unknown"),
+                            "audio_id":     aid,
+                            "asset_type":   asset_type,
+                            "group_id":     gid,
+                            "group_name":   gname,
+                            "time":         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "dm_status":    dm_status,
+                            "archived":     1,
+                        })
+                        sentinel_log(f"History written: {aid} archived={ok} dm={dm_status}", "DEBUG", "MONITOR")
+
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    sentinel_log(f"Error in group {gid}: {e}", "ERROR", "MONITOR")
+
+            # Reset error counter on a successful full scan
+            consecutive_errors = 0
+            _trim_memory()
+
+            sleep_sec = poll_sec * 3 if _DEGRADED else poll_sec
+            if _DEGRADED:
+                sentinel_log(f"Degraded mode: sleeping {sleep_sec}s instead of {poll_sec}s", "MEMORY", "MONITOR")
+
+            # Interruptible sleep — wakes up every 5s to check session.monitoring
+            # so stopping the monitor takes effect quickly instead of waiting out the full poll interval
+            slept = 0
+            while slept < sleep_sec and session.monitoring:
+                chunk = min(5, sleep_sec - slept)
+                await asyncio.sleep(chunk)
+                slept += chunk
+
+        except asyncio.CancelledError:
+            sentinel_log(f"Monitor loop cancelled for profile {profile_id}", "INFO", "MONITOR")
+            session.monitoring = False
+            break
+        except Exception as e:
+            consecutive_errors += 1
+            backoff = min(60 * consecutive_errors, 300)  # 60s, 120s, 180s … capped at 5 min
+            sentinel_log(
+                f"Monitor loop outer error (attempt {consecutive_errors}): {e} — "
+                f"retrying in {backoff}s",
+                "ERROR", "MONITOR"
+            )
+            try:
+                await asyncio.sleep(backoff)
             except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                sentinel_log(f"Error in group {gid}: {e}", "ERROR", "MONITOR")
-
-        # Trim after every scan cycle so archived asset memory is returned to OS immediately
-        _trim_memory()
-
-        sleep_sec = poll_sec * 3 if _DEGRADED else poll_sec
-        if _DEGRADED:
-            sentinel_log(f"Degraded mode: sleeping {sleep_sec}s instead of {poll_sec}s", "MEMORY", "MONITOR")
-        await asyncio.sleep(sleep_sec)
+                session.monitoring = False
+                break
 
     sentinel_log(f"Monitor loop stopped for profile {profile_id}", "INFO", "MONITOR")
 
@@ -1459,24 +1485,43 @@ def api_cancel_add_account(body: GenerateCodeBody):
 async def api_redeem_code(body: ConnectCodeBody):
     raise HTTPException(503, "Extension connectivity is temporarily unavailable for maintenance. Check back soon.")
 
+def _sync_monitor_state(session) -> bool:
+    """Return the true monitoring state, fixing any desync between session.monitoring
+    and the underlying asyncio Task (e.g. task died due to an unhandled exception)."""
+    task = session.monitor_task
+    if task is not None and task.done() and session.monitoring:
+        # Task finished but monitoring flag was never cleared — it crashed silently
+        exc = task.exception() if not task.cancelled() else None
+        if exc:
+            sentinel_log(
+                f"Monitor task died unexpectedly: {exc} — resetting state",
+                "ERROR", "MONITOR"
+            )
+        session.monitoring   = False
+        session.monitor_task = None
+    return session.monitoring
+
+
 @app.get("/api/status")
 def api_status(profile_id: str = ""):
     if not profile_id:
         return {"monitoring": False, "hasCredential": False, "account": None, "extensionLinked": False}
     session    = get_session(profile_id)
+    monitoring = _sync_monitor_state(session)   # detects & fixes dead-task desyncs
     time_ok    = (time.time() - session.extension_last_seen) < 75
     ext_linked = time_ok and session.extension_token_valid
     pending_info = None
     if session.pending_save and session.pending_save_info:
         pending_info = {k: v for k, v in session.pending_save_info.items() if k != "_cookie"}
     return {
-        "monitoring":      session.monitoring,
+        "monitoring":      monitoring,
         "account":         session.account_info,
         "hasCredential":   bool(session.cookie),
         "extensionLinked": ext_linked,
         "pendingSave":     session.pending_save,
         "pendingSaveAccount": pending_info,
         "addAccountMode":  session.add_account_mode,
+        "monitorHealthy":  monitoring and session.monitor_task is not None and not session.monitor_task.done(),
     }
 
 
