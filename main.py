@@ -15,7 +15,7 @@ import psutil
 import psycopg2
 import psycopg2.extras
 from psycopg2 import pool as pg_pool
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -2585,8 +2585,18 @@ def api_debug_sessions():
 BASE_DIR   = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 
+MOBILE_AGENTS = ("android", "iphone", "ipad", "ipod", "mobile", "opera mini", "blackberry", "windows phone")
+
 @app.get("/", response_class=HTMLResponse)
-def serve_root():
+def serve_root(request: Request):
+    ua = request.headers.get("user-agent", "").lower()
+    is_mobile = any(token in ua for token in MOBILE_AGENTS)
+
+    if is_mobile:
+        mp = STATIC_DIR / "sentinel_mobile.html"
+        if mp.exists():
+            return HTMLResponse(mp.read_text(), 200)
+
     p = STATIC_DIR / "index.html"
     return HTMLResponse(
         p.read_text() if p.exists() else "<h1>Frontend missing</h1>", 200
