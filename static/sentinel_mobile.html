@@ -54,8 +54,20 @@ body::after {
   height: var(--topbar-h);
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 18px;
-  background: rgba(10,10,10,0.97); backdrop-filter: blur(20px);
-  border-bottom: 1px solid var(--border);
+  background: rgba(18, 18, 22, 0.55);
+  backdrop-filter: blur(38px) saturate(1.7) brightness(1.08);
+  -webkit-backdrop-filter: blur(38px) saturate(1.7) brightness(1.08);
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  box-shadow:
+    0 1px 0 0 rgba(255,255,255,0.12) inset,
+    0 4px 24px rgba(0,0,0,0.3);
+  isolation: isolate;
+}
+#topbar::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.07) 0%, transparent 100%);
+  pointer-events: none;
 }
 .logo-wrap { display: flex; align-items: center; gap: 11px; }
 .logo-icon {
@@ -107,41 +119,115 @@ body::after {
 .tab-panel.active { display: block; }
 @keyframes fadeUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
 
-/* ── BOTTOM TAB BAR ── */
+/* ── BOTTOM TAB BAR — iOS 26 Liquid Glass Floating Pill ── */
+:root { --tabbar-bottom-pad: env(safe-area-inset-bottom, 12px); }
+
 #tabbar {
-  position: fixed; bottom: 0; left: 0; right: 0; z-index: 200;
+  position: fixed;
+  bottom: calc(var(--tabbar-bottom-pad) + 14px);
+  left: 50%; transform: translateX(-50%);
+  z-index: 200;
+  width: calc(100% - 32px); max-width: 560px;
   height: var(--tabbar-h);
-  background: rgba(10,10,10,0.97); backdrop-filter: blur(20px);
-  border-top: 1px solid var(--border);
+  /* Liquid glass base */
+  background: rgba(28, 28, 32, 0.52);
+  backdrop-filter: blur(40px) saturate(1.8) brightness(1.1);
+  -webkit-backdrop-filter: blur(40px) saturate(1.8) brightness(1.1);
+  /* Chromium: SVG displacement refraction */
+  filter: url(#liquid-glass-bar);
+  border-radius: 36px;
+  border: 1px solid rgba(255,255,255,0.18);
+  /* Specular highlight top edge */
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.06) inset,
+    0 1.5px 0 0 rgba(255,255,255,0.22) inset,
+    0 -1px 0 0 rgba(0,0,0,0.25) inset,
+    0 20px 60px rgba(0,0,0,0.55),
+    0 4px 16px rgba(0,0,0,0.35);
   display: flex; align-items: stretch;
-  padding-bottom: env(safe-area-inset-bottom, 0);
+  overflow: hidden;
+  /* bottom padding handled by position offset above */
+  isolation: isolate;
 }
+
+/* Inner shine overlay — the glassy lens highlight */
+#tabbar::before {
+  content: '';
+  position: absolute; inset: 0;
+  border-radius: 36px;
+  background: linear-gradient(
+    160deg,
+    rgba(255,255,255,0.13) 0%,
+    rgba(255,255,255,0.04) 30%,
+    transparent 55%,
+    rgba(255,255,255,0.03) 100%
+  );
+  pointer-events: none; z-index: 1;
+}
+
+/* Bottom ambient glow */
+#tabbar::after {
+  content: '';
+  position: absolute; bottom: -20px; left: 15%; right: 15%; height: 24px;
+  background: radial-gradient(ellipse at center, rgba(255,255,255,0.08), transparent 70%);
+  pointer-events: none; z-index: 0;
+}
+
+/* Push app scroll area up so content clears the floating pill */
+#app { padding-bottom: calc(var(--tabbar-h) + 52px); }
+
 .tab-btn {
   flex: 1; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 5px;
-  cursor: pointer; position: relative;
-  background: none; border: none; color: var(--text-dimmer);
-  transition: color 0.2s; padding: 0 4px; outline: none;
-  gap: 8px;
+  align-items: center; justify-content: center; gap: 7px;
+  cursor: pointer; position: relative; z-index: 2;
+  background: none; border: none; color: rgba(255,255,255,0.38);
+  transition: color 0.22s, transform 0.22s; padding: 0 4px; outline: none;
 }
-.tab-btn svg { width: 44px; height: 44px; transition: transform 0.2s; stroke-width: 1.6px; }
+.tab-btn svg { width: 44px; height: 44px; transition: transform 0.22s; stroke-width: 1.6px; }
 .tab-btn span {
   font-family: var(--font-mono); font-size: 15px;
   letter-spacing: 1.5px; text-transform: uppercase;
+  transition: color 0.22s;
 }
 .tab-btn.active { color: #fff; }
-.tab-btn.active svg { transform: translateY(-1px); }
+.tab-btn.active svg { transform: translateY(-2px); filter: drop-shadow(0 0 8px rgba(255,255,255,0.4)); }
+.tab-btn.active span { text-shadow: 0 0 12px rgba(255,255,255,0.3); }
+
+/* Active pill indicator behind the icon */
+.tab-btn.active::before {
+  content: '';
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 64px; height: 64px; border-radius: 20px;
+  background: rgba(255,255,255,0.08);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.1) inset;
+  z-index: -1;
+}
+
 .tab-dot {
-  position: absolute; top: 14px; right: calc(50% - 22px);
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--accent3); box-shadow: 0 0 6px var(--accent3); display: none;
+  position: absolute; top: 10px; right: calc(50% - 26px);
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--accent3); box-shadow: 0 0 8px var(--accent3); display: none; z-index: 3;
 }
 .tab-dot.show { display: block; }
 
 /* ── CARDS ── */
 .card {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 16px; padding: 22px 20px; margin-bottom: 16px;
+  background: rgba(22, 22, 28, 0.55);
+  backdrop-filter: blur(28px) saturate(1.5);
+  -webkit-backdrop-filter: blur(28px) saturate(1.5);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 22px; padding: 22px 20px; margin-bottom: 16px;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.1) inset,
+    0 8px 32px rgba(0,0,0,0.28);
+  position: relative; isolation: isolate;
+}
+.card::before {
+  content: '';
+  position: absolute; inset: 0; border-radius: 22px;
+  background: linear-gradient(145deg, rgba(255,255,255,0.07) 0%, transparent 50%);
+  pointer-events: none;
 }
 .section-label {
   font-family: var(--font-mono); font-size: 13px; letter-spacing: 3px;
@@ -152,15 +238,40 @@ body::after {
 
 /* ── STAT TILES ── */
 .stat-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
-.stat-tile { background: var(--surface2); border: 1px solid var(--border); border-radius: 15px; padding: 22px 18px; }
+.stat-tile {
+  background: rgba(28, 28, 36, 0.6);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 18px; padding: 22px 18px;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.09) inset, 0 4px 16px rgba(0,0,0,0.25);
+  position: relative;
+}
+.stat-tile::before {
+  content: '';
+  position: absolute; inset: 0; border-radius: 18px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.07) 0%, transparent 60%);
+  pointer-events: none;
+}
 .stat-val  { font-family: var(--font-display); font-size: 42px; font-weight: 800; color: #fff; line-height: 1; }
 .stat-lbl  { font-family: var(--font-mono); font-size: 13px; color: var(--text-dimmer); letter-spacing: 1.5px; text-transform: uppercase; margin-top: 5px; }
 
 /* ── MONITOR CARD ── */
 .monitor-card {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 16px; padding: 26px 22px; margin-bottom: 16px;
+  background: rgba(22, 22, 30, 0.58);
+  backdrop-filter: blur(30px) saturate(1.6);
+  -webkit-backdrop-filter: blur(30px) saturate(1.6);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 22px; padding: 26px 22px; margin-bottom: 16px;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.1) inset, 0 8px 28px rgba(0,0,0,0.3);
+  position: relative; isolation: isolate;
+}
+.monitor-card::before {
+  content: '';
+  position: absolute; inset: 0; border-radius: 22px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 55%);
+  pointer-events: none;
 }
 .monitor-title { font-family: var(--font-display); font-size: 24px; font-weight: 700; letter-spacing: 1px; color: #fff; margin-bottom: 3px; }
 .monitor-sub   { font-family: var(--font-mono); font-size: 14px; color: var(--text-dimmer); letter-spacing: 1px; }
@@ -306,8 +417,12 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* ── HISTORY ── */
 .history-item {
-  background: var(--surface2); border: 1px solid var(--border);
-  border-radius: 13px; padding: 14px 15px; margin-bottom: 9px;
+  background: rgba(22, 22, 30, 0.55);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 16px; padding: 16px 17px; margin-bottom: 10px;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.07) inset;
 }
 .history-top { display: flex; align-items: center; gap: 11px; margin-bottom: 9px; }
 .history-avatar {
@@ -400,11 +515,25 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .modal-overlay.open { opacity: 1; pointer-events: all; }
 .modal-sheet {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 22px 22px 0 0; width: 100%; max-width: 540px;
+  background: rgba(18, 18, 24, 0.72);
+  backdrop-filter: blur(50px) saturate(1.8) brightness(1.05);
+  -webkit-backdrop-filter: blur(50px) saturate(1.8) brightness(1.05);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 28px 28px 0 0; width: 100%; max-width: 540px;
   padding: 20px 20px; padding-bottom: calc(24px + env(safe-area-inset-bottom, 0));
   max-height: 94vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
   transform: translateY(100%); transition: transform 0.32s cubic-bezier(0.16,1,0.3,1);
+  box-shadow:
+    0 1.5px 0 rgba(255,255,255,0.18) inset,
+    0 -40px 80px rgba(0,0,0,0.5);
+  isolation: isolate;
+}
+.modal-sheet::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 60px;
+  border-radius: 28px 28px 0 0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.07) 0%, transparent 100%);
+  pointer-events: none;
 }
 .modal-overlay.open .modal-sheet { transform: translateY(0); }
 .sheet-handle { width: 44px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.15); margin: 0 auto 22px; }
@@ -561,8 +690,12 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .carousel-arrow {
   width: 68px; height: 68px; border-radius: 50%;
-  border: 1.5px solid var(--border-bright); background: var(--surface);
-  color: rgba(255,255,255,0.6); font-size: 22px; cursor: pointer;
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(28,28,36,0.55);
+  backdrop-filter: blur(30px) saturate(1.5);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.18) inset, 0 6px 20px rgba(0,0,0,0.3);
+  color: rgba(255,255,255,0.7); font-size: 28px; cursor: pointer;
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
   transition: all 0.2s;
 }
@@ -574,14 +707,28 @@ input[type="range"]::-webkit-slider-thumb {
   flex: 1; display: flex; align-items: center; justify-content: center;
 }
 .profile-carousel-card {
-  background: var(--surface); border: 2px solid var(--border);
-  border-radius: 24px; padding: 36px 24px;
+  background: rgba(20, 20, 28, 0.6);
+  backdrop-filter: blur(40px) saturate(1.7) brightness(1.06);
+  -webkit-backdrop-filter: blur(40px) saturate(1.7) brightness(1.06);
+  border: 1.5px solid rgba(255,255,255,0.14);
+  border-radius: 28px; padding: 36px 24px;
   display: flex; flex-direction: column; align-items: center; gap: 14px;
   width: 100%; max-width: 280px;
-  transition: border-color 0.25s, transform 0.25s;
+  transition: border-color 0.25s, transform 0.25s, box-shadow 0.25s;
   animation: fadeUp 0.22s ease both;
+  box-shadow: 0 1.5px 0 rgba(255,255,255,0.15) inset, 0 16px 48px rgba(0,0,0,0.4);
+  position: relative; isolation: isolate;
 }
-.profile-carousel-card.selected { border-color: rgba(255,255,255,0.4); }
+.profile-carousel-card::before {
+  content: '';
+  position: absolute; inset: 0; border-radius: 28px;
+  background: linear-gradient(145deg, rgba(255,255,255,0.09) 0%, transparent 55%);
+  pointer-events: none;
+}
+.profile-carousel-card.selected {
+  border-color: rgba(255,255,255,0.36);
+  box-shadow: 0 1.5px 0 rgba(255,255,255,0.22) inset, 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.1);
+}
 .profile-carousel-avatar {
   width: 120px; height: 120px; border-radius: 50%;
   border: 2px solid var(--border-bright); background: var(--surface3);
@@ -615,7 +762,12 @@ input[type="range"]::-webkit-slider-thumb {
 .pin-error { font-family: var(--font-mono); font-size: 16px; color: #ff6b6b; text-align: center; min-height: 20px; margin-bottom: 10px; }
 .pin-keypad { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; margin-top: 22px; }
 .pin-key {
-  background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; height: 96px;
+  background: rgba(28, 28, 36, 0.65);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.12) inset, 0 4px 12px rgba(0,0,0,0.2);
+  border-radius: 22px; height: 96px;
   font-family: var(--font-display); font-size: 34px; font-weight: 700; color: var(--text);
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; user-select: none; transition: all 0.12s;
@@ -628,6 +780,33 @@ input[type="range"]::-webkit-slider-thumb {
 </style>
 </head>
 <body>
+
+
+<!-- Liquid Glass SVG filters -->
+<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute;overflow:hidden;">
+  <defs>
+    <!-- Tabbar / topbar liquid glass -->
+    <filter id="liquid-glass-bar" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.0045 0.0065" numOctaves="3" seed="12" result="noise"/>
+      <feGaussianBlur in="noise" stdDeviation="1.4" result="smoothNoise"/>
+      <feDisplacementMap in="SourceGraphic" in2="smoothNoise" scale="14" xChannelSelector="R" yChannelSelector="G" result="displaced"/>
+      <feGaussianBlur in="displaced" stdDeviation="0.4" result="softEdge"/>
+      <feComposite in="softEdge" in2="SourceGraphic" operator="atop"/>
+    </filter>
+    <!-- Cards / modals liquid glass -->
+    <filter id="liquid-glass-card" x="-5%" y="-5%" width="110%" height="110%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.006 0.008" numOctaves="2" seed="7" result="noise"/>
+      <feGaussianBlur in="noise" stdDeviation="1.2" result="smoothNoise"/>
+      <feDisplacementMap in="SourceGraphic" in2="smoothNoise" scale="9" xChannelSelector="R" yChannelSelector="G" result="displaced"/>
+      <feComposite in="displaced" in2="SourceGraphic" operator="atop"/>
+    </filter>
+    <!-- Pill button glass -->
+    <filter id="liquid-glass-pill" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.01 0.015" numOctaves="2" seed="3" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="7" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </defs>
+</svg>
 
 <div id="grid-bg"></div>
 <div id="toast-container"></div>
