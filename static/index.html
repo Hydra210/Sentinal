@@ -809,6 +809,31 @@
     border-radius: 2px; text-transform: uppercase;
   }
 
+
+  /* ── MONITOR HEALTH BANNER ── */
+  #monitor-health-banner {
+    display: none; align-items: center; gap: 12px;
+    padding: 11px 18px;
+    background: rgba(255,160,50,0.07);
+    border: 1px solid rgba(255,160,50,0.25);
+    border-radius: 8px;
+    margin-bottom: 14px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: rgba(255,190,80,0.9);
+  }
+  #monitor-health-banner.visible { display: flex; }
+  #monitor-health-banner .mhb-icon { font-size: 15px; flex-shrink: 0; }
+  #monitor-health-banner .mhb-msg  { flex: 1; line-height: 1.5; }
+  #monitor-health-banner .mhb-restart {
+    padding: 5px 14px; font-family: var(--font-display); font-size: 10px;
+    font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+    border: 1px solid rgba(255,160,50,0.35); background: rgba(255,160,50,0.08);
+    color: rgba(255,190,80,0.9); border-radius: 5px; cursor: pointer;
+    transition: all 0.2s; white-space: nowrap;
+  }
+  #monitor-health-banner .mhb-restart:hover { background: rgba(255,160,50,0.16); }
+
 </style>
 </head>
 <body>
@@ -1354,6 +1379,12 @@
 
     <!-- ── DASHBOARD ── -->
     <div class="tab-panel active" id="tab-dashboard">
+      <!-- Monitor health banner — shown when the task dies unexpectedly -->
+      <div id="monitor-health-banner">
+        <span class="mhb-icon">⚠</span>
+        <span class="mhb-msg">Active monitoring stopped unexpectedly. This usually means a network error or server hiccup — it happens automatically on Render free tier restarts. Click restart to resume.</span>
+        <button class="mhb-restart" onclick="restartMonitor()">↺ Restart Monitor</button>
+      </div>
       <div style="max-width:1200px;margin:0 auto;">
 
         <!-- Headless mode banner — shown when account connected but extension offline -->
@@ -2343,9 +2374,39 @@ function applyStatusPill(status) {
   STATE.hasCredential   = hasCred;
   STATE.extensionLinked = extLinked;
 
+  // ── Monitor health banner ─────────────────────────────────────────────────
+  // monitorHealthy = true means task is alive. If monitoring is on but task is
+  // dead (monitorHealthy = false), show the banner so the user knows.
+  const healthBanner = document.getElementById('monitor-health-banner');
+  if (healthBanner) {
+    const taskDead = monitoring === false && STATE._wasMonitoring === true;
+    const unhealthy = status.monitorHealthy === false && monitoring === true;
+    if (taskDead || unhealthy) {
+      healthBanner.classList.add('visible');
+    } else if (monitoring) {
+      healthBanner.classList.remove('visible');
+    }
+  }
+  STATE._wasMonitoring = monitoring;
+
   // Keep settings modal in sync if it's open
   if (document.getElementById('settings-modal')?.classList.contains('open')) {
     updateSettingsExtSection();
+  }
+}
+
+async function restartMonitor() {
+  const banner = document.getElementById('monitor-health-banner');
+  try {
+    // Stop first in case the backend still thinks it's running
+    await api('POST', '/api/monitoring/stop', { profile_id: pid() }).catch(() => {});
+    await new Promise(r => setTimeout(r, 500));
+    await api('POST', '/api/monitoring/start', { profile_id: pid() });
+    STATE.monitoring = true;
+    if (banner) banner.classList.remove('visible');
+    toast('↺ Monitor restarted', 'success');
+  } catch(e) {
+    toast('Failed to restart monitor: ' + e.message, 'error');
   }
 }
 
