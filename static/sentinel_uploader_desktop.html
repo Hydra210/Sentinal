@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SENTINEL — UPLOADER</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&family=Outfit:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #0a0a0a;
+  --surface: #111111;
+  --surface2: #181818;
+  --surface3: #202020;
+  --border: rgba(255,255,255,0.07);
+  --border-bright: rgba(255,255,255,0.18);
+  --accent3: #ff3b3b;
+  --warn: #f0c040;
+  --green: rgba(100,255,160,0.85);
+  --text: #e8e8e8;
+  --text-dim: rgba(232,232,232,0.45);
+  --text-dimmer: rgba(232,232,232,0.22);
+  --font-mono: 'DM Mono', monospace;
+  --font-ui: 'Outfit', sans-serif;
+  --font-display: 'Syne', sans-serif;
+}
+
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font-ui); font-size: 15px; overflow: hidden; -webkit-font-smoothing: antialiased; }
+
+body::after {
+  content: ''; position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
+  pointer-events: none; z-index: 9999; opacity: 0.4;
+}
+
+#grid-bg {
+  position: fixed; inset: 0;
+  background-image: linear-gradient(rgba(255,255,255,0.025) 1px,transparent 1px), linear-gradient(90deg,rgba(255,255,255,0.025) 1px,transparent 1px);
+  background-size: 56px 56px; pointer-events: none; z-index: 0;
+}
+
+.corner-decor { position: fixed; width: 80px; height: 80px; pointer-events: none; z-index: 2; }
+.corner-decor::before, .corner-decor::after { content: ''; position: absolute; background: rgba(255,255,255,0.3); }
+.corner-decor.tl { top:12px;left:12px; } .corner-decor.tl::before{top:0;left:0;width:30px;height:2px;} .corner-decor.tl::after{top:0;left:0;width:2px;height:30px;}
+.corner-decor.tr { top:12px;right:12px; } .corner-decor.tr::before{top:0;right:0;width:30px;height:2px;} .corner-decor.tr::after{top:0;right:0;width:2px;height:30px;}
+.corner-decor.bl { bottom:12px;left:12px; } .corner-decor.bl::before{bottom:0;left:0;width:30px;height:2px;} .corner-decor.bl::after{bottom:0;left:0;width:2px;height:30px;}
+.corner-decor.br { bottom:12px;right:12px; } .corner-decor.br::before{bottom:0;right:0;width:30px;height:2px;} .corner-decor.br::after{bottom:0;right:0;width:2px;height:30px;}
+
+/* ── TRANSITION ── */
+#transition-overlay {
+  position: fixed; inset: 0; z-index: 10000;
+  background: #0a0a0a; opacity: 1; pointer-events: all;
+  transition: opacity 0.35s cubic-bezier(0.4,0,0.2,1);
+}
+#transition-overlay.gone { opacity: 0; pointer-events: none; }
+
+/* ── LAYOUT ── */
+#app { position: relative; z-index: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+/* ── TOPBAR ── */
+#topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 28px; border-bottom: 1px solid var(--border);
+  background: rgba(10,10,10,0.96); backdrop-filter: blur(16px); flex-shrink: 0;
+}
+.logo-lockup { display: flex; align-items: center; gap: 14px; }
+.logo-icon { width: 36px; height: 36px; border: 1px solid rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; border-radius: 8px; background: rgba(255,255,255,0.06); }
+.logo-icon svg { width: 18px; height: 18px; }
+.logo-text { font-family: var(--font-display); font-size: 22px; font-weight: 800; letter-spacing: 5px; color: #fff; }
+.logo-sub  { font-family: var(--font-mono); font-size: 9px; color: var(--text-dimmer); letter-spacing: 2px; text-transform: uppercase; margin-top: 2px; }
+
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+
+.back-pill {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 14px; border: 1px solid var(--border);
+  background: var(--surface); border-radius: 6px; cursor: pointer;
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);
+  letter-spacing: 1px; transition: all 0.2s; text-decoration: none;
+}
+.back-pill:hover { border-color: var(--border-bright); color: var(--text); }
+.back-pill svg { width: 14px; height: 14px; }
+
+.account-pill {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 14px; border: 1px solid var(--border);
+  background: var(--surface); border-radius: 6px;
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); letter-spacing: 1px;
+}
+.account-pill-av { width: 22px; height: 22px; border-radius: 50%; background: var(--surface3); border: 1px solid var(--border); overflow: hidden; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-weight: 700; font-size: 9px; color: rgba(255,255,255,0.5); }
+.account-pill-av img { width: 100%; height: 100%; object-fit: cover; }
+
+/* ── SUBNAV ── */
+#subnav {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 28px; background: rgba(10,10,10,0.92);
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.subnav-title { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: 4px; text-transform: uppercase; color: rgba(255,255,255,0.5); padding: 12px 0; }
+.subnav-stats { display: flex; gap: 24px; align-items: center; }
+.subnav-stat { font-family: var(--font-mono); font-size: 11px; color: var(--text-dimmer); letter-spacing: 1px; }
+.subnav-stat span { color: #fff; font-weight: 500; }
+
+/* ── CONTENT ── */
+#content { flex: 1; overflow: hidden; display: flex; }
+
+/* ── LEFT PANEL ── */
+#left-panel {
+  width: 380px; flex-shrink: 0; border-right: 1px solid var(--border);
+  overflow-y: auto; padding: 24px 22px;
+  display: flex; flex-direction: column; gap: 0;
+}
+
+/* ── RIGHT PANEL ── */
+#right-panel { flex: 1; overflow-y: auto; padding: 24px 24px; display: flex; flex-direction: column; gap: 0; }
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+
+/* ── CARDS ── */
+.card { background: var(--surface); border: 1px solid var(--border); padding: 20px; border-radius: 12px; margin-bottom: 16px; transition: border-color 0.2s; }
+.card:hover { border-color: rgba(255,255,255,0.12); }
+.section-title {
+  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  letter-spacing: 3px; text-transform: uppercase; color: rgba(255,255,255,0.6);
+  margin-bottom: 16px; display: flex; align-items: center; gap: 12px;
+}
+.section-title::before { content: ''; display: inline-block; width: 16px; height: 1px; background: rgba(255,255,255,0.35); }
+.section-title::after  { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg,rgba(255,255,255,0.08),transparent); }
+
+/* ── DROP ZONE ── */
+#drop-zone {
+  border: 2px dashed rgba(255,255,255,0.1); border-radius: 10px;
+  padding: 32px 20px; text-align: center; margin-bottom: 16px;
+  cursor: pointer; transition: all 0.2s; position: relative;
+  background: rgba(255,255,255,0.015);
+}
+#drop-zone:hover, #drop-zone.drag-over { border-color: rgba(255,255,255,0.35); background: rgba(255,255,255,0.04); }
+#drop-zone input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.drop-icon { width: 44px; height: 44px; margin: 0 auto 14px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+.drop-icon svg { width: 22px; height: 22px; color: rgba(255,255,255,0.4); }
+.drop-title { font-family: var(--font-display); font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 6px; letter-spacing: 1px; }
+.drop-sub   { font-family: var(--font-mono); font-size: 11px; color: var(--text-dimmer); line-height: 1.6; }
+.drop-formats { font-family: var(--font-mono); font-size: 10px; color: rgba(255,255,255,0.15); margin-top: 10px; letter-spacing: 1px; }
+
+/* ── CONTROLS ── */
+.ctrl-row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.ctrl-row:last-child { margin-bottom: 0; }
+.ctrl-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 2px; color: var(--text-dimmer); text-transform: uppercase; flex-shrink: 0; min-width: 90px; }
+
+.stepper { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; flex: 1; }
+.stepper-btn { width: 34px; height: 34px; background: var(--surface2); border: none; color: var(--text-dim); font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; }
+.stepper-btn:hover { background: var(--surface3); color: #fff; }
+.stepper-input { flex: 1; background: transparent; border: none; outline: none; font-family: var(--font-display); font-size: 15px; font-weight: 800; color: #fff; text-align: center; padding: 0; height: 34px; }
+.stepper-input::-webkit-outer-spin-button, .stepper-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+.speed-chips { display: flex; gap: 6px; flex: 1; }
+.speed-chip { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px; color: var(--text-dimmer); cursor: pointer; transition: all 0.18s; }
+.speed-chip:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
+.speed-chip.active { border-color: rgba(255,255,255,0.4); background: rgba(255,255,255,0.07); color: #fff; }
+
+/* ── BUTTONS ── */
+.btn { padding: 10px 20px; font-family: var(--font-display); font-size: 12px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--text-dim); transition: all 0.2s; border-radius: 6px; }
+.btn:hover { border-color: rgba(255,255,255,0.22); background: rgba(255,255,255,0.05); color: var(--text); }
+.btn-primary { border-color: rgba(255,255,255,0.25); color: #fff; background: rgba(255,255,255,0.08); }
+.btn-primary:hover { background: rgba(255,255,255,0.14); }
+.btn-danger { border-color: rgba(255,59,59,0.3); color: #ff6b6b; }
+.btn-danger:hover { background: rgba(255,59,59,0.08); }
+.btn-green { border-color: rgba(100,255,160,0.3); color: var(--green); }
+.btn-green:hover { background: rgba(100,255,160,0.06); }
+.btn-sm { padding: 7px 14px; font-size: 11px; }
+.btn-full { width: 100%; }
+
+/* ── UPLOAD BTN ── */
+#upload-btn-wrap { margin-top: 4px; }
+.upload-main-btn {
+  width: 100%; padding: 14px 20px;
+  font-family: var(--font-display); font-size: 14px; font-weight: 800; letter-spacing: 3px;
+  text-transform: uppercase; cursor: pointer; border: none; border-radius: 8px;
+  background: #fff; color: #0a0a0a;
+  box-shadow: 0 4px 24px rgba(255,255,255,0.12);
+  transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 10px;
+}
+.upload-main-btn:hover { box-shadow: 0 6px 32px rgba(255,255,255,0.18); transform: translateY(-1px); }
+.upload-main-btn:active { transform: scale(0.98); }
+.upload-main-btn:disabled { opacity: 0.3; pointer-events: none; }
+.upload-main-btn.uploading { background: rgba(255,255,255,0.08); color: #fff; border: 1px solid rgba(255,255,255,0.2); box-shadow: none; }
+.upload-main-btn svg { width: 18px; height: 18px; }
+
+.upload-progress-bar { height: 3px; background: rgba(255,255,255,0.07); border-radius: 2px; margin-top: 10px; overflow: hidden; display: none; }
+.upload-progress-bar.show { display: block; }
+.upload-progress-fill { height: 100%; background: #fff; border-radius: 2px; transition: width 0.3s; width: 0%; }
+
+/* ── QUEUE ── */
+.queue-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.queue-count-badge { font-family: var(--font-mono); font-size: 11px; color: var(--text-dimmer); background: var(--surface2); border: 1px solid var(--border); padding: 4px 10px; border-radius: 4px; }
+
+.queue-item {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 16px; margin-bottom: 10px;
+  transition: border-color 0.2s; animation: fadeIn 0.2s ease both;
+}
+.queue-item:hover { border-color: rgba(255,255,255,0.12); }
+@keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+
+.qi-header { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.qi-icon { width: 36px; height: 36px; border-radius: 8px; background: var(--surface3); border: 1px solid var(--border); flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.qi-icon svg { width: 16px; height: 16px; color: rgba(255,255,255,0.35); }
+.qi-name { font-size: 14px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.qi-size { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); flex-shrink: 0; }
+.qi-remove { background: none; border: none; color: var(--text-dimmer); cursor: pointer; padding: 4px; border-radius: 4px; flex-shrink: 0; transition: color 0.2s; }
+.qi-remove:hover { color: #ff6b6b; }
+
+.qi-controls { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.qi-rep-label { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); letter-spacing: 1px; flex-shrink: 0; }
+.qi-stepper { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.qi-s-btn { width: 28px; height: 28px; background: var(--surface3); border: none; color: var(--text-dim); font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
+.qi-s-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+.qi-s-val { width: 52px; height: 28px; background: transparent; border: none; outline: none; font-family: var(--font-display); font-size: 14px; font-weight: 800; color: #fff; text-align: center; }
+.qi-s-val::-webkit-outer-spin-button, .qi-s-val::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+.qi-progress-bar { height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; margin-bottom: 6px; overflow: hidden; }
+.qi-progress-fill { height: 100%; background: #fff; border-radius: 2px; transition: width 0.25s; }
+.qi-progress-fill.done   { background: var(--green); }
+.qi-progress-fill.failed { background: var(--accent3); }
+
+.qi-status-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.qi-status-text { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); }
+.qi-ids { display: flex; gap: 5px; flex-wrap: wrap; }
+.qi-id {
+  font-family: var(--font-mono); font-size: 10px; padding: 2px 7px; border-radius: 4px;
+  background: rgba(100,255,160,0.07); border: 1px solid rgba(100,255,160,0.2); color: var(--green);
+  cursor: pointer; transition: all 0.15s;
+}
+.qi-id:hover { background: rgba(100,255,160,0.14); }
+.qi-id.err { background: rgba(255,59,59,0.07); border-color: rgba(255,59,59,0.2); color: rgba(255,100,100,0.8); cursor: default; }
+
+/* ── RESULTS LOG ── */
+.log-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 7px; animation: fadeIn 0.18s ease both; }
+.log-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.log-dot.ok  { background: var(--green); box-shadow: 0 0 5px rgba(100,255,160,0.4); }
+.log-dot.err { background: var(--accent3); }
+.log-info { flex: 1; min-width: 0; }
+.log-name  { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log-id    { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); margin-top: 1px; }
+.log-copy { font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px; padding: 4px 10px; border: 1px solid var(--border); background: var(--surface3); color: var(--text-dim); border-radius: 4px; cursor: pointer; flex-shrink: 0; transition: all 0.2s; }
+.log-copy:hover { border-color: rgba(255,255,255,0.22); color: var(--text); }
+
+/* ── INFO BOX ── */
+.info-box { background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 8px; padding: 11px 14px; font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); line-height: 1.7; margin-bottom: 14px; }
+
+/* ── TOAST ── */
+#toast-container { position: fixed; top: 70px; right: 24px; z-index: 8000; display: flex; flex-direction: column; gap: 8px; pointer-events: none; width: 320px; }
+.toast { padding: 10px 16px; border-radius: 8px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.5px; background: rgba(18,18,18,0.97); border: 1px solid rgba(255,255,255,0.1); color: var(--text); backdrop-filter: blur(14px); box-shadow: 0 4px 20px rgba(0,0,0,0.5); animation: toastIn 0.25s ease both; }
+.toast.success { border-color: rgba(100,255,160,0.3); color: var(--green); }
+.toast.error   { border-color: rgba(255,59,59,0.35); color: #ff7070; }
+.toast.warn    { border-color: rgba(240,192,64,0.35); color: var(--warn); }
+@keyframes toastIn { from{opacity:0;transform:translateX(12px)} to{opacity:1;transform:none} }
+
+.divider { height: 1px; background: var(--border); margin: 18px 0; }
+</style>
+</head>
+<body>
+
+<div id="grid-bg"></div>
+<div id="toast-container"></div>
+<div id="transition-overlay"></div>
+
+<div class="corner-decor tl"></div>
+<div class="corner-decor tr"></div>
+<div class="corner-decor bl"></div>
+<div class="corner-decor br"></div>
+
+<div id="app">
+
+  <!-- ── TOPBAR ── -->
+  <div id="topbar">
+    <div class="logo-lockup">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+      </div>
+      <div>
+        <div class="logo-text">SENTINEL</div>
+        <div class="logo-sub">Roblox Asset Moderation</div>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <button class="back-pill" onclick="goBack()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        Back to Dashboard
+      </button>
+      <div class="account-pill">
+        <div class="account-pill-av" id="chip-avatar">?</div>
+        <span id="chip-name">Loading…</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SUBNAV ── -->
+  <div id="subnav">
+    <div class="subnav-title">Uploader</div>
+    <div class="subnav-stats">
+      <div class="subnav-stat">Queue: <span id="stat-queue">0</span></div>
+      <div class="subnav-stat">Uploaded: <span id="stat-uploaded">0</span></div>
+      <div class="subnav-stat">Failed: <span id="stat-failed">0</span></div>
+      <div class="subnav-stat">Total Uploads: <span id="stat-total">0</span></div>
+    </div>
+  </div>
+
+  <!-- ── CONTENT ── -->
+  <div id="content">
+
+    <!-- LEFT: Controls + Queue -->
+    <div id="left-panel">
+
+      <!-- Drop zone -->
+      <div id="drop-zone" onclick="triggerFilePick()">
+        <input type="file" id="file-input" multiple accept="audio/*,.mp3,.ogg,.wav,.flac,.aac,.m4a" onchange="onFilePicked(this)">
+        <div class="drop-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+        </div>
+        <div class="drop-title">Drop Audio Files Here</div>
+        <div class="drop-sub">or click to pick from your computer</div>
+        <div class="drop-formats">MP3 · OGG · WAV · FLAC · AAC · M4A</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="card">
+        <div class="section-title">Upload Settings</div>
+        <div class="ctrl-row">
+          <div class="ctrl-label">Global Repeats</div>
+          <div class="stepper">
+            <button class="stepper-btn" onclick="adjustGlobalRepeats(-1)">−</button>
+            <input class="stepper-input" type="number" id="global-repeats" value="1" min="1" max="9999" oninput="clampInput(this,1,9999)">
+            <button class="stepper-btn" onclick="adjustGlobalRepeats(1)">+</button>
+          </div>
+        </div>
+        <div class="ctrl-row">
+          <div class="ctrl-label">Speed</div>
+          <div class="speed-chips">
+            <div class="speed-chip active" onclick="setSpeed(this,'max')" data-speed="max">MAX</div>
+            <div class="speed-chip" onclick="setSpeed(this,'fast')" data-speed="fast">FAST</div>
+            <div class="speed-chip" onclick="setSpeed(this,'normal')" data-speed="normal">NORMAL</div>
+            <div class="speed-chip" onclick="setSpeed(this,'slow')" data-speed="slow">SLOW</div>
+          </div>
+        </div>
+        <div class="ctrl-row">
+          <div class="ctrl-label">Concurrency</div>
+          <div class="stepper">
+            <button class="stepper-btn" onclick="adjustConcurrency(-1)">−</button>
+            <input class="stepper-input" type="number" id="concurrency" value="5" min="1" max="20" oninput="clampInput(this,1,20)">
+            <button class="stepper-btn" onclick="adjustConcurrency(1)">+</button>
+          </div>
+          <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);flex-shrink:0;">parallel</div>
+        </div>
+      </div>
+
+      <!-- Upload button -->
+      <div id="upload-btn-wrap">
+        <button class="upload-main-btn" id="upload-btn" onclick="startUpload()" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          UPLOAD ALL
+        </button>
+        <div class="upload-progress-bar" id="upload-prog-bar">
+          <div class="upload-progress-fill" id="upload-prog-fill"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT: Queue + Log -->
+    <div id="right-panel">
+
+      <!-- Queue -->
+      <div class="queue-header">
+        <div class="section-title" style="margin-bottom:0;flex:1;">Queue</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <div class="queue-count-badge" id="queue-count-badge">0 uploads</div>
+          <button class="btn btn-sm btn-danger" onclick="clearQueue()">Clear All</button>
+        </div>
+      </div>
+
+      <div id="queue-list">
+        <div class="info-box" style="text-align:center;color:var(--text-dimmer);">
+          No files queued — drop audio files on the left to get started
+        </div>
+      </div>
+
+      <!-- Divider + Log -->
+      <div id="log-section" style="display:none;">
+        <div class="divider"></div>
+        <div class="queue-header">
+          <div class="section-title" style="margin-bottom:0;flex:1;">Results</div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-sm" onclick="clearLog()">Clear</button>
+            <button class="btn btn-sm btn-primary" onclick="exportLog()">Export CSV</button>
+          </div>
+        </div>
+        <div id="log-list"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// SENTINEL UPLOADER (Desktop) — @Nexesmere
+// ─────────────────────────────────────────────────────────────────────────────
+
+let _queue     = [];
+let _log       = [];
+let _uploading = false;
+let _speed     = 'max';
+let _profileId = null;
+let _nextId    = 0;
+let _totalUploaded = 0;
+let _totalFailed   = 0;
+
+const SPEED_DELAY = { max: 0, fast: 200, normal: 600, slow: 1500 };
+
+function esc(s) { return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmtSize(b) { if (b<1024) return b+'B'; if (b<1048576) return (b/1024).toFixed(1)+'KB'; return (b/1048576).toFixed(1)+'MB'; }
+function uid() { return ++_nextId; }
+
+function toast(msg, type='') {
+  const el = document.createElement('div');
+  el.className = 'toast ' + type; el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+async function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (body instanceof FormData) { opts.body = body; }
+  else if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  const r = await fetch(path, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || data.error || `HTTP ${r.status}`);
+  return data;
+}
+
+// ── TRANSITION ────────────────────────────────────────────────────────────────
+function goBack() {
+  const ov = document.getElementById('transition-overlay');
+  ov.classList.remove('gone');
+  setTimeout(() => { window.location.href = '/'; }, 340);
+}
+
+// ── ACCOUNT ───────────────────────────────────────────────────────────────────
+async function loadAccount() {
+  try {
+    const status = await api('GET', '/api/status');
+    _profileId = status.profile_id || null;
+    const acc = status.account;
+    if (acc) {
+      const av = document.getElementById('chip-avatar');
+      av.innerHTML = acc.avatarUrl ? `<img src="${esc(acc.avatarUrl)}" style="width:100%;height:100%;object-fit:cover;">` : esc((acc.displayName||'?').charAt(0));
+      document.getElementById('chip-name').textContent = acc.displayName || acc.username || 'Unknown';
+    } else {
+      document.getElementById('chip-name').textContent = 'No account';
+    }
+  } catch { document.getElementById('chip-name').textContent = 'Not logged in'; }
+}
+
+// ── FILE PICKING ──────────────────────────────────────────────────────────────
+function triggerFilePick() {
+  if (_uploading) return;
+  document.getElementById('file-input').click();
+}
+
+function onFilePicked(input) {
+  const files = [...input.files]; if (!files.length) return;
+  const gr = parseInt(document.getElementById('global-repeats').value) || 1;
+  files.forEach(f => addToQueue(f, gr));
+  input.value = '';
+}
+
+const dz = document.getElementById('drop-zone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('drag-over'); if (_uploading) return;
+  const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('audio/') || /\.(mp3|ogg|wav|flac|aac|m4a)$/i.test(f.name));
+  const gr = parseInt(document.getElementById('global-repeats').value) || 1;
+  files.forEach(f => addToQueue(f, gr));
+});
+
+function addToQueue(file, repeats = 1) {
+  _queue.push({ id: uid(), file, name: file.name, size: file.size, repeats, status: 'pending', done: 0, failed: 0, assetIds: [] });
+  renderQueue(); updateStats(); updateUploadBtn();
+}
+
+// ── QUEUE CONTROLS ────────────────────────────────────────────────────────────
+function removeFromQueue(id) { _queue = _queue.filter(i => i.id !== id); renderQueue(); updateStats(); updateUploadBtn(); }
+function clearQueue() { if (_uploading) { toast('Stop upload first', 'warn'); return; } _queue = []; renderQueue(); updateStats(); updateUploadBtn(); }
+function setItemRepeats(id, val) { const item = _queue.find(i => i.id === id); if (item) { item.repeats = Math.max(1, Math.min(9999, parseInt(val)||1)); updateStats(); } }
+function adjustItemRepeats(id, d) { const item = _queue.find(i => i.id === id); if (!item) return; item.repeats = Math.max(1, item.repeats + d); const el = document.getElementById('rep-' + id); if (el) el.value = item.repeats; updateStats(); }
+function adjustGlobalRepeats(d) { const el = document.getElementById('global-repeats'); el.value = Math.max(1, (parseInt(el.value)||1) + d); }
+function adjustConcurrency(d) { const el = document.getElementById('concurrency'); el.value = Math.max(1, Math.min(20, (parseInt(el.value)||5) + d)); }
+function clampInput(el, min, max) { el.value = Math.max(min, Math.min(max, parseInt(el.value)||min)); }
+function setSpeed(el, speed) { _speed = speed; document.querySelectorAll('.speed-chip').forEach(c => c.classList.remove('active')); el.classList.add('active'); }
+
+function updateStats() {
+  const total = _queue.reduce((s, i) => s + (i.repeats || 1), 0);
+  document.getElementById('queue-count-badge').textContent = total + ' upload' + (total !== 1 ? 's' : '');
+  document.getElementById('stat-queue').textContent = total;
+  document.getElementById('stat-uploaded').textContent = _totalUploaded;
+  document.getElementById('stat-failed').textContent = _totalFailed;
+  document.getElementById('stat-total').textContent = _totalUploaded + _totalFailed;
+}
+
+function updateUploadBtn() {
+  const btn = document.getElementById('upload-btn');
+  btn.disabled = !_queue.some(i => i.status === 'pending') || _uploading;
+}
+
+// ── RENDER QUEUE ──────────────────────────────────────────────────────────────
+function renderQueue() {
+  const list = document.getElementById('queue-list');
+  if (!_queue.length) {
+    list.innerHTML = '<div class="info-box" style="text-align:center;color:var(--text-dimmer);">No files queued — drop audio files on the left to get started</div>';
+    return;
+  }
+  list.innerHTML = _queue.map(item => {
+    const pct = item.repeats > 0 ? Math.round(((item.done + item.failed) / item.repeats) * 100) : 0;
+    const pending = item.status === 'pending';
+    const fillClass = item.status === 'done' ? 'done' : item.status === 'failed' ? 'failed' : '';
+    const statusText = pending ? `${item.repeats}× queued`
+      : item.status === 'uploading' ? `${item.done + item.failed}/${item.repeats} uploading…`
+      : item.status === 'done'      ? `✓ ${item.repeats} uploaded`
+      : `${item.done} ok · ${item.failed} failed`;
+
+    const ids = item.assetIds.slice(-8).map(r =>
+      `<span class="qi-id${r.ok ? '' : ' err'}" ${r.ok ? `onclick="copyId('${r.id}')" title="Click to copy"` : ''}>${r.ok ? r.id : 'ERR'}</span>`
+    ).join('') + (item.assetIds.length > 8 ? `<span class="qi-id" style="color:var(--text-dimmer);">+${item.assetIds.length - 8}</span>` : '');
+
+    return `
+    <div class="queue-item" id="qi-${item.id}">
+      <div class="qi-header">
+        <div class="qi-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        </div>
+        <div class="qi-name" title="${esc(item.name)}">${esc(item.name)}</div>
+        <div class="qi-size">${fmtSize(item.size)}</div>
+        ${pending ? `<button class="qi-remove" onclick="removeFromQueue(${item.id})"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>` : ''}
+      </div>
+      ${pending ? `
+      <div class="qi-controls">
+        <div class="qi-rep-label">REPEATS</div>
+        <div class="qi-stepper">
+          <button class="qi-s-btn" onclick="adjustItemRepeats(${item.id},-1)">−</button>
+          <input class="qi-s-val" id="rep-${item.id}" type="number" value="${item.repeats}" min="1" max="9999" oninput="setItemRepeats(${item.id},this.value)">
+          <button class="qi-s-btn" onclick="adjustItemRepeats(${item.id},1)">+</button>
+        </div>
+      </div>` : ''}
+      <div class="qi-progress-bar"><div class="qi-progress-fill ${fillClass}" id="qp-${item.id}" style="width:${pct}%"></div></div>
+      <div class="qi-status-row">
+        <div class="qi-status-text" id="qs-${item.id}">${statusText}</div>
+        <div class="qi-ids">${ids}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── UPLOAD ENGINE ─────────────────────────────────────────────────────────────
+let _stopRequested = false;
+
+async function startUpload() {
+  if (_uploading) { stopUpload(); return; }
+  const pending = _queue.filter(i => i.status === 'pending');
+  if (!pending.length) { toast('Nothing to upload', 'warn'); return; }
+
+  _uploading = true; _stopRequested = false;
+  const btn = document.getElementById('upload-btn');
+  btn.className = 'upload-main-btn uploading';
+  btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> STOP`;
+  const bar = document.getElementById('upload-prog-bar');
+  const fill = document.getElementById('upload-prog-fill');
+  bar.classList.add('show'); fill.style.width = '0%';
+
+  const concurrency = parseInt(document.getElementById('concurrency').value) || 5;
+  const delay = SPEED_DELAY[_speed] || 0;
+
+  const tasks = [];
+  pending.forEach(item => {
+    item.status = 'uploading'; item.done = 0; item.failed = 0; item.assetIds = [];
+    for (let i = 0; i < item.repeats; i++) tasks.push({ item });
+  });
+  renderQueue();
+
+  let taskIdx = 0, completedTasks = 0;
+  const totalTasks = tasks.length;
+
+  async function worker() {
+    while (taskIdx < tasks.length && !_stopRequested) {
+      const { item } = tasks[taskIdx++];
+      try {
+        const assetId = await uploadFile(item.file);
+        item.done++; item.assetIds.push({ ok: true, id: assetId });
+        _totalUploaded++;
+        _log.push({ filename: item.name, assetId, ok: true, ts: new Date().toLocaleTimeString() });
+        prependLogItem({ filename: item.name, assetId, ok: true });
+      } catch(e) {
+        item.failed++; item.assetIds.push({ ok: false, id: null });
+        _totalFailed++;
+        _log.push({ filename: item.name, assetId: null, ok: false, ts: new Date().toLocaleTimeString() });
+        prependLogItem({ filename: item.name, assetId: null, ok: false, err: e.message });
+      }
+      completedTasks++;
+      updateItemProgress(item, totalTasks, completedTasks, fill);
+      updateStats();
+      if (delay > 0) await sleep(delay);
+    }
+  }
+
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+
+  pending.forEach(item => {
+    if (item.status === 'uploading') item.status = item.failed === 0 ? 'done' : item.done === 0 ? 'failed' : 'done';
+  });
+  renderQueue();
+
+  _uploading = false;
+  btn.className = 'upload-main-btn';
+  btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> UPLOAD ALL`;
+  btn.disabled = !_queue.some(i => i.status === 'pending');
+  bar.classList.remove('show');
+
+  const ok = pending.reduce((s,i) => s+i.done, 0);
+  const fail = pending.reduce((s,i) => s+i.failed, 0);
+  toast(
+    _stopRequested ? `Stopped — ${ok} uploaded, ${fail} failed`
+    : `Done — ${ok} uploaded${fail ? `, ${fail} failed` : ''}`,
+    fail ? 'warn' : 'success'
+  );
+}
+
+function stopUpload() { _stopRequested = true; toast('Stopping after current batch…', 'warn'); }
+
+async function uploadFile(file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  if (_profileId) fd.append('profile_id', _profileId);
+  const res = await api('POST', '/api/upload-asset', fd);
+  if (!res.asset_id) throw new Error('No asset ID returned');
+  return res.asset_id;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function updateItemProgress(item, total, completed, fillEl) {
+  const pct = item.repeats > 0 ? Math.round(((item.done + item.failed) / item.repeats) * 100) : 0;
+  const bar = document.getElementById('qp-' + item.id);
+  const txt = document.getElementById('qs-' + item.id);
+  if (bar) bar.style.width = pct + '%';
+  if (txt) txt.textContent = `${item.done + item.failed}/${item.repeats} uploading…`;
+  if (fillEl) fillEl.style.width = Math.round((completed / total) * 100) + '%';
+  const qi = document.getElementById('qi-' + item.id);
+  if (qi) {
+    const ids = qi.querySelector('.qi-ids');
+    if (ids) ids.innerHTML = item.assetIds.slice(-8).map(r =>
+      `<span class="qi-id${r.ok ? '' : ' err'}" ${r.ok ? `onclick="copyId('${r.id}')" title="Click to copy"` : ''}>${r.ok ? r.id : 'ERR'}</span>`
+    ).join('') + (item.assetIds.length > 8 ? `<span class="qi-id" style="color:var(--text-dimmer);">+${item.assetIds.length - 8}</span>` : '');
+  }
+}
+
+// ── LOG ───────────────────────────────────────────────────────────────────────
+function prependLogItem(entry) {
+  document.getElementById('log-section').style.display = '';
+  const list = document.getElementById('log-list');
+  const el = document.createElement('div');
+  el.className = 'log-item';
+  el.innerHTML = `
+    <div class="log-dot ${entry.ok ? 'ok' : 'err'}"></div>
+    <div class="log-info">
+      <div class="log-name">${esc(entry.filename)}</div>
+      <div class="log-id">${entry.ok ? 'ID: ' + entry.assetId : 'Failed' + (entry.err ? ' — ' + esc(entry.err) : '')}</div>
+    </div>
+    ${entry.ok ? `<button class="log-copy" onclick="copyId('${entry.assetId}')">Copy ID</button>` : ''}`;
+  list.prepend(el);
+}
+
+function clearLog() { _log = []; document.getElementById('log-list').innerHTML = ''; document.getElementById('log-section').style.display = 'none'; }
+
+function exportLog() {
+  if (!_log.length) { toast('No results to export', 'warn'); return; }
+  const rows = ['Filename,Asset ID,Status,Time', ..._log.map(e => `"${e.filename}",${e.assetId||''},"${e.ok?'OK':'Failed'}",${e.ts}`)];
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'sentinel-upload-log.csv' });
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  toast('CSV exported', 'success');
+}
+
+function copyId(id) { navigator.clipboard.writeText(String(id)).then(() => toast('Copied: ' + id, 'success')); }
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.getElementById('transition-overlay').classList.add('gone');
+  }));
+  loadAccount();
+  updateStats();
+});
+</script>
+</body>
+</html>
