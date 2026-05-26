@@ -15,7 +15,7 @@ import psutil
 import psycopg2
 import psycopg2.extras
 from psycopg2 import pool as pg_pool
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -2585,22 +2585,58 @@ def api_debug_sessions():
 BASE_DIR   = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 
-MOBILE_AGENTS = ("android", "iphone", "ipad", "ipod", "mobile", "opera mini", "blackberry", "windows phone")
+MOBILE_AGENTS = ("android","iphone","ipad","ipod","mobile","opera mini","blackberry","windows phone")
 
 @app.get("/", response_class=HTMLResponse)
 def serve_root(request: Request):
     ua = request.headers.get("user-agent", "").lower()
-    is_mobile = any(token in ua for token in MOBILE_AGENTS)
-
-    if is_mobile:
+    if any(t in ua for t in MOBILE_AGENTS):
         mp = STATIC_DIR / "sentinel_mobile.html"
-        if mp.exists():
-            return HTMLResponse(mp.read_text(), 200)
-
+        if mp.exists(): return HTMLResponse(mp.read_text(), 200)
     p = STATIC_DIR / "index.html"
-    return HTMLResponse(
-        p.read_text() if p.exists() else "<h1>Frontend missing</h1>", 200
-    )
+    return HTMLResponse(p.read_text() if p.exists() else "<h1>Frontend missing</h1>", 200)
+
+@app.get("/uploader", response_class=HTMLResponse)
+def serve_uploader(request: Request):
+    ua = request.headers.get("user-agent", "").lower()
+    is_mobile = any(t in ua for t in MOBILE_AGENTS)
+    fname = "sentinel_uploader.html" if is_mobile else "sentinel_uploader_desktop.html"
+    p = STATIC_DIR / fname
+    return HTMLResponse(p.read_text() if p.exists() else "<h1>Uploader missing</h1>", 200)
+
+
+
+@app.post("/api/upload-asset")
+async def upload_asset(
+    file: UploadFile = File(...),
+    profile_id: str = None,
+):
+    if not profile_id:
+        raise HTTPException(400, "profile_id required")
+    session = _sessions.get(profile_id)
+    if not session or not session.cookie:
+        raise HTTPException(403, "No active Roblox account for this profile")
+    cookie = session.cookie
+    csrf = await get_csrf(cookie)
+    data = await file.read()
+    fname = file.filename or "upload.mp3"
+    ctype = file.content_type or "audio/mpeg"
+    url = "https://data.roblox.com/Data/Upload.ashx"
+    params = {"assetTypeId": 3, "name": fname, "description": "", "ispublic": "false", "allowComments": "false", "groupId": ""}
+    async with httpx.AsyncClient(timeout=30) as c:
+        hdrs = {"Content-Type": ctype, "User-Agent": "Roblox/WinInet", "X-CSRF-TOKEN": csrf}
+        r = await c.post(url, content=data, params=params, headers=hdrs, cookies={".ROBLOSECURITY": cookie})
+        if r.status_code == 403:
+            nc = r.headers.get("x-csrf-token")
+            if nc:
+                hdrs["X-CSRF-TOKEN"] = nc
+                r = await c.post(url, content=data, params=params, headers=hdrs, cookies={".ROBLOSECURITY": cookie})
+        if r.status_code not in (200, 201):
+            raise HTTPException(502, f"Roblox upload failed: {r.status_code}")
+    asset_id = r.text.strip()
+    if not asset_id.isdigit():
+        raise HTTPException(502, f"Unexpected Roblox response: {asset_id[:80]}")
+    return {"asset_id": asset_id, "filename": fname}
 
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
