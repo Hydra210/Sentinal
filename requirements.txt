@@ -4,3 +4,4 @@ httpx
 pydantic
 psycopg2-binary
 psutil
+python-multipart
