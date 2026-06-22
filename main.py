@@ -736,6 +736,7 @@ _SANITY_CHECK_INTERVAL = 300  # 5 minutes
 _sanity_results: Dict[str, Dict[str, dict]] = {}
 _sanity_running: bool = False
 _sanity_last_run: float = 0.0
+_sanity_phase2_state: Dict[str, dict] = {}  # set inside _run_phase2_activity_check
 
 async def _check_cookie_valid(cookie: str) -> bool:
     """Hit Roblox /users/authenticated to verify a cookie is still valid.
@@ -751,9 +752,26 @@ async def _check_cookie_valid(cookie: str) -> bool:
         return False
 
 async def run_sanity_check():
-    """Run a full sanity check across all saved credentials in Postgres.
-    Updates _sanity_results and sends email if active session's cookie expired.
-    Non-blocking — monitor loops continue normally during check."""
+    """
+    Full sanity check — two phases run back-to-back per profile.
+
+    PHASE 1 — Cookie validity:
+      Validates every saved credential against Roblox API.
+      If the active session's cookie just expired:
+        • Attempt auto-switch to the next saved account with a valid cookie.
+        • Send an email: either "switched to X" or "no valid account available — inactive".
+
+    PHASE 2 — Activity check:
+      Only runs if:
+        - A valid active account exists after phase 1
+        - Active monitoring is currently ON
+      Temporarily stops the monitor for 5 seconds then restarts it.
+      Frontend reads `phase2_active` + `phase2_countdown` from the status endpoint
+      to show the grayed-out toggle + countdown label.
+
+    Non-blocking — runs as an asyncio task, never touches the monitor loop except
+    during the intentional 5-second pause in phase 2.
+    """
     global _sanity_running, _sanity_last_run
     if _sanity_running:
         sentinel_log("Sanity check already running — skipping", "DEBUG", "SANITY")
@@ -763,9 +781,9 @@ async def run_sanity_check():
         return
 
     _sanity_running = True
-    sentinel_log("Sanity check started", "INFO", "SANITY")
+    sentinel_log("Sanity check Phase 1 started — cookie validation", "INFO", "SANITY")
     try:
-        # Fetch all saved credentials from Postgres
+        # ── Fetch all saved credentials ───────────────────────────────────────
         conn = get_pg(); cur = conn.cursor()
         try:
             cur.execute("SELECT profile_id, roblox_user_id, cookie_encrypted, account_info FROM saved_credentials")
@@ -776,82 +794,254 @@ async def run_sanity_check():
         finally:
             cur.close(); release_pg(conn)
 
-        sentinel_log(f"Sanity check: validating {len(rows)} saved credentials", "INFO", "SANITY")
+        sentinel_log(f"Sanity Phase 1: validating {len(rows)} saved credentials", "INFO", "SANITY")
 
+        # Group rows by profile so we can do per-profile auto-switch logic
+        by_profile: Dict[str, list] = {}
         for row in rows:
-            profile_id     = row.get("profile_id", "")
-            roblox_user_id = row.get("roblox_user_id", "")
-            cookie         = row.get("cookie_encrypted", "")
-            acc_info       = row.get("account_info") or {}
-            if isinstance(acc_info, str):
-                try: acc_info = json.loads(acc_info)
-                except: acc_info = {}
+            pid_key = row.get("profile_id", "")
+            if pid_key not in by_profile:
+                by_profile[pid_key] = []
+            by_profile[pid_key].append(row)
 
-            username = acc_info.get("displayName") or acc_info.get("username") or roblox_user_id
+        # Profiles that need phase 2 after phase 1 completes
+        phase2_profiles: list = []
 
-            if not cookie:
-                valid = False
-            else:
-                valid = await _check_cookie_valid(cookie)
-
+        for profile_id, profile_rows in by_profile.items():
             if profile_id not in _sanity_results:
                 _sanity_results[profile_id] = {}
 
-            was_valid = _sanity_results[profile_id].get(roblox_user_id, {}).get("valid", True)
-            _sanity_results[profile_id][roblox_user_id] = {
-                "valid":      valid,
-                "checked_at": time.time(),
-                "username":   username,
-                "userId":     roblox_user_id,
-            }
+            # Validate all cookies for this profile
+            for row in profile_rows:
+                roblox_user_id = row.get("roblox_user_id", "")
+                cookie         = row.get("cookie_encrypted", "")
+                acc_info       = row.get("account_info") or {}
+                if isinstance(acc_info, str):
+                    try: acc_info = json.loads(acc_info)
+                    except: acc_info = {}
 
-            status_str = "VALID" if valid else "EXPIRED"
-            sentinel_log(f"Sanity [{profile_id[:8]}] {username} ({roblox_user_id}): {status_str}", "INFO", "SANITY")
+                username = acc_info.get("displayName") or acc_info.get("username") or roblox_user_id
 
-            # Check if this is the active session's cookie
-            session = _sessions.get(profile_id)
-            if session and session.cookie and not valid:
-                active_uid = str((session.account_info or {}).get("userId", ""))
-                if active_uid == str(roblox_user_id):
-                    # Cookie just expired for the active account — send email alert
-                    if was_valid:  # only send once per expiry event
+                valid = await _check_cookie_valid(cookie) if cookie else False
+
+                was_valid = _sanity_results[profile_id].get(roblox_user_id, {}).get("valid", True)
+                _sanity_results[profile_id][roblox_user_id] = {
+                    "valid":      valid,
+                    "checked_at": time.time(),
+                    "username":   username,
+                    "userId":     roblox_user_id,
+                    "cookie":     cookie,       # kept in memory only, never sent to frontend
+                    "acc_info":   acc_info,
+                }
+                sentinel_log(
+                    f"Sanity P1 [{profile_id[:8]}] {username} ({roblox_user_id}): "
+                    f"{'VALID' if valid else 'EXPIRED'}",
+                    "INFO", "SANITY"
+                )
+
+                # ── Detect active-account expiry ──────────────────────────────
+                session = _sessions.get(profile_id)
+                if session and session.cookie and not valid:
+                    active_uid = str((session.account_info or {}).get("userId", ""))
+                    if active_uid == str(roblox_user_id) and was_valid:
+                        # Active account JUST expired — attempt auto-switch
                         sentinel_log(
-                            f"ALERT: Active session cookie expired for profile {profile_id} "
-                            f"account {username} ({roblox_user_id})",
+                            f"ALERT: Active cookie expired for profile {profile_id} "
+                            f"account {username} ({roblox_user_id}) — attempting auto-switch",
                             "ERROR", "SANITY"
                         )
+                        switched_to = await _try_switch_account(profile_id, roblox_user_id, profile_rows)
                         if ADMIN_EMAIL:
-                            _send_cookie_expired_email(profile_id, username, roblox_user_id)
+                            _send_cookie_expired_email(
+                                profile_id, username, roblox_user_id, switched_to
+                            )
+
+            # ── Determine if phase 2 should run for this profile ──────────────
+            session = _sessions.get(profile_id)
+            if session and session.cookie and session.monitoring:
+                # Only run phase 2 if we have a valid active account
+                active_uid = str((session.account_info or {}).get("userId", ""))
+                acct_result = _sanity_results[profile_id].get(active_uid, {})
+                if acct_result.get("valid", False):
+                    phase2_profiles.append(profile_id)
+                else:
+                    sentinel_log(
+                        f"Sanity Phase 2 skipped for {profile_id[:8]} — no valid active account",
+                        "INFO", "SANITY"
+                    )
+            else:
+                reason = "no active account" if not (session and session.cookie) else "monitoring is OFF"
+                sentinel_log(
+                    f"Sanity Phase 2 skipped for {profile_id[:8]} — {reason}",
+                    "INFO", "SANITY"
+                )
 
         _sanity_last_run = time.time()
-        sentinel_log("Sanity check complete", "INFO", "SANITY")
+        sentinel_log("Sanity Phase 1 complete", "INFO", "SANITY")
+
+        # ── PHASE 2: Activity check ───────────────────────────────────────────
+        for profile_id in phase2_profiles:
+            await _run_phase2_activity_check(profile_id)
+
+        sentinel_log("Sanity check complete (all phases)", "INFO", "SANITY")
+
     except Exception as e:
         sentinel_log(f"Sanity check unexpected error: {e}", "ERROR", "SANITY")
     finally:
         _sanity_running = False
 
-def _send_cookie_expired_email(profile_id: str, username: str, roblox_user_id: str):
-    """Send an email alert that the active account's cookie has expired."""
-    subject = "[SENTINEL] ⚠ Cookie Expired — Monitoring Inactive"
+
+async def _try_switch_account(profile_id: str, expired_uid: str, all_rows: list) -> Optional[dict]:
+    """
+    Attempt to switch the active session to another saved account with a valid cookie.
+    Returns account info dict of the new account if switched, None if no valid account found.
+    """
+    session = _sessions.get(profile_id)
+    if not session:
+        return None
+
+    # Find the first valid account that isn't the expired one
+    profile_results = _sanity_results.get(profile_id, {})
+    for uid, result in profile_results.items():
+        if uid == expired_uid:
+            continue
+        if result.get("valid") and result.get("cookie"):
+            new_cookie   = result["cookie"]
+            new_acc_info = result.get("acc_info", {})
+            new_username = result.get("username", uid)
+            try:
+                # Re-validate just to be sure
+                still_valid = await _check_cookie_valid(new_cookie)
+                if not still_valid:
+                    continue
+                # Switch session
+                session.cookie       = new_cookie
+                session.account_info = new_acc_info
+                sentinel_log(
+                    f"Auto-switched profile {profile_id[:8]} from expired {expired_uid} "
+                    f"to {new_username} ({uid})",
+                    "INFO", "SANITY"
+                )
+                return {"username": new_username, "userId": uid, "acc_info": new_acc_info}
+            except Exception as e:
+                sentinel_log(f"Auto-switch error for uid {uid}: {e}", "WARN", "SANITY")
+                continue
+
+    # No valid account found — clear the session cookie so monitoring stops cleanly
+    session.cookie       = None
+    session.account_info = None
+    if session.monitoring:
+        session.monitoring = False
+        if session.monitor_task:
+            session.monitor_task.cancel()
+            try: await session.monitor_task
+            except: pass
+            session.monitor_task = None
+        set_cfg(profile_id, "_monitoringActive", False)
+        sentinel_log(
+            f"No valid fallback account for {profile_id[:8]} — monitoring stopped",
+            "ERROR", "SANITY"
+        )
+    return None
+
+
+async def _run_phase2_activity_check(profile_id: str):
+    """
+    Phase 2 — Activity sanity check.
+    Briefly pauses monitoring for 5 seconds then restarts it.
+    Updates _sanity_phase2_state so the frontend can show the grayed-out toggle + countdown.
+    """
+    session = _sessions.get(profile_id)
+    if not session or not session.monitoring or not session.cookie:
+        sentinel_log(f"Phase 2 skipped for {profile_id[:8]} — preconditions not met at start", "INFO", "SANITY")
+        return
+
+    sentinel_log(f"Sanity Phase 2 started for {profile_id[:8]} — activity check", "INFO", "SANITY")
+
+    # Mark phase 2 as active so frontend grays out toggle
+    _sanity_phase2_state[profile_id] = {"active": True, "countdown": 5}
+
+    try:
+        # Pause monitoring
+        session.monitoring = False
+        if session.monitor_task:
+            session.monitor_task.cancel()
+            try: await session.monitor_task
+            except: pass
+            session.monitor_task = None
+
+        # Countdown — update state each second so frontend gets live countdown
+        for remaining in range(5, 0, -1):
+            _sanity_phase2_state[profile_id]["countdown"] = remaining
+            await asyncio.sleep(1)
+
+        # Restart monitoring
+        session.monitoring   = True
+        session.monitor_task = asyncio.create_task(monitor_loop(profile_id))
+        sentinel_log(f"Sanity Phase 2 complete for {profile_id[:8]} — monitoring restarted", "INFO", "SANITY")
+
+    except Exception as e:
+        sentinel_log(f"Phase 2 error for {profile_id[:8]}: {e}", "ERROR", "SANITY")
+        # Best-effort restart on error
+        try:
+            if session.cookie and not session.monitoring:
+                session.monitoring   = True
+                session.monitor_task = asyncio.create_task(monitor_loop(profile_id))
+        except Exception:
+            pass
+    finally:
+        _sanity_phase2_state[profile_id] = {"active": False, "countdown": 0}
+
+
+def _send_cookie_expired_email(
+    profile_id: str,
+    username: str,
+    roblox_user_id: str,
+    switched_to: Optional[dict],
+):
+    """Send an email alert that the active account's cookie has expired.
+    If switched_to is provided, the email mentions the auto-switch.
+    If None, the email warns that no valid account was available."""
+
+    if switched_to:
+        subject     = "[SENTINEL] ⚠ Cookie Expired — Auto-Switched Account"
+        new_name    = switched_to.get("username", "Unknown")
+        new_uid     = switched_to.get("userId", "—")
+        status_block = f"""
+  <div style="background:rgba(100,200,120,0.08);border:1px solid rgba(100,200,120,0.3);border-radius:8px;padding:16px;margin-bottom:20px;">
+    <div style="color:#6ade80;font-weight:700;font-size:14px;letter-spacing:2px;margin-bottom:8px;">✓ AUTO-SWITCHED</div>
+    <div style="color:#ccc;font-size:13px;line-height:1.6;">
+      Sentinel automatically switched to another saved account with a valid cookie.
+      Monitoring is <strong style="color:#6ade80;">continuing</strong> under the new account.
+    </div>
+  </div>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:12px;">
+    <tr><td style="color:#888;padding:4px 0;width:140px;font-size:12px;">Switched To</td><td style="color:#fff;font-weight:600;">{new_name}</td></tr>
+    <tr><td style="color:#888;padding:4px 0;font-size:12px;">New Account UID</td><td style="color:#aaa;font-size:12px;">{new_uid}</td></tr>
+  </table>"""
+    else:
+        subject     = "[SENTINEL] ⚠ Cookie Expired — No Valid Account — Monitoring INACTIVE"
+        status_block = f"""
+  <div style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:8px;padding:16px;margin-bottom:20px;">
+    <div style="color:#ff6b6b;font-weight:700;font-size:14px;letter-spacing:2px;margin-bottom:8px;">⚠ NO VALID FALLBACK ACCOUNT</div>
+    <div style="color:#ccc;font-size:13px;line-height:1.6;">
+      The active cookie expired and Sentinel found <strong style="color:#ff6b6b;">no other saved accounts with a valid cookie</strong> to automatically switch to.
+      Monitoring is now <strong style="color:#ff6b6b;">INACTIVE</strong> and will not resume until you re-add a valid account.
+    </div>
+  </div>"""
+
     html = f"""
 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;border:1px solid rgba(255,59,59,0.3);">
   <h2 style="color:#fff;letter-spacing:4px;margin-top:0;font-size:20px;">SENTINEL</h2>
-  <div style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:8px;padding:16px;margin-bottom:20px;">
-    <div style="color:#ff6b6b;font-weight:700;font-size:14px;letter-spacing:2px;margin-bottom:8px;">⚠ COOKIE EXPIRED</div>
-    <div style="color:#ccc;font-size:13px;line-height:1.6;">
-      The active Roblox account cookie has expired. Sentinel is now <strong style="color:#ff6b6b;">INACTIVE</strong> and will not archive new assets until you re-add the account.
-    </div>
-  </div>
-  <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
-    <tr><td style="color:#888;padding:6px 0;width:120px;font-size:12px;">Profile ID</td><td style="color:#aaa;font-size:12px;">{profile_id}</td></tr>
-    <tr><td style="color:#888;padding:6px 0;font-size:12px;">Account</td><td style="color:#fff;font-weight:600;">{username}</td></tr>
-    <tr><td style="color:#888;padding:6px 0;font-size:12px;">Roblox UID</td><td style="color:#aaa;font-size:12px;">{roblox_user_id}</td></tr>
-    <tr><td style="color:#888;padding:6px 0;font-size:12px;">Detected At</td><td style="color:#aaa;font-size:12px;">{datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}</td></tr>
+  {status_block}
+  <div style="font-family:monospace;font-size:11px;color:#888;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">Expired Account</div>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:20px;background:rgba(255,255,255,0.03);border-radius:6px;padding:12px;">
+    <tr><td style="color:#888;padding:6px 8px;width:120px;font-size:12px;">Profile ID</td><td style="color:#aaa;font-size:12px;padding:6px 8px;">{profile_id}</td></tr>
+    <tr><td style="color:#888;padding:6px 8px;font-size:12px;">Account</td><td style="color:#fff;font-weight:600;padding:6px 8px;">{username}</td></tr>
+    <tr><td style="color:#888;padding:6px 8px;font-size:12px;">Roblox UID</td><td style="color:#aaa;font-size:12px;padding:6px 8px;">{roblox_user_id}</td></tr>
+    <tr><td style="color:#888;padding:6px 8px;font-size:12px;">Detected At</td><td style="color:#aaa;font-size:12px;padding:6px 8px;">{datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}</td></tr>
   </table>
-  <p style="color:#888;font-size:12px;line-height:1.6;">
-    Log in to your Sentinel dashboard, remove the expired account, and re-add it with a fresh cookie to resume monitoring.
-  </p>
-  <p style="color:#555;font-size:10px;letter-spacing:1px;">SENTINEL AUTOMATED ALERT · SANITY CHECK SYSTEM</p>
+  <p style="color:#555;font-size:10px;letter-spacing:1px;">SENTINEL AUTOMATED ALERT · SANITY CHECK SYSTEM · PHASE 1</p>
 </div>"""
     try:
         send_email(ADMIN_EMAIL, subject, html)
@@ -860,7 +1050,6 @@ def _send_cookie_expired_email(profile_id: str, username: str, roblox_user_id: s
 
 async def sanity_check_loop():
     """Background task: run sanity check immediately on startup, then every 5 minutes."""
-    # Run immediately on startup
     sentinel_log("Running initial sanity check on startup", "INFO", "SANITY")
     await run_sanity_check()
     while True:
@@ -2650,22 +2839,38 @@ def health():
 @app.get("/api/sanity-check/status")
 def api_sanity_status(profile_id: str = ""):
     """Return sanity check results for a profile's saved accounts.
-    Returns per-account validity + global check state (running, last_run)."""
-    results = _sanity_results.get(profile_id, {}) if profile_id else {}
-    # Attach whether the active session's cookie matches an expired one
+    Returns per-account validity + global check state (running, last_run, phase2)."""
+    # Strip internal-only fields (cookie, acc_info) before sending to frontend
+    raw_results = _sanity_results.get(profile_id, {}) if profile_id else {}
+    safe_results = {}
+    for uid, data in raw_results.items():
+        safe_results[uid] = {
+            "valid":      data.get("valid", True),
+            "checked_at": data.get("checked_at", 0),
+            "username":   data.get("username", uid),
+            "userId":     data.get("userId", uid),
+        }
+
+    # Determine if active account is expired
     active_expired = False
     if profile_id:
         session = _sessions.get(profile_id)
         if session and session.account_info:
-            active_uid = str(session.account_info.get("userId", ""))
-            acct_result = results.get(active_uid, {})
+            active_uid  = str(session.account_info.get("userId", ""))
+            acct_result = raw_results.get(active_uid, {})
             if acct_result and not acct_result.get("valid", True):
                 active_expired = True
+
+    # Phase 2 state for this profile
+    p2 = _sanity_phase2_state.get(profile_id, {"active": False, "countdown": 0})
+
     return {
-        "running":        _sanity_running,
-        "last_run":       _sanity_last_run,
-        "accounts":       results,
-        "active_expired": active_expired,
+        "running":          _sanity_running,
+        "last_run":         _sanity_last_run,
+        "accounts":         safe_results,
+        "active_expired":   active_expired,
+        "phase2_active":    p2.get("active", False),
+        "phase2_countdown": p2.get("countdown", 0),
     }
 
 @app.post("/api/sanity-check/run")
