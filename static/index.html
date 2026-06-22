@@ -834,8 +834,52 @@
   }
   #monitor-health-banner .mhb-restart:hover { background: rgba(255,160,50,0.16); }
 
+  /* ── SANITY CHECK INDICATOR ── */
+  #sanity-indicator {
+    display: none; align-items: center; gap: 7px;
+    padding: 5px 12px; border: 1px solid var(--border);
+    background: var(--surface); border-radius: 6px;
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--text-dimmer); letter-spacing: 1px;
+    cursor: default; transition: all 0.3s;
+  }
+  #sanity-indicator.visible { display: flex; }
+  #sanity-indicator.running {
+    border-color: rgba(240,192,64,0.3);
+    background: rgba(240,192,64,0.05);
+    color: rgba(240,192,64,0.8);
+  }
+  .sanity-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--text-dimmer); flex-shrink: 0;
+  }
+  #sanity-indicator.running .sanity-dot {
+    background: rgba(240,192,64,0.8);
+    animation: pulse-dot 1s infinite;
+  }
+
+  /* ── COOKIE EXPIRED ACCOUNT STATES ── */
+  .cookie-expired-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 8px; background: rgba(255,59,59,0.1);
+    border: 1px solid rgba(255,59,59,0.3);
+    color: #ff6b6b; font-family: var(--font-mono);
+    font-size: 9px; letter-spacing: 1px; border-radius: 3px;
+    text-transform: uppercase; white-space: nowrap;
+  }
+  .account-row-expired {
+    opacity: 0.55;
+    pointer-events: none;
+  }
+  .account-row-expired .use-btn {
+    pointer-events: none !important;
+    border-color: rgba(255,59,59,0.2) !important;
+    color: #ff6b6b !important;
+    background: rgba(255,59,59,0.04) !important;
+    cursor: not-allowed !important;
+  }
+
 </style>
-</head>
 <body>
 
 <!-- ══════════════════════════════════════════════════
@@ -1352,6 +1396,10 @@
       <div class="status-pill" id="main-status-pill">
         <div class="status-dot" id="main-status-dot"></div>
         <span id="main-status-text">INACTIVE</span>
+      </div>
+      <div id="sanity-indicator" title="Sanity check: validates all account cookies every 5 minutes">
+        <div class="sanity-dot"></div>
+        <span id="sanity-indicator-text">CHECKING</span>
       </div>
       <div class="status-pill" id="ext-status-pill" title="Extension connection status" style="cursor:default;">
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" id="ext-status-icon" style="color:var(--text-dimmer);flex-shrink:0;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
@@ -2165,7 +2213,7 @@ async function loginToProfile(profileData) {
 
   // If saved credentials exist, restore them
   if (profileData.hasCredential && profileData.account) {
-    updateAccountDisplay(profileData.account);
+    updateAccountDisplay(profileData.account, false);
     const connectedSection = document.getElementById('connected-account-section');
     if (connectedSection) connectedSection.style.display = 'block';
   }
@@ -2187,10 +2235,55 @@ async function initApp() {
     refreshSavedAccounts(),
   ]);
   startLiveUpdates();
+  // Kick off initial sanity status fetch (non-blocking)
+  refreshSanityStatus().catch(() => {});
 }
 
 let _liveInterval = null;
 let _prevHistCount = 0;
+
+// ── SANITY CHECK STATE ────────────────────────────────────────────────────────
+let _sanityCacheAccounts = {}; // profile_id -> { uid -> { valid, username, ... } }
+let _sanityActiveExpired = false;
+
+function applySanityIndicator(data) {
+  const indicator = document.getElementById('sanity-indicator');
+  const txt       = document.getElementById('sanity-indicator-text');
+  if (!indicator || !txt) return;
+
+  if (data.running) {
+    indicator.classList.add('visible', 'running');
+    txt.textContent = 'SANITY CHECK';
+  } else if (data.last_run > 0) {
+    const secAgo = Math.floor((Date.now() / 1000) - data.last_run);
+    const label  = secAgo < 60 ? 'JUST NOW' : Math.floor(secAgo / 60) + 'M AGO';
+    indicator.classList.add('visible');
+    indicator.classList.remove('running');
+    txt.textContent = 'CHECKED ' + label;
+    // Auto-hide after 10s from last run if not running
+    if (secAgo > 10) {
+      // Keep visible if there are expired accounts — useful alert
+      const hasExpired = Object.values(data.accounts || {}).some(a => !a.valid);
+      if (!hasExpired) indicator.classList.remove('visible');
+    }
+  } else {
+    indicator.classList.remove('visible', 'running');
+  }
+}
+
+async function refreshSanityStatus() {
+  if (!pid()) return;
+  try {
+    const data = await api('GET', `/api/sanity-check/status?profile_id=${pid()}`);
+    _sanityCacheAccounts = data.accounts || {};
+    _sanityActiveExpired = data.active_expired || false;
+    applySanityIndicator(data);
+
+    // Update active account display if expired state changed
+    const status = await api('GET', `/api/status?profile_id=${pid()}`);
+    if (status.account) updateAccountDisplay(status.account, _sanityActiveExpired);
+  } catch(_) {}
+}
 
 function startLiveUpdates() {
   if (_liveInterval) clearInterval(_liveInterval);
@@ -2202,6 +2295,8 @@ function startLiveUpdates() {
       await refreshStatus();
       await refreshStats();
       if (STATE.monitoring && _tick % 3 === 0) await refreshHistory();
+      // Refresh sanity check status every ~10s (every 5 ticks at 2s interval)
+      if (_tick % 5 === 0) await refreshSanityStatus();
     } catch {}
   }, 2000);
 }
@@ -2211,7 +2306,7 @@ async function refreshStatus() {
   const status = await api('GET', `/api/status?profile_id=${pid()}`);
   applyStatusPill(status);
 
-  if (status.account) updateAccountDisplay(status.account);
+  if (status.account) updateAccountDisplay(status.account, _sanityActiveExpired);
 
   const connectedSection = document.getElementById('connected-account-section');
   const addSection       = document.getElementById('add-account-section');
@@ -2253,12 +2348,27 @@ async function refreshSavedAccounts() {
     }
     section.style.display = 'block';
     list.innerHTML = '';
+
+    // Pull sanity results for this profile so we can show cookie expired state
+    let sanityAccts = {};
+    try {
+      const sc = await api('GET', `/api/sanity-check/status?profile_id=${pid()}`);
+      sanityAccts = sc.accounts || {};
+    } catch(_) {}
+
     accounts.forEach(a => {
       const uid  = String(a.userId  || a.roblox_user_id || '');
       const name = String(a.displayName || a.username || 'Unknown');
       const user = String(a.username || '');
+
+      // Check if this account's cookie is expired per sanity check
+      const sanityInfo = sanityAccts[uid];
+      const cookieExpired = sanityInfo && sanityInfo.valid === false;
+
       const row  = document.createElement('div');
       row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;';
+      if (cookieExpired) row.style.opacity = '0.6';
+
       row.innerHTML = `
         <div style="width:32px;height:32px;border-radius:50%;overflow:hidden;border:1px solid var(--border);flex-shrink:0;background:var(--surface3);display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:700;font-size:12px;color:rgba(255,255,255,0.5);">
           ${a.avatarUrl ? `<img src="${esc(a.avatarUrl)}" style="width:100%;height:100%;object-fit:cover;">` : esc(name.charAt(0))}
@@ -2267,12 +2377,17 @@ async function refreshSavedAccounts() {
           <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(name)}</div>
           <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);">@${esc(user)} · UID ${esc(uid)}</div>
         </div>
-        <div style="display:flex;gap:6px;flex-shrink:0;">
-          <button class="btn btn-sm btn-primary use-btn" style="font-size:10px;padding:4px 10px;">Use</button>
+        <div style="display:flex;gap:6px;flex-shrink:0;align-items:center;">
+          ${cookieExpired
+            ? `<span class="cookie-expired-badge">⚠ Cookie Expired</span>`
+            : `<button class="btn btn-sm btn-primary use-btn" style="font-size:10px;padding:4px 10px;">Use</button>`
+          }
           <button class="btn btn-sm btn-danger remove-btn" style="font-size:10px;padding:4px 8px;">✕</button>
         </div>`;
-      // Attach listeners safely — no string interpolation into onclick
-      row.querySelector('.use-btn').addEventListener('click', () => activateAccount(uid));
+
+      if (!cookieExpired) {
+        row.querySelector('.use-btn').addEventListener('click', () => activateAccount(uid));
+      }
       row.querySelector('.remove-btn').addEventListener('click', () => removeAccount(uid, name));
       list.appendChild(row);
     });
@@ -2418,19 +2533,22 @@ function applyMonitoringUI(on) {
   STATE.monitoring = on;
 }
 
-function updateAccountDisplay(acc) {
+function updateAccountDisplay(acc, cookieExpired) {
   const el = document.getElementById('conn-account-display');
   if (!el) return;
   if (!acc) {
     el.innerHTML = '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-dimmer);">No active account — select one below or add a new account</span>';
     return;
   }
+  const statusBadge = cookieExpired
+    ? `<span style="color:#ff6b6b;margin-left:6px;font-family:var(--font-mono);font-size:10px;background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);padding:2px 7px;border-radius:3px;letter-spacing:1px;">⚠ COOKIE EXPIRED</span>`
+    : `<span style="color:rgba(100,255,160,0.7);margin-left:6px;">● ACTIVE</span>`;
   el.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;">
       ${acc.avatarUrl ? `<img src="${esc(acc.avatarUrl)}" style="width:34px;height:34px;border-radius:50%;border:1px solid rgba(255,255,255,0.18);">` : ''}
       <div>
         <div style="font-weight:600;font-size:13px;">${esc(acc.displayName)}</div>
-        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);">@${esc(acc.username)} · UID ${esc(acc.userId)} <span style="color:rgba(100,255,160,0.7);margin-left:6px;">● ACTIVE</span></div>
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dimmer);">@${esc(acc.username)} · UID ${esc(acc.userId)} ${statusBadge}</div>
       </div>
     </div>`;
 }
