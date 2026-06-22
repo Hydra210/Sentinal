@@ -879,6 +879,39 @@
     cursor: not-allowed !important;
   }
 
+  /* ── PHASE 2 ACTIVITY CHECK — monitor toggle lockout ── */
+  #activity-check-row {
+    display: none; align-items: center; gap: 10px;
+    margin-top: 2px; margin-bottom: 8px;
+    padding: 8px 12px;
+    background: rgba(240,192,64,0.05);
+    border: 1px solid rgba(240,192,64,0.2);
+    border-radius: 6px;
+  }
+  #activity-check-row.visible { display: flex; }
+  .activity-check-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: rgba(240,192,64,0.8);
+    flex-shrink: 0;
+    animation: pulse-dot 0.8s infinite;
+  }
+  .activity-check-label {
+    font-family: var(--font-mono); font-size: 10px;
+    color: rgba(240,192,64,0.9); letter-spacing: 1px;
+    flex: 1;
+  }
+  .activity-check-countdown {
+    font-family: var(--font-display); font-size: 14px;
+    font-weight: 800; color: rgba(240,192,64,0.9);
+    min-width: 18px; text-align: center;
+  }
+  /* grayed toggle during phase 2 */
+  .toggle-sw.phase2-locked {
+    opacity: 0.35 !important;
+    pointer-events: none !important;
+    cursor: not-allowed !important;
+  }
+
 </style>
 <body>
 
@@ -1460,6 +1493,13 @@
             <div class="toggle-row">
               <div><div class="toggle-label">Active Monitoring</div><div class="toggle-desc">Polls groups for new uploads</div></div>
               <div class="toggle-sw" id="monitor-toggle" onclick="toggleMonitor(this)"></div>
+            </div>
+            <!-- Phase 2 activity check indicator — shown during sanity check phase 2 -->
+            <div id="activity-check-row">
+              <div class="activity-check-dot"></div>
+              <span class="activity-check-label">PERFORMING ACTIVITY SANITY CHECK</span>
+              <span class="activity-check-countdown" id="activity-check-countdown">5</span>
+              <span style="font-family:var(--font-mono);font-size:9px;color:rgba(240,192,64,0.5);">SEC</span>
             </div>
             <div class="toggle-row">
               <div><div class="toggle-label">Archive Existing Assets</div><div class="toggle-desc">Also archive assets already in group on start</div></div>
@@ -2279,6 +2319,22 @@ async function refreshSanityStatus() {
     _sanityActiveExpired = data.active_expired || false;
     applySanityIndicator(data);
 
+    // ── Phase 2 activity check UI ─────────────────────────────────────────
+    const actRow       = document.getElementById('activity-check-row');
+    const actCountdown = document.getElementById('activity-check-countdown');
+    const toggle       = document.getElementById('monitor-toggle');
+
+    if (data.phase2_active) {
+      // Show the activity check row and lock the toggle
+      if (actRow)       actRow.classList.add('visible');
+      if (actCountdown) actCountdown.textContent = data.phase2_countdown ?? 5;
+      if (toggle)       toggle.classList.add('phase2-locked');
+    } else {
+      // Hide the row and unlock toggle
+      if (actRow)  actRow.classList.remove('visible');
+      if (toggle)  toggle.classList.remove('phase2-locked');
+    }
+
     // Update active account display if expired state changed
     const status = await api('GET', `/api/status?profile_id=${pid()}`);
     if (status.account) updateAccountDisplay(status.account, _sanityActiveExpired);
@@ -2287,7 +2343,6 @@ async function refreshSanityStatus() {
 
 function startLiveUpdates() {
   if (_liveInterval) clearInterval(_liveInterval);
-  // Fast 2s live stats + status; history every 5s when monitoring
   let _tick = 0;
   _liveInterval = setInterval(async () => {
     _tick++;
@@ -2295,8 +2350,10 @@ function startLiveUpdates() {
       await refreshStatus();
       await refreshStats();
       if (STATE.monitoring && _tick % 3 === 0) await refreshHistory();
-      // Refresh sanity check status every ~10s (every 5 ticks at 2s interval)
-      if (_tick % 5 === 0) await refreshSanityStatus();
+      // Poll sanity status every 2s when phase 2 is active (countdown needs to feel live)
+      // Otherwise every ~10s is fine
+      const p2Running = document.getElementById('activity-check-row')?.classList.contains('visible');
+      if (p2Running || _tick % 5 === 0) await refreshSanityStatus();
     } catch {}
   }, 2000);
 }
