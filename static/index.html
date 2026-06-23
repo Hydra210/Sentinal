@@ -10,34 +10,42 @@
 
   :root {
     --bg: #0a0a0a;
-    --surface: #111111;
-    --surface2: #181818;
-    --surface3: #202020;
-    --border: rgba(255,255,255,0.07);
-    --border-bright: rgba(255,255,255,0.18);
+    --surface: rgba(30, 30, 30, 0.72);
+    --surface2: rgba(38, 38, 38, 0.68);
+    --surface3: rgba(48, 48, 48, 0.65);
+    --border: rgba(255,255,255,0.11);
+    --border-bright: rgba(255,255,255,0.26);
     --accent: #ffffff;
     --accent3: #ff3b3b;
     --warn: #f0c040;
     --text: #e8e8e8;
-    --text-dim: rgba(232,232,232,0.45);
-    --text-dimmer: rgba(232,232,232,0.22);
+    --text-dim: rgba(232,232,232,0.52);
+    --text-dimmer: rgba(232,232,232,0.28);
     --font-mono: 'DM Mono', monospace;
     --font-ui: 'Outfit', sans-serif;
     --font-display: 'Syne', sans-serif;
   }
 
-  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font-ui); font-size: 15px; overflow: hidden; }
+  html, body { height: 100%; background: #000; color: var(--text); font-family: var(--font-ui); font-size: 15px; overflow: hidden; }
+
+  /* ── VIDEO BACKGROUND ── */
+  #bg-video {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; object-position: center;
+    z-index: 0; pointer-events: none;
+  }
+
+  /* dim overlay so content stays readable */
+  #bg-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 0; pointer-events: none;
+  }
 
   body::after {
     content: ''; position: fixed; inset: 0;
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
     pointer-events: none; z-index: 9999; opacity: 0.4;
-  }
-
-  #grid-bg {
-    position: fixed; inset: 0;
-    background-image: linear-gradient(rgba(255,255,255,0.025) 1px,transparent 1px), linear-gradient(90deg,rgba(255,255,255,0.025) 1px,transparent 1px);
-    background-size: 56px 56px; pointer-events: none; z-index: 0;
   }
 
   .corner-decor { position: fixed; width: 80px; height: 80px; pointer-events: none; z-index: 2; }
@@ -58,7 +66,7 @@
   #topbar {
     display: flex; align-items: center; justify-content: space-between;
     padding: 12px 28px; border-bottom: 1px solid var(--border);
-    background: rgba(10,10,10,0.96); backdrop-filter: blur(16px); flex-shrink: 0;
+    background: rgba(10,10,10,0.75); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); flex-shrink: 0;
   }
 
   .logo-lockup { display: flex; align-items: center; gap: 14px; }
@@ -86,7 +94,7 @@
   .profile-pill-name { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); letter-spacing: 1px; }
 
   /* ── NAV ── */
-  #nav { display: flex; gap: 2px; padding: 0 28px; background: rgba(10,10,10,0.92); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  #nav { display: flex; gap: 2px; padding: 0 28px; background: rgba(10,10,10,0.70); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); flex-shrink: 0; }
   .nav-tab { padding: 11px 22px; font-family: var(--font-display); font-size: 13px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--text-dimmer); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.25s; background: none; border-top: none; border-left: none; border-right: none; white-space: nowrap; }
   .nav-tab:hover { color: var(--text); }
   .nav-tab.active { color: #fff; border-bottom-color: #fff; }
@@ -104,8 +112,8 @@
   ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
 
   /* ── CARDS ── */
-  .card { background: var(--surface); border: 1px solid var(--border); padding: 20px; border-radius: 12px; transition: border-color 0.25s, box-shadow 0.25s; }
-  .card:hover { border-color: rgba(255,255,255,0.14); box-shadow: 0 4px 32px rgba(0,0,0,0.4); }
+  .card { background: var(--surface); border: 1px solid var(--border); padding: 20px; border-radius: 12px; transition: border-color 0.25s, box-shadow 0.25s; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+  .card:hover { border-color: rgba(255,255,255,0.18); box-shadow: 0 4px 32px rgba(0,0,0,0.4); }
 
   .section-title { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: rgba(255,255,255,0.6); margin-bottom: 18px; display: flex; align-items: center; gap: 12px; }
   .section-title::before { content: ''; display: inline-block; width: 16px; height: 1px; background: rgba(255,255,255,0.35); }
@@ -158,7 +166,7 @@
   .badge-info { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.1); }
 
   /* ── STAT CARDS ── */
-  .stat-card { background: var(--surface); border: 1px solid var(--border); padding: 18px 20px; border-radius: 10px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); padding: 18px 20px; border-radius: 10px; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
   .stat-value { font-family: var(--font-display); font-size: 36px; font-weight: 800; color: #fff; line-height: 1; }
   .stat-label { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); letter-spacing: 2px; text-transform: uppercase; margin-top: 6px; }
 
@@ -202,7 +210,7 @@
   /* ── MODAL ── */
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 500; display: none; align-items: center; justify-content: center; padding: 20px; }
   .modal-overlay.open { display: flex; }
-  .modal-box { background: var(--surface); border: 1px solid rgba(255,255,255,0.12); padding: 32px; width: 100%; max-width: 520px; max-height: 85vh; overflow-y: auto; position: relative; border-radius: 14px; box-shadow: 0 24px 80px rgba(0,0,0,0.7); animation: fadeIn 0.2s ease; }
+  .modal-box { background: var(--surface); border: 1px solid rgba(255,255,255,0.14); padding: 32px; width: 100%; max-width: 520px; max-height: 85vh; overflow-y: auto; position: relative; border-radius: 14px; box-shadow: 0 24px 80px rgba(0,0,0,0.7); animation: fadeIn 0.2s ease; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
   .modal-close { position: absolute; top: 16px; right: 16px; background: none; border: 1px solid var(--border); color: var(--text-dim); width: 28px; height: 28px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; border-radius: 6px; z-index: 10; }
   .modal-close:hover { border-color: rgba(255,59,59,0.4); color: #ff6b6b; }
 
@@ -219,7 +227,7 @@
   .profile-screen-logo .big-sub { font-family: var(--font-mono); font-size: 10px; color: var(--text-dimmer); letter-spacing: 3px; margin-top: 6px; }
 
   .profile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 16px; width: 100%; max-width: 700px; margin-bottom: 24px; }
-  .profile-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px 16px; text-align: center; cursor: pointer; transition: all 0.25s; }
+  .profile-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px 16px; text-align: center; cursor: pointer; transition: all 0.25s; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
   .profile-card:hover { border-color: rgba(255,255,255,0.25); background: var(--surface2); transform: translateY(-2px); }
   .profile-card.add-card { border-style: dashed; border-color: rgba(255,255,255,0.1); }
   .profile-card.add-card:hover { border-color: rgba(255,255,255,0.25); }
@@ -915,6 +923,12 @@
 </style>
 <body>
 
+<!-- ── VIDEO BACKGROUND ── -->
+<video id="bg-video" autoplay muted loop playsinline>
+  <source src="https://pub-a17495cad61f41da8d8e455e1292573b.r2.dev/bg.mp4" type="video/mp4">
+</video>
+<div id="bg-overlay"></div>
+
 <!-- ══════════════════════════════════════════════════
      SENTINEL VAULT — Ctrl+Shift+B  (works on any screen)
 ══════════════════════════════════════════════════ -->
@@ -1052,7 +1066,6 @@
 
 <!-- ── PROFILE SELECTOR SCREEN ── -->
 <div id="profile-screen">
-  <div id="grid-bg"></div>
   <div class="corner-decor tl"></div><div class="corner-decor tr"></div>
   <div class="corner-decor bl"></div><div class="corner-decor br"></div>
 
@@ -1405,7 +1418,6 @@
 
 <!-- ── MAIN APP ── -->
 <div id="app">
-  <div id="grid-bg"></div>
   <div class="corner-decor tl"></div><div class="corner-decor tr"></div>
   <div class="corner-decor bl"></div><div class="corner-decor br"></div>
 
@@ -2419,8 +2431,10 @@ async function refreshSavedAccounts() {
       const user = String(a.username || '');
 
       // Check if this account's cookie is expired per sanity check
-      const sanityInfo = sanityAccts[uid];
-      const cookieExpired = sanityInfo && sanityInfo.valid === false;
+      // A MISSING entry means the account is new and hasn't been checked yet — treat as valid.
+      // Only mark expired if the entry exists AND explicitly says valid: false.
+      const sanityInfo    = sanityAccts[uid];
+      const cookieExpired = sanityInfo != null && sanityInfo.valid === false;
 
       const row  = document.createElement('div');
       row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;';
@@ -4339,23 +4353,6 @@ function animateCounter(el, target) {
     const v = parseInt(el.textContent);
     if (!isNaN(v)) animateCounter(el, v);
   }).observe(el, { childList: true, characterData: true, subtree: true });
-});
-
-/* ── PROFILE SCREEN GRID — CSS-only ambient glow via throttled background update ── */
-let gridMoveTimer = null;
-document.addEventListener('mousemove', e => {
-  if (gridMoveTimer) return;
-  gridMoveTimer = setTimeout(() => {
-    gridMoveTimer = null;
-    const ps = document.getElementById('profile-screen');
-    if (!ps || ps.classList.contains('hidden')) return;
-    const gb = ps.querySelector('#grid-bg');
-    if (!gb) return;
-    const px = (e.clientX / window.innerWidth  * 100).toFixed(1);
-    const py = (e.clientY / window.innerHeight * 100).toFixed(1);
-    gb.style.backgroundImage = `radial-gradient(ellipse 500px 350px at ${px}% ${py}%,rgba(255,255,255,0.022) 0%,transparent 70%),linear-gradient(rgba(255,255,255,0.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.025) 1px,transparent 1px)`;
-    gb.style.backgroundSize = '100% 100%,56px 56px,56px 56px';
-  }, 40); // throttle to 25fps max
 });
 
 })();
