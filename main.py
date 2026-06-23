@@ -751,6 +751,22 @@ async def _check_cookie_valid(cookie: str) -> bool:
     except Exception:
         return False
 
+def _sanity_mark_valid(profile_id: str, roblox_user_id: str, username: str, cookie: str, acc_info: dict):
+    """Immediately mark an account as valid in the sanity results cache.
+    Called whenever a new account is added or activated so the UI doesn't show
+    it as expired before the next scheduled sanity check runs."""
+    if profile_id not in _sanity_results:
+        _sanity_results[profile_id] = {}
+    _sanity_results[profile_id][str(roblox_user_id)] = {
+        "valid":      True,
+        "checked_at": time.time(),
+        "username":   username,
+        "userId":     str(roblox_user_id),
+        "cookie":     cookie,
+        "acc_info":   acc_info,
+    }
+    sentinel_log(f"Sanity cache: marked {username} ({roblox_user_id}) as VALID after account add/activate", "DEBUG", "SANITY")
+
 async def run_sanity_check():
     """
     Full sanity check — two phases run back-to-back per profile.
@@ -1892,6 +1908,14 @@ async def api_save_pending(body: MonitorBody):
         cur.close(); release_pg(conn)
     session.pending_save      = False
     session.pending_save_info = None
+    # Immediately mark valid in sanity cache — cookie was just verified before pending
+    _sanity_mark_valid(
+        body.profile_id,
+        uid,
+        clean_info.get("displayName") or clean_info.get("username") or uid,
+        cookie,
+        clean_info,
+    )
     return {"saved": True, "account": clean_info}
 
 @app.post("/api/credentials/dismiss-pending")
@@ -2084,6 +2108,14 @@ async def api_manual_cookie(body: ManualCookieBody):
     session = get_session(body.profile_id)
     session.cookie       = body.cookie
     session.account_info = info
+    # Immediately mark valid in sanity cache — don't wait for next scheduled check
+    _sanity_mark_valid(
+        body.profile_id,
+        roblox_uid,
+        info.get("displayName") or info.get("username") or str(roblox_uid),
+        body.cookie,
+        info,
+    )
     cfg_check = get_config(body.profile_id)
     should_start = cfg_check.get("_monitoringActive") or cfg_check.get("autoStartMonitoring")
     if should_start and not session.monitoring:
@@ -2126,6 +2158,15 @@ async def api_relink_saved(body: RelinkSavedBody):
     session = get_session(body.profile_id)
     session.cookie       = cookie
     session.account_info = info
+    # Immediately mark valid in sanity cache
+    roblox_uid_str = str(info.get("userId", body.roblox_user_id))
+    _sanity_mark_valid(
+        body.profile_id,
+        roblox_uid_str,
+        info.get("displayName") or info.get("username") or roblox_uid_str,
+        cookie,
+        info,
+    )
     cfg_check = get_config(body.profile_id)
     should_start = cfg_check.get("_monitoringActive") or cfg_check.get("autoStartMonitoring")
     if should_start and not session.monitoring:
