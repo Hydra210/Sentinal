@@ -991,9 +991,11 @@ async def _run_phase2_activity_check(profile_id: str):
             _sanity_phase2_state[profile_id]["countdown"] = remaining
             await asyncio.sleep(1)
 
-        # Restart monitoring
+        # Restart monitoring — clear unsupported cache so next cycle retries all types fresh
+        _unsupported_group_types.clear()
         session.monitoring   = True
         session.monitor_task = asyncio.create_task(monitor_loop(profile_id))
+        set_cfg(profile_id, "_monitoringActive", True)
         sentinel_log(f"Sanity Phase 2 complete for {profile_id[:8]} — monitoring restarted", "INFO", "SANITY")
 
     except Exception as e:
@@ -1155,11 +1157,17 @@ async def rblx_get(url: str, *, cookie=None, params=None) -> httpx.Response:
 _csrf_cache: dict = {}
 # Tracks (group_id, asset_type) pairs that consistently 403 on the listing endpoint.
 # Suppressed after the first logged failure to avoid log spam on every poll.
-_unsupported_group_types: set = set()
+# Tracks asset types that returned a hard permanent error (403 permission denied)
+# for a specific group. Only truly permanent failures go here — NOT network errors,
+# NOT 429 rate limits, NOT temporary Roblox outages.
+# Format: { (group_id, asset_type): timestamp_of_first_failure }
+# Re-checked every 30 minutes in case permissions change.
+_unsupported_group_types: dict = {}
+_UNSUPPORTED_RECHECK_SECS = 1800  # 30 minutes
 
 async def get_csrf(cookie: str) -> str:
     now = time.time()
-    if cookie in _csrf_cache and now - _csrf_cache[cookie][1] < 60:
+    if cookie in _csrf_cache and now - _csrf_cache[cookie][1] < 110:
         return _csrf_cache[cookie][0]
     async with httpx.AsyncClient(timeout=10) as c:
         r = await c.post("https://auth.roblox.com/v2/logout",
@@ -1215,43 +1223,67 @@ async def get_group_name(group_id: str, cookie=None) -> str:
     return f"Group {group_id}"
 
 async def fetch_group_assets(group_id: str, asset_type: str, *, cookie=None) -> list[dict] | None:
-    """Returns assets on success, None on any API/network failure. Never treat failure as empty."""
+    """Returns assets on success, None on permanent/unrecoverable failure only.
+    Recoverable errors (429, network blips, temp outages) are retried with backoff
+    and return an empty list rather than None so the caller doesn't blacklist the type."""
     if not cookie:
         return None
     assets: list[dict] = []
     cursor = None
-    # Some Roblox itemconfiguration endpoints need CSRF even on GET requests
     try:
         csrf = await get_csrf(cookie)
     except Exception:
         csrf = ""
-    for _ in range(10):
+
+    for page in range(10):
         params = {"assetType": asset_type, "isArchived": "false", "groupId": group_id, "pageSize": 100}
         if cursor:
             params["cursor"] = cursor
-        try:
-            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as c:
-                r = await c.get(
-                    "https://itemconfiguration.roblox.com/v1/creations/get-assets",
-                    cookies={".ROBLOSECURITY": cookie},
-                    headers={"X-CSRF-TOKEN": csrf} if csrf else {},
-                    params=params,
-                )
-        except Exception as e:
-            sentinel_log(f"fetch_group_assets network error ({asset_type} grp {group_id}): {e}", "ERROR", "NETWORK")
-            return None
+
+        # Retry loop for recoverable errors (429, network blips)
+        last_err = None
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=20, follow_redirects=True) as c:
+                    r = await c.get(
+                        "https://itemconfiguration.roblox.com/v1/creations/get-assets",
+                        cookies={".ROBLOSECURITY": cookie},
+                        headers={"X-CSRF-TOKEN": csrf} if csrf else {},
+                        params=params,
+                    )
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                sentinel_log(f"fetch_group_assets network error attempt {attempt+1} ({asset_type} grp {group_id}): {e}", "WARN", "NETWORK")
+                await asyncio.sleep(2 ** attempt)  # 1s, 2s, 4s
+        if last_err:
+            # All network attempts failed — recoverable, return empty list not None
+            sentinel_log(f"fetch_group_assets gave up after 3 network attempts ({asset_type} grp {group_id}) — skipping this poll cycle", "ERROR", "NETWORK")
+            return []
+
+        # 401 — cookie expired, this is permanent until cookie changes
         if r.status_code == 401:
-            sentinel_log(f"fetch_group_assets 401 — cookie likely expired ({asset_type} grp {group_id})", "ERROR", "NETWORK")
+            sentinel_log(f"fetch_group_assets 401 — cookie expired ({asset_type} grp {group_id})", "ERROR", "NETWORK")
             return None
+
+        # 429 — rate limited, back off and return empty list (NOT None — don't blacklist)
+        if r.status_code == 429:
+            retry_after = int(r.headers.get("Retry-After", 10))
+            sentinel_log(f"fetch_group_assets 429 rate limited ({asset_type} grp {group_id}) — backing off {retry_after}s", "WARN", "NETWORK")
+            await asyncio.sleep(min(retry_after, 30))
+            return []  # skip this poll cycle, try again next time
+
+        # 403 — could be CSRF or could be permanent permission denied
         if r.status_code == 403:
-            # Roblox may send a refreshed CSRF on 403 — grab it and retry once
             new_csrf = r.headers.get("x-csrf-token")
             if new_csrf and new_csrf != csrf:
+                # CSRF was stale — refresh and retry this page once
                 csrf = new_csrf
                 _csrf_cache[cookie] = (new_csrf, time.time())
-                sentinel_log(f"fetch_group_assets 403 CSRF refresh for {asset_type} grp {group_id} — retrying", "DEBUG", "NETWORK")
+                sentinel_log(f"fetch_group_assets 403 CSRF refresh ({asset_type} grp {group_id}) — retrying", "DEBUG", "NETWORK")
                 try:
-                    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as c2:
+                    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as c2:
                         r = await c2.get(
                             "https://itemconfiguration.roblox.com/v1/creations/get-assets",
                             cookies={".ROBLOSECURITY": cookie},
@@ -1259,14 +1291,28 @@ async def fetch_group_assets(group_id: str, asset_type: str, *, cookie=None) -> 
                             params=params,
                         )
                 except Exception as e2:
-                    sentinel_log(f"fetch_group_assets retry network error: {e2}", "ERROR", "NETWORK")
-                    return None
-            if r.status_code != 200:
-                sentinel_log(f"fetch_group_assets HTTP {r.status_code} ({asset_type} grp {group_id}): {r.text[:200]}", "ERROR", "NETWORK")
+                    sentinel_log(f"fetch_group_assets CSRF retry network error: {e2}", "ERROR", "NETWORK")
+                    return []  # recoverable
+                if r.status_code == 200:
+                    pass  # fall through to data parsing below
+                elif r.status_code == 429:
+                    sentinel_log(f"fetch_group_assets 429 after CSRF retry ({asset_type} grp {group_id})", "WARN", "NETWORK")
+                    await asyncio.sleep(10)
+                    return []
+                else:
+                    # Still failing after CSRF refresh — this is a permanent permission issue
+                    sentinel_log(f"fetch_group_assets persistent 403 ({asset_type} grp {group_id}) — treating as unsupported", "WARN", "NETWORK")
+                    return None  # caller will mark as unsupported
+            else:
+                # 403 with no CSRF refresh available — permanent permission denied
+                sentinel_log(f"fetch_group_assets 403 no CSRF ({asset_type} grp {group_id}) — unsupported", "WARN", "NETWORK")
                 return None
+
+        # Any other non-200 — treat as recoverable (Roblox has random 500s/502s)
         if r.status_code != 200:
-            sentinel_log(f"fetch_group_assets HTTP {r.status_code} ({asset_type} grp {group_id}): {r.text[:200]}", "ERROR", "NETWORK")
-            return None
+            sentinel_log(f"fetch_group_assets HTTP {r.status_code} ({asset_type} grp {group_id}) — skipping poll cycle: {r.text[:120]}", "WARN", "NETWORK")
+            return []  # NOT None — don't blacklist
+
         d = r.json()
         for item in d.get("data", []):
             assets.append({
@@ -1279,6 +1325,7 @@ async def fetch_group_assets(group_id: str, asset_type: str, *, cookie=None) -> 
         cursor = d.get("nextPageCursor")
         if not cursor:
             break
+
     return assets
 
 async def archive_asset(asset_id: str, *, cookie=None) -> bool:
@@ -1350,181 +1397,261 @@ async def send_dm(user_id: str, subject: str, body: str, cookie: str) -> bool:
 
 async def monitor_loop(profile_id: str):
     session = get_session(profile_id)
-    sentinel_log(f"Monitor loop started for profile {profile_id}", "INFO", "MONITOR")
+    sentinel_log(f"Monitor loop started for profile {profile_id[:8]}", "INFO", "MONITOR")
     consecutive_errors = 0
 
     while session.monitoring:
+        cycle_start = time.time()
         try:
-            cfg              = get_config(profile_id)
-            poll_sec         = int(cfg.get("pollingInterval", 60))
-            delay_sec        = int(cfg.get("archiveDelay", 0))
-            archive_existing = bool(cfg.get("archiveExisting", False))
-            asset_filters    = cfg.get("assetTypeFilters", ALL_ASSET_TYPES)
-            whitelist_all    = {str(u).strip().lower() for u in cfg.get("whitelist_all", [])}
+            # ── CONFIG ────────────────────────────────────────────────────────
+            try:
+                cfg = get_config(profile_id)
+            except Exception as e:
+                sentinel_log(f"Config load failed: {e} — using defaults", "WARN", "MONITOR")
+                cfg = {}
 
-            groups = db_exec(
-                "SELECT id, name FROM groups WHERE profile_id=?", (profile_id,), fetch="all"
-            ) or []
+            poll_sec         = max(10, int(cfg.get("pollingInterval", 60)))
+            delay_sec        = max(0,  int(cfg.get("archiveDelay", 0)))
+            archive_existing = bool(cfg.get("archiveExisting", False))
+            asset_filters    = cfg.get("assetTypeFilters", ALL_ASSET_TYPES) or ALL_ASSET_TYPES
+            whitelist_all    = {str(u).strip().lower() for u in (cfg.get("whitelist_all") or [])}
+
+            # ── GROUPS ────────────────────────────────────────────────────────
+            try:
+                groups = db_exec(
+                    "SELECT id, name FROM groups WHERE profile_id=?", (profile_id,), fetch="all"
+                ) or []
+            except Exception as e:
+                sentinel_log(f"DB error loading groups: {e} — skipping cycle", "ERROR", "MONITOR")
+                groups = []
+
+            if not groups:
+                sentinel_log(f"No groups configured for {profile_id[:8]} — sleeping {poll_sec}s", "DEBUG", "MONITOR")
 
             for grp in groups:
                 if not session.monitoring:
                     break
-                gid, gname = grp["id"], grp["name"]
+                gid   = grp["id"]
+                gname = grp["name"]
+
+                # ── PER-GROUP SCAN ────────────────────────────────────────────
                 try:
                     all_assets: list[dict] = []
                     active_filters = asset_filters[:3] if _DEGRADED else asset_filters
                     if _DEGRADED:
-                        sentinel_log(f"Degraded mode — limiting asset scan to {active_filters}", "MEMORY", "MONITOR")
+                        sentinel_log(f"Degraded mode — limiting to {active_filters}", "MEMORY", "MONITOR")
+
                     for asset_type in active_filters:
-                        # Skip types that have previously 403'd for this group — avoids log spam
-                        if (gid, asset_type) in _unsupported_group_types:
-                            continue
-                        sentinel_log(f"Scanning group {gid} ({gname}) for {asset_type}", "DEBUG", "NETWORK")
-                        type_assets = await fetch_group_assets(
-                            gid, asset_type, cookie=session.cookie
-                        )
-                        if type_assets is None:
-                            _unsupported_group_types.add((gid, asset_type))
-                            sentinel_log(
-                                f"Skipping {asset_type} for group {gid} — "
-                                f"API returned an error (type may not be supported by this endpoint). "
-                                f"Will silently skip on future polls.",
-                                "WARN", "MONITOR"
+                        if not session.monitoring:
+                            break
+
+                        skip_key = (gid, asset_type)
+                        if skip_key in _unsupported_group_types:
+                            age = time.time() - _unsupported_group_types[skip_key]
+                            if age < _UNSUPPORTED_RECHECK_SECS:
+                                continue
+                            else:
+                                del _unsupported_group_types[skip_key]
+                                sentinel_log(f"Rechecking {asset_type} grp {gid} (blacklisted {age/60:.0f}m ago)", "DEBUG", "MONITOR")
+
+                        sentinel_log(f"Scanning grp {gid} ({gname}) for {asset_type}", "DEBUG", "NETWORK")
+
+                        try:
+                            type_assets = await fetch_group_assets(
+                                gid, asset_type, cookie=session.cookie
                             )
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as e:
+                            sentinel_log(f"fetch_group_assets threw unexpectedly ({asset_type} grp {gid}): {e} — skipping type this cycle", "ERROR", "MONITOR")
                             continue
-                        sentinel_log(f"Found {len(type_assets)} {asset_type} assets in group {gid}", "DEBUG", "NETWORK")
+
+                        if type_assets is None:
+                            _unsupported_group_types[skip_key] = time.time()
+                            sentinel_log(f"{asset_type} grp {gid} — permanent error, rechecking in {_UNSUPPORTED_RECHECK_SECS//60}m", "WARN", "MONITOR")
+                            continue
+
+                        sentinel_log(f"Found {len(type_assets)} {asset_type} in grp {gid}", "DEBUG", "NETWORK")
                         all_assets.extend(type_assets)
 
-                    current     = {a["id"]: a for a in all_assets}
-                    current_ids = set(current)
-                    group_key   = f"{profile_id}:{gid}"
+                    # ── DIFF ─────────────────────────────────────────────────
+                    try:
+                        current     = {a["id"]: a for a in all_assets}
+                        current_ids = set(current)
+                        group_key   = f"{profile_id}:{gid}"
 
-                    if group_key not in session.known_assets:
-                        session.known_assets[group_key] = current_ids
-                        sentinel_log(f"Group {gid} ({gname}) baseline: {len(current_ids)} assets", "INFO", "MONITOR")
-                        if archive_existing:
-                            new_ids = current_ids
+                        if group_key not in session.known_assets:
+                            session.known_assets[group_key] = current_ids
+                            sentinel_log(f"Baseline grp {gid} ({gname}): {len(current_ids)} assets", "INFO", "MONITOR")
+                            new_ids = current_ids if archive_existing else set()
                         else:
-                            continue
-                    else:
-                        new_ids = current_ids - session.known_assets[group_key]
-                        session.known_assets[group_key] -= (session.known_assets[group_key] - current_ids)
+                            new_ids = current_ids - session.known_assets[group_key]
+                            session.known_assets[group_key] -= (session.known_assets[group_key] - current_ids)
+                    except Exception as e:
+                        sentinel_log(f"Diff error grp {gid}: {e} — skipping archive step this cycle", "ERROR", "MONITOR")
+                        continue
 
+                    # ── ARCHIVE LOOP ──────────────────────────────────────────
                     for aid in new_ids:
                         if not session.monitoring:
                             break
-                        a            = current.get(aid, {})
-                        creator_id   = a.get("creatorId", "")
-                        creator_name = a.get("creatorName", "") or ""
-                        if not creator_name and creator_id:
-                            creator_name = await get_username(creator_id, cookie=session.cookie)
-                        asset_type   = a.get("assetType", "Unknown")
+                        try:
+                            a            = current.get(aid, {})
+                            creator_id   = str(a.get("creatorId", "") or "")
+                            creator_name = str(a.get("creatorName", "") or "")
 
-                        def _in_wl(wl_set):
-                            return (
-                                creator_id.strip().lower() in wl_set or
-                                creator_name.strip().lower() in wl_set
-                            )
-                        if _in_wl(whitelist_all):
-                            sentinel_log(f"Global whitelist skip: {creator_name} ({asset_type} {aid})", "INFO", "MONITOR")
+                            if not creator_name and creator_id:
+                                try:
+                                    creator_name = await get_username(creator_id, cookie=session.cookie)
+                                except Exception:
+                                    creator_name = creator_id
+
+                            asset_type = a.get("assetType", "Unknown")
+
+                            def _in_wl(wl_set):
+                                return (
+                                    creator_id.strip().lower() in wl_set or
+                                    creator_name.strip().lower() in wl_set
+                                )
+
+                            if _in_wl(whitelist_all):
+                                sentinel_log(f"Global whitelist skip: {creator_name} ({asset_type} {aid})", "INFO", "MONITOR")
+                                session.known_assets[group_key].add(aid)
+                                continue
+
+                            try:
+                                type_wl = {str(u).strip().lower() for u in (cfg.get(f"whitelist_{asset_type}") or [])}
+                            except Exception:
+                                type_wl = set()
+                            if _in_wl(type_wl):
+                                sentinel_log(f"Type whitelist skip: {creator_name} ({asset_type})", "INFO", "MONITOR")
+                                session.known_assets[group_key].add(aid)
+                                continue
+
+                            sentinel_log(f"New {asset_type}: '{a.get('name')}' (ID {aid}) by {creator_name}", "ARCHIVE", "MONITOR")
+
+                            if asset_type in NON_ARCHIVABLE_TYPES:
+                                sentinel_log(f"Skipping {asset_type} {aid} — not archivable via API", "INFO", "MONITOR")
+                                session.known_assets[group_key].add(aid)
+                                continue
+
+                            try:
+                                was_restored = db_exec(
+                                    "SELECT COUNT(*) FROM history WHERE audio_id=? AND profile_id=? AND archived=0",
+                                    (aid, profile_id), fetch="val"
+                                ) or 0
+                            except Exception:
+                                was_restored = 0
+
+                            if was_restored:
+                                sentinel_log(f"Skipping {aid} — manually restored", "INFO", "MONITOR")
+                                session.known_assets[group_key].add(aid)
+                                continue
+
+                            if delay_sec > 0:
+                                sentinel_log(f"Delay {delay_sec}s before archiving {aid}", "DEBUG", "MONITOR")
+                                try:
+                                    await asyncio.sleep(delay_sec)
+                                except asyncio.CancelledError:
+                                    raise
+                                if not session.monitoring:
+                                    break
+
+                            try:
+                                ok = await archive_asset(aid, cookie=session.cookie)
+                            except asyncio.CancelledError:
+                                raise
+                            except Exception as e:
+                                sentinel_log(f"archive_asset threw for {aid}: {e} — marking failed, continuing", "ERROR", "MONITOR")
+                                ok = False
+
+                            sentinel_log(f"Archive {aid}: {'OK' if ok else 'FAILED'}", "ARCHIVE" if ok else "ERROR", "MONITOR")
+
+                            # Always add to known_assets even on failure to avoid retry loops
                             session.known_assets[group_key].add(aid)
+
+                            try:
+                                db_insert_ignore("history", {
+                                    "id":           f"{aid}_{int(time.time())}",
+                                    "profile_id":   profile_id,
+                                    "username":     creator_name,
+                                    "display_name": creator_name,
+                                    "user_id":      creator_id,
+                                    "audio_name":   a.get("name", "Unknown"),
+                                    "audio_id":     aid,
+                                    "asset_type":   asset_type,
+                                    "group_id":     gid,
+                                    "group_name":   gname,
+                                    "time":         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    "dm_status":    "n/a",
+                                    "archived":     1 if ok else 0,
+                                })
+                            except Exception as e:
+                                sentinel_log(f"DB write failed for {aid}: {e} — continuing", "ERROR", "MONITOR")
+
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as e:
+                            sentinel_log(f"Unexpected error processing asset {aid}: {e} — skipping", "ERROR", "MONITOR")
+                            try:
+                                session.known_assets[group_key].add(aid)
+                            except Exception:
+                                pass
                             continue
-
-                        type_wl = {str(u).strip().lower() for u in cfg.get(f"whitelist_{asset_type}", [])}
-                        if _in_wl(type_wl):
-                            sentinel_log(f"Type whitelist skip: {creator_name} ({asset_type})", "INFO", "MONITOR")
-                            session.known_assets[group_key].add(aid)
-                            continue
-
-                        sentinel_log(f"New {asset_type} detected: '{a.get('name')}' (ID {aid}) by {creator_name}", "ARCHIVE", "MONITOR")
-
-                        # Images cannot be archived via the Roblox API — skip silently
-                        if asset_type in NON_ARCHIVABLE_TYPES:
-                            sentinel_log(f"Skipping {asset_type} {aid} — type cannot be archived", "INFO", "MONITOR")
-                            session.known_assets[group_key].add(aid)
-                            continue
-
-                        # Don't re-archive assets that were manually restored from the dashboard
-                        was_restored = db_exec(
-                            "SELECT COUNT(*) FROM history WHERE audio_id=? AND profile_id=? AND archived=0",
-                            (aid, profile_id), fetch="val"
-                        ) or 0
-                        if was_restored:
-                            sentinel_log(f"Skipping {aid} — was manually restored, not re-archiving", "INFO", "MONITOR")
-                            session.known_assets[group_key].add(aid)
-                            continue
-
-                        if delay_sec > 0:
-                            sentinel_log(f"Waiting {delay_sec}s before archiving {aid}", "DEBUG", "MONITOR")
-                            await asyncio.sleep(delay_sec)
-                            if not session.monitoring:
-                                break
-
-                        ok = await archive_asset(aid, cookie=session.cookie)
-                        sentinel_log(f"Archive {aid}: {'OK' if ok else 'FAILED'}", "ARCHIVE" if ok else "ERROR", "MONITOR")
-
-                        if ok:
-                            session.known_assets[group_key].add(aid)
-
-                        dm_status = "n/a"
-
-                        db_insert_ignore("history", {
-                            "id":           f"{aid}_{int(time.time())}",
-                            "profile_id":   profile_id,
-                            "username":     creator_name,
-                            "display_name": creator_name,
-                            "user_id":      creator_id,
-                            "audio_name":   a.get("name", "Unknown"),
-                            "audio_id":     aid,
-                            "asset_type":   asset_type,
-                            "group_id":     gid,
-                            "group_name":   gname,
-                            "time":         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "dm_status":    dm_status,
-                            "archived":     1,
-                        })
-                        sentinel_log(f"History written: {aid} archived={ok} dm={dm_status}", "DEBUG", "MONITOR")
 
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
-                    sentinel_log(f"Error in group {gid}: {e}", "ERROR", "MONITOR")
+                    sentinel_log(f"Unexpected error scanning group {gid}: {e} — skipping to next group", "ERROR", "MONITOR")
+                    continue
 
-            # Reset error counter on a successful full scan
+            # ── END OF CYCLE ──────────────────────────────────────────────────
             consecutive_errors = 0
             _trim_memory()
 
+            elapsed   = time.time() - cycle_start
             sleep_sec = poll_sec * 3 if _DEGRADED else poll_sec
-            if _DEGRADED:
-                sentinel_log(f"Degraded mode: sleeping {sleep_sec}s instead of {poll_sec}s", "MEMORY", "MONITOR")
+            actual_sleep = max(5, sleep_sec - elapsed)
+            sentinel_log(f"Cycle done in {elapsed:.1f}s — sleeping {actual_sleep:.0f}s", "DEBUG", "MONITOR")
 
-            # Interruptible sleep — wakes up every 5s to check session.monitoring
-            # so stopping the monitor takes effect quickly instead of waiting out the full poll interval
             slept = 0
-            while slept < sleep_sec and session.monitoring:
-                chunk = min(5, sleep_sec - slept)
+            while slept < actual_sleep and session.monitoring:
+                chunk = min(5, actual_sleep - slept)
                 await asyncio.sleep(chunk)
                 slept += chunk
 
         except asyncio.CancelledError:
-            sentinel_log(f"Monitor loop cancelled for profile {profile_id}", "INFO", "MONITOR")
-            session.monitoring = False
+            sentinel_log(f"Monitor loop cancelled for {profile_id[:8]}", "INFO", "MONITOR")
             break
         except Exception as e:
             consecutive_errors += 1
-            backoff = min(60 * consecutive_errors, 300)  # 60s, 120s, 180s … capped at 5 min
+            backoff = min(30 * consecutive_errors, 120)
             sentinel_log(
-                f"Monitor loop outer error (attempt {consecutive_errors}): {e} — "
-                f"retrying in {backoff}s",
+                f"Monitor outer exception #{consecutive_errors}: {e} — backing off {backoff}s",
                 "ERROR", "MONITOR"
             )
             try:
                 await asyncio.sleep(backoff)
             except asyncio.CancelledError:
-                session.monitoring = False
                 break
 
-    sentinel_log(f"Monitor loop stopped for profile {profile_id}", "INFO", "MONITOR")
+    sentinel_log(f"Monitor loop exited for {profile_id[:8]}", "INFO", "MONITOR")
+
+    # ── WATCHDOG ──────────────────────────────────────────────────────────────
+    if session.monitoring and session.cookie:
+        sentinel_log(
+            f"Monitor loop died unexpectedly (monitoring=True) for {profile_id[:8]} — restarting in 5s",
+            "WARN", "MONITOR"
+        )
+        await asyncio.sleep(5)
+        if session.monitoring and session.cookie:
+            _unsupported_group_types.clear()
+            session.monitor_task = asyncio.create_task(monitor_loop(profile_id))
+            sentinel_log(f"Monitor loop auto-restarted for {profile_id[:8]}", "INFO", "MONITOR")
+    else:
+        session.monitoring = False
+        sentinel_log(f"Monitor loop stopped cleanly for {profile_id[:8]}", "INFO", "MONITOR")
+
 
 # ── PYDANTIC MODELS ───────────────────────────────────────────────────────────
 
@@ -2369,9 +2496,10 @@ async def api_start(body: MonitorBody):
         raise HTTPException(400, "No credentials. Connect a Roblox account first.")
     if session.monitoring:
         return {"status": "already_running"}
-    # Clear cached unsupported types so fresh start retries all (in case group perms changed)
-    stale = {k for k in _unsupported_group_types}
-    _unsupported_group_types.difference_update(stale)
+    # Clear ALL cached unsupported types on a manual start so fresh start retries everything.
+    # The user explicitly pressed Start — treat it as a clean slate.
+    _unsupported_group_types.clear()
+    sentinel_log(f"Cleared unsupported type cache on monitoring start for {body.profile_id[:8]}", "INFO", "MONITOR")
     session.monitoring   = True
     session.monitor_task = asyncio.create_task(monitor_loop(body.profile_id))
     set_cfg(body.profile_id, "_monitoringActive", True)   # persist so it survives restarts
