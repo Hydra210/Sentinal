@@ -207,7 +207,90 @@
   @keyframes toast-in { from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:translateX(0)} }
   @keyframes toast-out { from{opacity:1} to{opacity:0;pointer-events:none} }
 
-  /* ── MODAL ── */
+  /* ── MIGRATION NOTICE POPUP ── */
+  #migration-popup {
+    position: fixed; inset: 0; z-index: 99000;
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+    background: rgba(0,0,0,0.82);
+    animation: fadeIn 0.3s ease;
+  }
+  #migration-popup.hidden { display: none; }
+  #migration-popup-box {
+    background: rgba(18,18,18,0.95);
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 16px;
+    padding: 36px 32px;
+    max-width: 540px; width: 100%;
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 32px 80px rgba(0,0,0,0.8);
+    animation: fadeIn 0.35s ease;
+  }
+  #migration-popup-box .mig-tag {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--font-mono); font-size: 9px; letter-spacing: 2px;
+    color: var(--warn); background: rgba(240,192,64,0.08);
+    border: 1px solid rgba(240,192,64,0.22);
+    padding: 4px 10px; border-radius: 4px; margin-bottom: 18px;
+  }
+  #migration-popup-box h2 {
+    font-family: var(--font-display); font-size: 22px; font-weight: 800;
+    letter-spacing: 3px; color: #fff; margin-bottom: 14px;
+  }
+  #migration-popup-box p {
+    font-family: var(--font-ui); font-size: 13px; line-height: 1.75;
+    color: rgba(232,232,232,0.65); margin-bottom: 12px;
+  }
+  #migration-popup-box .mig-highlight {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 8px; padding: 14px 16px; margin-bottom: 20px;
+  }
+  #migration-popup-box .mig-highlight li {
+    font-family: var(--font-mono); font-size: 11px;
+    color: rgba(232,232,232,0.7); line-height: 2;
+    list-style: none; padding-left: 0;
+  }
+  #migration-popup-box .mig-highlight li::before {
+    content: '→ '; color: var(--warn);
+  }
+  #migration-popup-box .mig-lifetime {
+    font-family: var(--font-mono); font-size: 11px;
+    color: rgba(100,220,130,0.85);
+    background: rgba(100,220,130,0.07);
+    border: 1px solid rgba(100,220,130,0.18);
+    border-radius: 6px; padding: 10px 14px; margin-bottom: 22px;
+  }
+  #migration-popup-ok {
+    width: 100%; padding: 13px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.22);
+    color: #fff; font-family: var(--font-display);
+    font-size: 13px; font-weight: 700; letter-spacing: 2px;
+    border-radius: 8px; cursor: pointer;
+    transition: all 0.2s;
+  }
+  #migration-popup-ok:hover {
+    background: rgba(255,255,255,0.14);
+    border-color: rgba(255,255,255,0.4);
+  }
+
+  /* ── PROFILE SCREEN MIGRATION BANNER ── */
+  #profile-migration-banner {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 18px; margin-bottom: 22px;
+    background: rgba(240,192,64,0.07);
+    border: 1px solid rgba(240,192,64,0.25);
+    border-radius: 8px; max-width: 700px; width: 100%;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  }
+  #profile-migration-banner .pmb-icon {
+    font-size: 14px; flex-shrink: 0;
+  }
+  #profile-migration-banner span {
+    font-family: var(--font-mono); font-size: 10px;
+    color: rgba(240,192,64,0.85); letter-spacing: 1px; line-height: 1.6;
+  }
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 500; display: none; align-items: center; justify-content: center; padding: 20px; }
   .modal-overlay.open { display: flex; }
   .modal-box { background: var(--surface); border: 1px solid rgba(255,255,255,0.14); padding: 32px; width: 100%; max-width: 520px; max-height: 85vh; overflow-y: auto; position: relative; border-radius: 14px; box-shadow: 0 24px 80px rgba(0,0,0,0.7); animation: fadeIn 0.2s ease; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
@@ -929,6 +1012,33 @@
 </video>
 <div id="bg-overlay"></div>
 
+<!-- ── MIGRATION NOTICE POPUP ── -->
+<div id="migration-popup" class="hidden">
+  <div id="migration-popup-box">
+    <div class="mig-tag">⚠ UPCOMING CHANGES</div>
+    <h2>SENTINEL IS GOING PUBLIC</h2>
+    <p>
+      Sentinel is evolving into a full platform with proper accounts, subscriptions, and public access.
+      The current profile system is going away — here's what's changing and what it means for you:
+    </p>
+    <div class="mig-highlight">
+      <ul>
+        <li>Profiles will be migrated to standard email + password accounts</li>
+        <li>Account creation will be free — browse plans before committing</li>
+        <li>Subscription plans will unlock full Sentinel access</li>
+        <li>The profile selector screen will be replaced by a proper login page</li>
+      </ul>
+    </div>
+    <div class="mig-lifetime">
+      ✓ &nbsp;Already using Sentinel? You're covered — existing users get <strong>lifetime free access</strong>, no subscription required.
+    </div>
+    <p style="margin-bottom:22px;">
+      Nothing is changing right now. Keep using Sentinel as normal — you'll be notified when migration is ready and guided through the process step by step.
+    </p>
+    <button id="migration-popup-ok" onclick="dismissMigrationPopup()">GOT IT</button>
+  </div>
+</div>
+
 <!-- ══════════════════════════════════════════════════
      SENTINEL VAULT — Ctrl+Shift+B  (works on any screen)
 ══════════════════════════════════════════════════ -->
@@ -1072,6 +1182,12 @@
   <div class="profile-screen-logo">
     <div class="big-logo" data-text="SENTINEL">SENTINEL</div>
     <div class="big-sub">ROBLOX ASSET MODERATION — SELECT PROFILE</div>
+  </div>
+
+  <!-- Migration notice banner -->
+  <div id="profile-migration-banner">
+    <span class="pmb-icon">⚠</span>
+    <span>PROFILES ARE GOING TO HAVE TO GET MIGRATED TO A STANDARD ACCOUNT SOON — existing users will receive lifetime free access.</span>
   </div>
 
   <div class="profile-grid" id="profile-grid">
@@ -1423,9 +1539,7 @@
 
   <div id="topbar">
     <div class="logo-lockup">
-      <div class="logo-icon">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-      </div>
+      <img src="/static/sentinelLogo.png" style="width:36px;height:36px;object-fit:contain;flex-shrink:0;" alt="Sentinel">
       <div>
         <div class="logo-text">SENTINEL</div>
         <div class="logo-sub">ROBLOX ASSET MODERATION</div>
@@ -4547,6 +4661,21 @@ window.vaultImport = async function(input) {
 };
 
 })();
+
+/* ── MIGRATION NOTICE POPUP ── */
+function dismissMigrationPopup() {
+  document.getElementById('migration-popup').classList.add('hidden');
+  try { localStorage.setItem('sentinel_migration_notice_v1', '1'); } catch(_) {}
+}
+
+(function() {
+  try {
+    if (!localStorage.getItem('sentinel_migration_notice_v1')) {
+      document.getElementById('migration-popup').classList.remove('hidden');
+    }
+  } catch(_) {}
+})();
+
 </script>
 </body>
 </html>
