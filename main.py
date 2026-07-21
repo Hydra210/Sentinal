@@ -15,7 +15,7 @@ import psutil
 import psycopg2
 import psycopg2.extras
 from psycopg2 import pool as pg_pool
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -111,16 +111,27 @@ def init_pg_pool():
         return
     _pg_pool = pg_pool.ThreadedConnectionPool(
         minconn=1,
-        maxconn=5,
+        maxconn=20,
         dsn=PG_URL,
         cursor_factory=psycopg2.extras.RealDictCursor,
     )
-    print("[SENTINEL] Postgres connection pool initialized (min=1, max=5)")
+    print("[SENTINEL] Postgres connection pool initialized (min=1, max=20)")
 
-def get_pg():
+def get_pg(retries: int = 20, delay: float = 0.1):
     if _pg_pool is None:
         raise RuntimeError("Postgres pool not initialized")
-    return _pg_pool.getconn()
+    last_err = None
+    for _ in range(retries):
+        try:
+            return _pg_pool.getconn()
+        except pg_pool.PoolError as e:
+            # Pool is momentarily exhausted (e.g. a burst of rapid clicks).
+            # Wait briefly for a connection to free up instead of crashing
+            # the request with an unhandled 500.
+            last_err = e
+            time.sleep(delay)
+    print(f"[SENTINEL] Postgres pool exhausted after retries: {last_err}")
+    raise HTTPException(503, "Server is busy, please try again in a moment")
 
 def release_pg(conn):
     if _pg_pool:
@@ -304,12 +315,35 @@ def hash_pin(pin: str) -> str:
     return hashlib.sha256(pin.encode()).hexdigest()
 
 # ── EMAIL ─────────────────────────────────────────────────────────────────────
-GMAIL_USER  = os.environ.get("GMAIL_USER", "")
-GMAIL_PASS  = os.environ.get("GMAIL_PASS", "")
-ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "")
-BASE_URL    = os.environ.get("BASE_URL", "").rstrip("/")
+GMAIL_USER      = os.environ.get("GMAIL_USER", "")
+GMAIL_PASS      = os.environ.get("GMAIL_PASS", "")
+ADMIN_EMAIL     = os.environ.get("ADMIN_EMAIL", "")
+BASE_URL        = os.environ.get("BASE_URL", "").rstrip("/")
+RESEND_API_KEY  = os.environ.get("RESEND_API_KEY", "")
+EMAIL_FROM      = os.environ.get("EMAIL_FROM", "Sentinel <onboarding@resend.dev>")
 
 def send_email(to: str, subject: str, html: str):
+    # Preferred path: Resend's HTTP API. Render (and many free-tier hosts)
+    # firewall outbound SMTP ports 25/465/587, which is what produces
+    # "[Errno 101] Network is unreachable" from smtplib — an HTTP call on
+    # port 443 sidesteps that entirely.
+    if RESEND_API_KEY:
+        try:
+            r = httpx.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {RESEND_API_KEY}"},
+                json={"from": EMAIL_FROM, "to": [to], "subject": subject, "html": html},
+                timeout=10,
+            )
+            if r.status_code >= 400:
+                print(f"[SENTINEL] Email error: {r.status_code} {r.text}")
+            else:
+                print(f"[SENTINEL] Email sent to {to}")
+        except Exception as e:
+            print(f"[SENTINEL] Email error: {e}")
+        return
+
+    # Fallback: Gmail SMTP (works locally / on hosts that allow SMTP egress)
     if not GMAIL_USER or not GMAIL_PASS:
         print(f"[SENTINEL] Email not configured, skipping: {subject}")
         return
@@ -2693,7 +2727,7 @@ def _require_admin(profile_id: str, pin: str, cur) -> dict:
     return dict(row)
 
 @app.post("/api/access/request")
-def api_submit_access_request(body: AccessRequestBody):
+def api_submit_access_request(body: AccessRequestBody, background_tasks: BackgroundTasks):
     if not PG_URL: raise HTTPException(503, "Postgres not configured")
     if not body.name.strip() or not body.reason.strip() or not body.email.strip():
         raise HTTPException(400, "Name, email and reason are required")
@@ -2713,7 +2747,7 @@ def api_submit_access_request(body: AccessRequestBody):
                     (deny_token, req_id, "deny", expires))
         conn.commit()
         if ADMIN_EMAIL and BASE_URL:
-            send_email(ADMIN_EMAIL, f"[Sentinel] Access Request from {body.name.strip()}",
+            background_tasks.add_task(send_email, ADMIN_EMAIL, f"[Sentinel] Access Request from {body.name.strip()}",
                 f"""<div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
   <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">SENTINEL</h2>
   <h3 style="color:#aaa;font-weight:400;">New Access Request</h3>
@@ -2760,7 +2794,7 @@ def api_review_get(token: str):
         cur.close(); release_pg(conn)
 
 @app.post("/api/review")
-def api_review_post(token: str):
+def api_review_post(token: str, background_tasks: BackgroundTasks):
     if not PG_URL: raise HTTPException(503, "Postgres not configured")
     conn = get_pg(); cur = conn.cursor()
     try:
@@ -2782,7 +2816,7 @@ def api_review_post(token: str):
             cur.execute("UPDATE access_requests SET status='approved',invite_code=%s WHERE id=%s", (code,tok["request_id"]))
             cur.execute("UPDATE review_tokens SET used=TRUE WHERE request_id=%s", (tok["request_id"],))
             conn.commit()
-            send_email(req["email"], "[Sentinel] You've been approved!", f"""
+            background_tasks.add_task(send_email, req["email"], "[Sentinel] You've been approved!", f"""
 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
   <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">SENTINEL</h2>
   <p style="color:#ccc;">Hey {req["name"]}, your Sentinel access request has been approved!</p>
@@ -2795,7 +2829,7 @@ def api_review_post(token: str):
             cur.execute("UPDATE access_requests SET status='denied' WHERE id=%s", (tok["request_id"],))
             cur.execute("UPDATE review_tokens SET used=TRUE WHERE request_id=%s", (tok["request_id"],))
             conn.commit()
-            send_email(req["email"], "[Sentinel] Access request update", f"""
+            background_tasks.add_task(send_email, req["email"], "[Sentinel] Access request update", f"""
 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
   <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">SENTINEL</h2>
   <p style="color:#ccc;">Hey {req["name"]}, your Sentinel access request has been denied.</p>
@@ -2861,7 +2895,7 @@ class DenyRequestBody(BaseModel):
     request_id: str
 
 @app.post("/api/admin/approve-request")
-def api_approve_request(body: ApproveRequestBody):
+def api_approve_request(body: ApproveRequestBody, background_tasks: BackgroundTasks):
     if not PG_URL: raise HTTPException(503, "Postgres not configured")
     conn = get_pg(); cur = conn.cursor()
     try:
@@ -2872,7 +2906,7 @@ def api_approve_request(body: ApproveRequestBody):
         cur.execute("UPDATE access_requests SET status='approved', invite_code=%s WHERE id=%s",
                     (body.invite_code, body.request_id))
         conn.commit()
-        send_email(req["email"], "[Sentinel] You've been approved!", f"""
+        background_tasks.add_task(send_email, req["email"], "[Sentinel] You've been approved!", f"""
 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
   <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">SENTINEL</h2>
   <p style="color:#ccc;">Hey {req["name"]}, your access has been approved!</p>
@@ -2886,7 +2920,7 @@ def api_approve_request(body: ApproveRequestBody):
     finally: cur.close(); release_pg(conn)
 
 @app.post("/api/admin/deny-request")
-def api_deny_request(body: DenyRequestBody):
+def api_deny_request(body: DenyRequestBody, background_tasks: BackgroundTasks):
     if not PG_URL: raise HTTPException(503, "Postgres not configured")
     conn = get_pg(); cur = conn.cursor()
     try:
@@ -2896,7 +2930,7 @@ def api_deny_request(body: DenyRequestBody):
         if not req: raise HTTPException(404, "Request not found")
         cur.execute("UPDATE access_requests SET status='denied' WHERE id=%s", (body.request_id,))
         conn.commit()
-        send_email(req["email"], "[Sentinel] Access request update", f"""
+        background_tasks.add_task(send_email, req["email"], "[Sentinel] Access request update", f"""
 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0f0f0f;color:#fff;padding:32px;border-radius:12px;">
   <h2 style="color:#fff;letter-spacing:2px;margin-top:0;">SENTINEL</h2>
   <p style="color:#ccc;">Hey {req["name"]}, your request has been denied.</p>
