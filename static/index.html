@@ -1589,7 +1589,7 @@
       <!-- Monitor health banner — shown when the task dies unexpectedly -->
       <div id="monitor-health-banner">
         <span class="mhb-icon">⚠</span>
-        <span class="mhb-msg">Active monitoring stopped unexpectedly. This usually means a network error or server hiccup — it happens automatically on Render free tier restarts. Click restart to resume.</span>
+        <span class="mhb-msg">Active monitoring stopped unexpectedly. Click restart to resume.</span>
         <button class="mhb-restart" onclick="restartMonitor()">↺ Restart Monitor</button>
       </div>
       <div style="max-width:1200px;margin:0 auto;">
@@ -1964,11 +1964,11 @@ async function api(method, path, body) {
   if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
   let r;
   try { r = await fetch(BASE_PATH + path, opts); }
-  catch(e) { throw new Error('Network error — check your connection'); }
+  catch(e) { throw new Error('Network error please check your connection'); }
   let data;
   try { data = await r.json(); }
   catch(e) {
-    if (!r.ok) throw new Error(`Server error ${r.status} — the service may be starting up`);
+    if (!r.ok) throw new Error(`Server error ${r.status} Internal Server Error`);
     throw new Error(`Unexpected non-JSON response from server (${r.status})`);
   }
   if (!r.ok) {
