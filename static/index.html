@@ -207,6 +207,21 @@
   @keyframes toast-in { from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:translateX(0)} }
   @keyframes toast-out { from{opacity:1} to{opacity:0;pointer-events:none} }
 
+  /* ── CRASH RECOVERY OVERLAY ── */
+  #crash-overlay { position: fixed; inset: 0; z-index: 100000; background: #0a0a0a; display: flex; align-items: center; justify-content: center; }
+  #crash-overlay.hidden { display: none; }
+  .crash-box { text-align: center; max-width: 380px; padding: 32px; }
+  .crash-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent3); margin: 0 auto 22px; box-shadow: 0 0 14px rgba(255,59,59,0.6); animation: crash-pulse 1.4s infinite; }
+  .crash-dot.updating { background: var(--warn); box-shadow: 0 0 14px rgba(240,192,64,0.6); }
+  @keyframes crash-pulse { 0%,100%{opacity:1;transform:scale(1);} 50%{opacity:.35;transform:scale(.7);} }
+  .crash-sub.updating { color: var(--warn); }
+  .crash-title { font-family: var(--font-display); font-size: 22px; font-weight: 800; letter-spacing: 6px; color: #fff; }
+  .crash-sub { font-family: var(--font-mono); font-size: 10px; letter-spacing: 3px; color: var(--accent3); margin-top: 9px; text-transform: uppercase; }
+  .crash-msg { font-size: 13px; color: var(--text-dim); margin-top: 18px; line-height: 1.6; }
+  .crash-bar { width: 100%; height: 3px; background: rgba(255,255,255,0.08); border-radius: 4px; margin-top: 26px; overflow: hidden; }
+  .crash-bar-fill { height: 100%; width: 0%; background: #fff; border-radius: 4px; transition: width 0.5s ease; }
+  .crash-status { font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px; color: var(--text-dimmer); margin-top: 12px; }
+
   /* ── MIGRATION NOTICE POPUP ── */
   #migration-popup {
     position: fixed; inset: 0; z-index: 99000;
@@ -1005,6 +1020,18 @@
 
 </style>
 <body>
+
+<!-- ── CRASH RECOVERY OVERLAY ── -->
+<div id="crash-overlay" class="hidden">
+  <div class="crash-box">
+    <div class="crash-dot" id="crash-dot"></div>
+    <div class="crash-title">SENTINEL</div>
+    <div class="crash-sub" id="crash-sub">Critical Error</div>
+    <div class="crash-msg" id="crash-msg">Sentinel has encountered a critical error and is automatically repairing itself.</div>
+    <div class="crash-bar"><div class="crash-bar-fill" id="crash-bar-fill"></div></div>
+    <div class="crash-status" id="crash-status">Diagnosing issue…</div>
+  </div>
+</div>
 
 <!-- ── VIDEO BACKGROUND ── -->
 <video id="bg-video" autoplay muted loop playsinline>
@@ -1959,12 +1986,118 @@ function applyExtMaintenance() {
 
 // ── API ───────────────────────────────────────────────────────────────────────
 const BASE_PATH = '/sentinel';
+
+// ── CRASH / DEPLOY RECOVERY ─────────────────────────────────────────────────
+// Two ways this trips:
+//  1) "crash" — an in-flight user action fails repeatedly (fetch throws, or
+//     502/504 from the edge). Shown immediately since the user is waiting.
+//  2) "update" — a quiet background health check (runs every 15s regardless
+//     of user activity) starts failing. This is how we catch a Render
+//     redeploy even if nobody's clicking anything at the time.
+// On reconnect we compare the build's /api/health "version" (Render's
+// RENDER_GIT_COMMIT) against what we saw on page load — if it changed, that
+// confirms it really was a deploy and we say so; otherwise it was a same-build
+// crash/restart.
+let crashFailStreak = 0;
+let deployFailStreak = 0;
+let crashActive = false;
+let BUILD_VERSION = null;
+const CRASH_THRESHOLD = 2;
+const DEPLOY_POLL_MS = 15000;
+const crashRepairMessages = ['Diagnosing issue…', 'Reconnecting to server…', 'Restoring session…', 'Almost there…'];
+const updateRepairMessages = ['Waiting for the new build…', 'Still deploying…', 'Almost ready…'];
+
+async function fetchHealth() {
+  const r = await fetch(BASE_PATH + '/api/health', { cache: 'no-store' });
+  if (!r.ok) throw new Error('unhealthy');
+  return r.json();
+}
+
+function showCrashOverlay(mode) {
+  if (crashActive) return;
+  crashActive = true;
+  const dot = document.getElementById('crash-dot');
+  const sub = document.getElementById('crash-sub');
+  const msg = document.getElementById('crash-msg');
+  if (mode === 'update') {
+    dot.classList.add('updating');
+    sub.classList.add('updating');
+    sub.textContent = 'Updating';
+    msg.textContent = 'Sentinel is currently updating. Please stand by.';
+  } else {
+    dot.classList.remove('updating');
+    sub.classList.remove('updating');
+    sub.textContent = 'Critical Error';
+    msg.textContent = 'Sentinel has encountered a critical error and is automatically repairing itself.';
+  }
+  document.getElementById('crash-overlay').classList.remove('hidden');
+  startCrashRepairLoop(mode);
+}
+
+function hideCrashOverlay() {
+  crashActive = false;
+  crashFailStreak = 0;
+  deployFailStreak = 0;
+  document.getElementById('crash-overlay').classList.add('hidden');
+}
+
+function startCrashRepairLoop(mode) {
+  let attempt = 0;
+  const fill = document.getElementById('crash-bar-fill');
+  const status = document.getElementById('crash-status');
+  const messages = mode === 'update' ? updateRepairMessages : crashRepairMessages;
+  fill.style.width = '6%';
+
+  const tick = async () => {
+    if (!crashActive) return;
+    attempt++;
+    status.textContent = messages[Math.min(attempt - 1, messages.length - 1)];
+    fill.style.width = Math.min(6 + attempt * 10, 92) + '%';
+    try {
+      const data = await fetchHealth();
+      fill.style.width = '100%';
+      const versionChanged = BUILD_VERSION && data.version && data.version !== BUILD_VERSION;
+      status.textContent = versionChanged ? 'Update complete — reloading…' : 'Recovered — reloading…';
+      setTimeout(() => location.reload(), 600);
+      return;
+    } catch (e) { /* still down, keep polling */ }
+    setTimeout(tick, 1800);
+  };
+  tick();
+}
+
+// Silent background poll so a redeploy is caught even if the admin is idle
+(async function backgroundHealthPoll() {
+  try {
+    const data = await fetchHealth();
+    if (BUILD_VERSION === null) BUILD_VERSION = data.version;
+    deployFailStreak = 0;
+  } catch (e) {
+    if (!crashActive) {
+      deployFailStreak++;
+      if (deployFailStreak >= CRASH_THRESHOLD) showCrashOverlay('update');
+    }
+  }
+  setTimeout(backgroundHealthPoll, DEPLOY_POLL_MS);
+})();
+
 async function api(method, path, body) {
   const opts = { method, headers: {} };
   if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
   let r;
   try { r = await fetch(BASE_PATH + path, opts); }
-  catch(e) { throw new Error('Network error please check your connection'); }
+  catch(e) {
+    crashFailStreak++;
+    if (crashFailStreak >= CRASH_THRESHOLD) showCrashOverlay('crash');
+    throw new Error('Network error please check your connection');
+  }
+  if (r.status === 502 || r.status === 504) {
+    crashFailStreak++;
+    if (crashFailStreak >= CRASH_THRESHOLD) showCrashOverlay('crash');
+  } else if (r.ok) {
+    crashFailStreak = 0;
+    if (crashActive) hideCrashOverlay();
+  }
   let data;
   try { data = await r.json(); }
   catch(e) {
