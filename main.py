@@ -3037,7 +3037,11 @@ async def startup_event():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True}
+    # RENDER_GIT_COMMIT is set automatically by Render on every deploy and
+    # only changes when a new build actually ships — a crash/restart of the
+    # same build keeps the same value. Falls back to "dev" outside Render.
+    version = os.environ.get("RENDER_GIT_COMMIT", "dev")
+    return {"ok": True, "version": version}
 
 @app.get("/api/sanity-check/status")
 def api_sanity_status(profile_id: str = ""):
